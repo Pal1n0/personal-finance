@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16
+    container_name: pg_dev
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_dev_data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    container_name: backend_dev
+    command: /bin/sh -c "chmod +x ./wait-for-postgres.sh && ./wait-for-postgres.sh db python manage.py runserver 0.0.0.0:8000"
+    #command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.docker
+    depends_on:
+      - db
+
+  frontend:
+    build: ./frontend
+    container_name: frontend_dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules  # keep node_modules from container build
+    ports:
+      - "5173:5173"
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  pg_dev_data:
