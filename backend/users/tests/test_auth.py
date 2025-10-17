@@ -16,7 +16,7 @@ class UserAuthTests(APITestCase):
 
     def test_user_registration_success(self):
         """Happy path: user registers successfully"""
-        url = reverse('registration')
+        url = reverse('rest_register')
         data = {'username': 'testuser', 'password': 'testpass123'}
         response = self.client.post(url, data, format='json')
 
@@ -28,7 +28,7 @@ class UserAuthTests(APITestCase):
     def test_user_registration_existing_username(self):
         """Sad path: registration fails if the username already exists"""
         User.objects.create_user(username='testuser', password='12345')
-        url = reverse('registration')
+        url = reverse('rest_register')
         data = {'username': 'testuser', 'password': 'testpass123'}
         response = self.client.post(url, data, format='json')
 
@@ -39,7 +39,7 @@ class UserAuthTests(APITestCase):
 
     def test_user_registration_empty_password(self):
         """Sad path: registration fails if the password is empty"""
-        url = reverse('registration')
+        url = reverse('rest_register')
         data = {'username': 'newuser', 'password': ''}
         response = self.client.post(url, data, format='json')
 
@@ -49,7 +49,7 @@ class UserAuthTests(APITestCase):
 
     def test_user_registration_missing_username(self):
         """Sad path: registration fails if username is missing"""
-        url = reverse('registration')
+        url = reverse('rest_register')
         data = {'password': 'pass123'}
         response = self.client.post(url, data, format='json')
 

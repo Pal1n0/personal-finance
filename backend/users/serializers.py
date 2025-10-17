@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from dj_rest_auth.serializers import LoginSerializer
+from django.contrib.auth import authenticate
 from .models import CustomUser
 from django.contrib.auth.password_validation import validate_password
 
@@ -20,6 +22,34 @@ from django.contrib.auth.password_validation import validate_password
         user.profile_completed = True  # klasická registrácia -> okamžite completed
         user.save()
         return user"""
+
+class CustomLoginSerializer(LoginSerializer):
+    username = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    password = serializers.CharField(style={'input_type': 'password'})
+
+    def _validate_username_email(self, username, email, password):
+        user = None
+
+        if email and password:
+            user = authenticate(email=email, password=password)
+        elif username and password:
+            user = authenticate(username=username, password=password)
+        else:
+            raise serializers.ValidationError("Please enter either username or email and password.")
+
+        return user
+
+    def validate(self, attrs):
+        username = attrs.get('username')
+        email = attrs.get('email')
+        password = attrs.get('password')
+
+        user = self._validate_username_email(username, email, password)
+        if not user:
+            raise serializers.ValidationError("Invalid login credentials.")
+        attrs['user'] = user
+        return attrs
     
 # minimalny serializer pre social login request
 class SocialLoginSerializer(serializers.Serializer):
