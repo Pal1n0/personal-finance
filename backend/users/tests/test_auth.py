@@ -1,7 +1,8 @@
 from django.urls import reverse
 from rest_framework.test import APITestCase
 from rest_framework import status
-from django.contrib.auth.models import User
+from users.models import CustomUser as User
+from rest_framework_simplejwt.tokens import RefreshToken
 
 class UserAuthTests(APITestCase):
     """
@@ -15,7 +16,7 @@ class UserAuthTests(APITestCase):
 
     def test_user_registration_success(self):
         """Happy path: user registers successfully"""
-        url = reverse('register')
+        url = reverse('registration')
         data = {'username': 'testuser', 'password': 'testpass123'}
         response = self.client.post(url, data, format='json')
 
@@ -27,7 +28,7 @@ class UserAuthTests(APITestCase):
     def test_user_registration_existing_username(self):
         """Sad path: registration fails if the username already exists"""
         User.objects.create_user(username='testuser', password='12345')
-        url = reverse('register')
+        url = reverse('registration')
         data = {'username': 'testuser', 'password': 'testpass123'}
         response = self.client.post(url, data, format='json')
 
@@ -38,7 +39,7 @@ class UserAuthTests(APITestCase):
 
     def test_user_registration_empty_password(self):
         """Sad path: registration fails if the password is empty"""
-        url = reverse('register')
+        url = reverse('registration')
         data = {'username': 'newuser', 'password': ''}
         response = self.client.post(url, data, format='json')
 
@@ -48,7 +49,7 @@ class UserAuthTests(APITestCase):
 
     def test_user_registration_missing_username(self):
         """Sad path: registration fails if username is missing"""
-        url = reverse('register')
+        url = reverse('registration')
         data = {'password': 'pass123'}
         response = self.client.post(url, data, format='json')
 
@@ -86,3 +87,84 @@ class UserAuthTests(APITestCase):
         response = self.client.post(url, data, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+class UserAuthExtraTests(APITestCase):
+    """
+    Extra test scenarios for user login via email/username,
+    refresh token behavior, and logout.
+    """
+
+    def setUp(self):
+        """Create a sample user for tests"""
+        self.user = User.objects.create_user(
+            username='testuser', email='test@example.com', password='strongpass123'
+        )
+        self.login_url = reverse('token_obtain_pair')
+        self.logout_url = reverse('logout')
+
+    # ------------------------------
+    # LOGIN VIA EMAIL AND USERNAME
+    # ------------------------------
+
+    def test_login_with_email(self):
+        """Login should succeed using email"""
+        data = {'email': 'test@example.com', 'password': 'strongpass123'}
+        response = self.client.post(self.login_url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', response.data)
+        self.assertIn('refresh', response.data)
+
+    def test_login_with_username(self):
+        """Login should succeed using username"""
+        data = {'username': 'testuser', 'password': 'strongpass123'}
+        response = self.client.post(self.login_url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', response.data)
+        self.assertIn('refresh', response.data)
+
+    # ------------------------------
+    # REFRESH TOKEN
+    # ------------------------------
+
+    def test_refresh_token_success(self):
+        """Refresh token should issue new access token"""
+        refresh = RefreshToken.for_user(self.user)
+        refresh_url = reverse('token_refresh')
+        data = {'refresh': str(refresh)}
+
+        response = self.client.post(refresh_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', response.data)
+
+    def test_refresh_token_blacklisted(self):
+        """Using a blacklisted refresh token should fail"""
+        refresh = RefreshToken.for_user(self.user)
+        refresh.blacklist()  # blacklist it
+        refresh_url = reverse('token_refresh')
+        data = {'refresh': str(refresh)}
+
+        response = self.client.post(refresh_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    # ------------------------------
+    # LOGOUT
+    # ------------------------------
+
+    def test_logout_with_valid_refresh(self):
+        """Logout should blacklist refresh token"""
+        refresh = RefreshToken.for_user(self.user)
+        data = {'refresh': str(refresh)}
+        response = self.client.post(self.logout_url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_205_RESET_CONTENT)
+        # After logout, token should be blacklisted
+        response_refresh = self.client.post(reverse('token_refresh'), {'refresh': str(refresh)}, format='json')
+        self.assertEqual(response_refresh.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_logout_with_invalid_refresh(self):
+        """Logout with invalid token should fail"""
+        data = {'refresh': 'invalidtoken123'}
+        response = self.client.post(self.logout_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
