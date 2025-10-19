@@ -239,9 +239,77 @@ AXES_COOLOFF_TIME = timedelta(minutes=15)
 
 AXES_ONLY_USER_FAILURES = True
 
+AXES_HTTP_RESPONSE_CODE = 403
+
+AXES_ALLOWED_CORS_ORIGINS = "*"
+
 # Jak se má "jméno" z požadavku získat. 
 # dj-rest-auth posílá JSON, takže mu musíme říct, kde ho hledat
 AXES_USERNAME_CALLABLE = 'users.utils.get_axes_username'
+AXES_LOCKOUT_CALLABLE = 'users.utils.custom_lockout_response'
+
 
 # Pokud bys používal ten scénář, že email je v poli "email"
 # AXES_USERNAME_FORM_FIELD = "email"
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    
+    # Formatters - how the logs will look
+    'formatters': {
+        'verbose': {
+            'format': '[{levelname}] {asctime} {module} - {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '[{levelname}] {message}',
+            'style': '{',
+        },
+        'detailed': {  # This was missing!
+            'format': '[{levelname}] {asctime} {pathname}:{lineno} - {message}',
+            'style': '{',
+        },
+    },
+    
+    # Handlers - where to send logs
+    'handlers': {
+        'console': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'detailed'
+        },
+        'file': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': 'logs/django.log',  # This will create logs/ folder
+            'formatter': 'verbose',
+        },
+    },
+    
+    # Loggers - what to log
+    'loggers': {
+        # Django's built-in loggers
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Catch ALL Django request errors (including 500s)
+        'django.request': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        # Your app's logger
+        'users': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        '': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+        },
+    },
+}
