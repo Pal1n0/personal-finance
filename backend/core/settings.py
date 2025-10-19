@@ -18,7 +18,6 @@ from datetime import timedelta
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -30,6 +29,15 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+REST_AUTH = {
+    'USE_JWT': True,
+    'JWT_AUTH_COOKIE': None,
+    'JWT_AUTH_REFRESH_COOKIE': None,
+    'JWT_AUTH_HTTPONLY': False,
+    'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
+    'TOKEN_MODEL': None,
+    'SESSION_LOGIN': False,
+}
 
 # Application definition
 
@@ -39,10 +47,12 @@ INSTALLED_APPS = [
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
+    'django.contrib.sites',
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
     # Third-party
+    'axes',
     'corsheaders',
     'rest_framework',
     'rest_framework.authtoken',
@@ -51,6 +61,7 @@ INSTALLED_APPS = [
 
     # Auth + registration
     'dj_rest_auth',
+    'dj_rest_auth.registration',
     'allauth',
     'allauth.account',
     'allauth.socialaccount',  #  Google login 
@@ -58,6 +69,7 @@ INSTALLED_APPS = [
     # My apps
     'users',
 ]
+
 
 REST_AUTH_SERIALIZERS = {
     'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
@@ -72,6 +84,14 @@ REST_FRAMEWORK = {
     ),
 }
 
+AUTHENTICATION_BACKENDS = (
+    'axes.backends.AxesBackend', # <-- MUSÍ BÝT PRVNÍ
+
+    # Tvoje stávající backendy
+    'allauth.account.auth_backends.AuthenticationBackend',
+    'django.contrib.auth.backends.ModelBackend',
+)
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
@@ -79,12 +99,22 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
 }
 
+SITE_ID = 1
+
+AUTH_USER_MODEL = 'users.CustomUser'  # alebo cesta ku tvojmu modelu
+ACCOUNT_USER_MODEL_USERNAME_FIELD = "username"
+ACCOUNT_USER_MODEL_EMAIL_FIELD = "email"
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
-ACCOUNT_LOGIN_METHODS = {'email', 'username'}  # login by nam or username
+ACCOUNT_UNIQUE_EMAIL = True
+ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_EMAIL_VERIFICATION = 'mandatory'  
+ACCOUNT_USERNAME_REQUIRED = True
+ACCOUNT_LOGIN_METHODS = ["username", "email"]
+ACCOUNT_PRESERVE_USERNAME_CASING = False
 ACCOUNT_CONFIRM_EMAIL_ON_GET = True  # after link click accout will activate
 LOGIN_URL = 'account_login'
 LOGOUT_URL = 'account_logout'
+
 
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # onyl for dev!
 
@@ -158,8 +188,6 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-AUTH_USER_MODEL = 'users.CustomUser'
-
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
@@ -204,3 +232,16 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+AXES_FAILURE_LIMIT = 5            
+
+AXES_COOLOFF_TIME = timedelta(minutes=15) 
+
+AXES_ONLY_USER_FAILURES = True
+
+# Jak se má "jméno" z požadavku získat. 
+# dj-rest-auth posílá JSON, takže mu musíme říct, kde ho hledat
+AXES_USERNAME_CALLABLE = 'users.utils.get_axes_username'
+
+# Pokud bys používal ten scénář, že email je v poli "email"
+# AXES_USERNAME_FORM_FIELD = "email"
