@@ -51,37 +51,39 @@ class LogoutView(APIView):
     """
     Logout by blacklisting the refresh token.
     """
-    permission_classes = [permissions.AllowAny]
-    
     def post(self, request):
         try:
             refresh_token = request.data.get("refresh")
+            
             if not refresh_token:
                 return Response(
                     {"detail": "Refresh token is required."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Check if it's a valid token format before trying to blacklist
+            # Check if it's a valid token format
             if not isinstance(refresh_token, str) or not refresh_token.strip():
                 return Response(
                     {"detail": "Invalid token format."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
+            # Try to blacklist the token
             token = RefreshToken(refresh_token)
             token.blacklist()
+            
             return Response(status=status.HTTP_205_RESET_CONTENT)
             
         except TokenError as e:
-            # Specific JWT token errors
+            # Specific JWT token errors (invalid, expired, etc.)
             return Response(
-                {"detail": "Invalid token."},
+                {"detail": "Invalid or expired token."},
                 status=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
-            # Catch any other unexpected errors
+            # Log the actual error for debugging
+            print(f"Logout error: {str(e)}")
             return Response(
                 {"detail": "An error occurred during logout."},
                 status=status.HTTP_400_BAD_REQUEST
-                )
+            )

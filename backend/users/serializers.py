@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
 from dj_rest_auth.serializers import LoginSerializer
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
@@ -49,10 +50,10 @@ class CustomLoginSerializer(LoginSerializer):
             except User.DoesNotExist:
                 user = None
         else:
-            raise serializers.ValidationError("Musíš zadať meno alebo email.")
+            raise serializers.ValidationError("Username or e-mail is required.")
 
         if not user:
-            raise serializers.ValidationError("Neplatné prihlasovacie údaje.")
+            raise AuthenticationFailed("Credetials not valid.")
 
         attrs["user"] = user
         return attrs
