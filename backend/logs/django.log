@@ -5549,3 +5549,822 @@ rest_framework.exceptions.ValidationError: {'password': [ErrorDetail(string='Thi
 [WARNING] 2025-10-19 18:07:34,632 serializers - Authentication failed for username: testuser, email: 
 [WARNING] 2025-10-19 18:07:34,633 log - Unauthorized: /api/users/auth/login
 [INFO] 2025-10-19 18:07:46,663 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-19 18:12:44,005 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-19 18:13:38,274 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-19 18:13:42,460 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-19 18:13:42,503 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:13:42,503 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:13:42,504 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:13:42,506 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:13:42,506 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:13:42,508 database - AXES: Getting access attempts that are newer than 2025-10-19 15:58:42.506501+00:00
+[INFO] 2025-10-19 18:13:43,504 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:13:43,508 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 15:58:42.506501+00:00
+[DEBUG] 2025-10-19 18:13:43,508 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:13:43,520 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-19 18:13:43,521 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:13:43,521 database - AXES: Getting access attempts that are newer than 2025-10-19 15:58:42.506501+00:00
+[DEBUG] 2025-10-19 18:13:43,524 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:13:43,525 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:13:43,527 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:13:43,528 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:13:43,528 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:13:43,528 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:13:43,528 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:13:43,528 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:13:43,529 database - AXES: Getting access attempts that are newer than 2025-10-19 15:58:43.528762+00:00
+[INFO] 2025-10-19 18:13:44,589 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:13:44,593 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 15:58:43.528762+00:00
+[DEBUG] 2025-10-19 18:13:44,593 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:13:44,601 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:13:44,601 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:13:44,601 database - AXES: Getting access attempts that are newer than 2025-10-19 15:58:43.528762+00:00
+[DEBUG] 2025-10-19 18:13:44,605 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:13:44,605 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:13:44,605 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:13:44,606 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:13:44,606 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:13:44,606 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:13:44,607 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:13:44,607 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:13:44,607 database - AXES: Getting access attempts that are newer than 2025-10-19 15:58:44.607608+00:00
+[INFO] 2025-10-19 18:13:45,552 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:13:45,555 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 15:58:44.607608+00:00
+[DEBUG] 2025-10-19 18:13:45,555 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:13:45,562 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:13:45,563 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:13:45,563 database - AXES: Getting access attempts that are newer than 2025-10-19 15:58:44.607608+00:00
+[DEBUG] 2025-10-19 18:13:45,566 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:13:45,566 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:13:45,566 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:13:45,567 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:13:45,567 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:13:45,567 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:13:45,567 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:13:45,568 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:13:45,568 database - AXES: Getting access attempts that are newer than 2025-10-19 15:58:45.567817+00:00
+[INFO] 2025-10-19 18:13:46,550 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:13:46,553 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 15:58:45.567817+00:00
+[DEBUG] 2025-10-19 18:13:46,553 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:13:46,560 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:13:46,562 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:13:46,563 database - AXES: Getting access attempts that are newer than 2025-10-19 15:58:45.567817+00:00
+[DEBUG] 2025-10-19 18:13:46,565 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:13:46,565 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:13:46,565 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:13:46,567 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:13:46,567 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:13:46,567 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:13:46,567 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:13:46,568 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:13:46,568 database - AXES: Getting access attempts that are newer than 2025-10-19 15:58:46.567909+00:00
+[INFO] 2025-10-19 18:13:47,596 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:13:47,599 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 15:58:46.567909+00:00
+[DEBUG] 2025-10-19 18:13:47,599 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:13:47,601 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:13:47,607 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:13:47,607 database - AXES: Getting access attempts that are newer than 2025-10-19 15:58:46.567909+00:00
+[WARNING] 2025-10-19 18:13:47,609 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-19 18:13:47,609 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:13:47,609 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:13:47,609 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:13:47,611 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:13:47,611 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:13:47,611 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:13:47,611 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:13:47,611 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:13:47,611 database - AXES: Getting access attempts that are newer than 2025-10-19 15:58:47.611096+00:00
+[INFO] 2025-10-19 18:13:47,613 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:13:47,615 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 15:58:47.611096+00:00
+[DEBUG] 2025-10-19 18:13:47,615 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:13:47,621 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:13:47,623 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:13:47,623 database - AXES: Getting access attempts that are newer than 2025-10-19 15:58:47.611096+00:00
+[WARNING] 2025-10-19 18:13:47,625 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-19 18:13:47,625 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:13:47,626 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:13:47,626 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:18:46,626 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-19 18:18:50,491 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-19 18:18:50,518 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:18:50,518 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:18:50,518 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:18:50,523 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:18:50,523 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:18:50,523 database - AXES: Getting access attempts that are newer than 2025-10-19 16:03:50.523397+00:00
+[INFO] 2025-10-19 18:18:51,690 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:18:51,697 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:03:50.523397+00:00
+[DEBUG] 2025-10-19 18:18:51,697 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:18:51,726 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-19 18:18:51,733 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:18:51,737 database - AXES: Getting access attempts that are newer than 2025-10-19 16:03:50.523397+00:00
+[DEBUG] 2025-10-19 18:18:51,743 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:18:51,747 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:18:51,755 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:18:51,758 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:18:51,759 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:18:51,766 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:18:51,767 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:18:51,767 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:18:51,767 database - AXES: Getting access attempts that are newer than 2025-10-19 16:03:51.767902+00:00
+[INFO] 2025-10-19 18:18:52,885 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:18:52,901 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:03:51.767902+00:00
+[DEBUG] 2025-10-19 18:18:52,901 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:18:52,908 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:18:52,910 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:18:52,910 database - AXES: Getting access attempts that are newer than 2025-10-19 16:03:51.767902+00:00
+[DEBUG] 2025-10-19 18:18:52,912 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:18:52,912 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:18:52,915 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:18:52,916 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:18:52,916 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:18:52,920 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:18:52,920 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:18:52,920 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:18:52,921 database - AXES: Getting access attempts that are newer than 2025-10-19 16:03:52.920242+00:00
+[INFO] 2025-10-19 18:18:53,885 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:18:53,885 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:03:52.920242+00:00
+[DEBUG] 2025-10-19 18:18:53,891 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:18:53,895 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:18:53,897 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:18:53,897 database - AXES: Getting access attempts that are newer than 2025-10-19 16:03:52.920242+00:00
+[DEBUG] 2025-10-19 18:18:53,899 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:18:53,899 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:18:53,901 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:18:53,901 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:18:53,901 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:18:53,901 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:18:53,901 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:18:53,901 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:18:53,901 database - AXES: Getting access attempts that are newer than 2025-10-19 16:03:53.901765+00:00
+[INFO] 2025-10-19 18:18:54,893 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:18:54,897 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:03:53.901765+00:00
+[DEBUG] 2025-10-19 18:18:54,898 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:18:54,904 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:18:54,905 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:18:54,905 database - AXES: Getting access attempts that are newer than 2025-10-19 16:03:53.901765+00:00
+[DEBUG] 2025-10-19 18:18:54,907 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:18:54,907 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:18:54,908 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:18:54,909 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:18:54,909 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:18:54,911 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:18:54,911 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:18:54,911 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:18:54,912 database - AXES: Getting access attempts that are newer than 2025-10-19 16:03:54.911697+00:00
+[INFO] 2025-10-19 18:18:55,814 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:18:55,819 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:03:54.911697+00:00
+[DEBUG] 2025-10-19 18:18:55,819 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:18:55,826 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:18:55,826 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:18:55,826 database - AXES: Getting access attempts that are newer than 2025-10-19 16:03:54.911697+00:00
+[WARNING] 2025-10-19 18:18:55,828 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-19 18:18:55,828 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:18:55,830 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:18:55,830 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:18:55,831 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:18:55,831 serializers - Validation attrs: {'username': 'testuser'}
+[WARNING] 2025-10-19 18:18:55,831 log - Forbidden: /api/users/auth/login
+[INFO] 2025-10-19 18:21:10,735 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-19 18:21:15,176 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-19 18:21:15,215 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:21:15,215 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:21:15,215 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:21:15,215 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:21:15,222 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:21:15,224 database - AXES: Getting access attempts that are newer than 2025-10-19 16:06:15.215221+00:00
+[INFO] 2025-10-19 18:21:16,214 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:21:16,216 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:06:15.215221+00:00
+[DEBUG] 2025-10-19 18:21:16,216 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:21:16,221 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-19 18:21:16,221 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:21:16,221 database - AXES: Getting access attempts that are newer than 2025-10-19 16:06:15.215221+00:00
+[DEBUG] 2025-10-19 18:21:16,224 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:21:16,224 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:21:16,228 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:21:16,229 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:21:16,229 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:21:16,229 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:21:16,229 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:21:16,232 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:21:16,232 database - AXES: Getting access attempts that are newer than 2025-10-19 16:06:16.229539+00:00
+[INFO] 2025-10-19 18:21:17,207 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:21:17,210 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:06:16.229539+00:00
+[DEBUG] 2025-10-19 18:21:17,210 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:21:17,217 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:21:17,218 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:21:17,218 database - AXES: Getting access attempts that are newer than 2025-10-19 16:06:16.229539+00:00
+[DEBUG] 2025-10-19 18:21:17,220 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:21:17,220 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:21:17,220 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:21:17,222 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:21:17,222 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:21:17,224 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:21:17,224 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:21:17,224 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:21:17,225 database - AXES: Getting access attempts that are newer than 2025-10-19 16:06:17.224575+00:00
+[INFO] 2025-10-19 18:21:18,130 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:21:18,132 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:06:17.224575+00:00
+[DEBUG] 2025-10-19 18:21:18,133 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:21:18,138 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:21:18,140 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:21:18,140 database - AXES: Getting access attempts that are newer than 2025-10-19 16:06:17.224575+00:00
+[DEBUG] 2025-10-19 18:21:18,141 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:21:18,141 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:21:18,143 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:21:18,143 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:21:18,143 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:21:18,145 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:21:18,145 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:21:18,145 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:21:18,147 database - AXES: Getting access attempts that are newer than 2025-10-19 16:06:18.145936+00:00
+[INFO] 2025-10-19 18:21:19,067 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:21:19,073 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:06:18.145936+00:00
+[DEBUG] 2025-10-19 18:21:19,073 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:21:19,077 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:21:19,078 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:21:19,078 database - AXES: Getting access attempts that are newer than 2025-10-19 16:06:18.145936+00:00
+[DEBUG] 2025-10-19 18:21:19,080 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:21:19,080 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:21:19,080 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:21:19,082 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:21:19,082 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:21:19,085 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:21:19,085 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:21:19,085 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:21:19,085 database - AXES: Getting access attempts that are newer than 2025-10-19 16:06:19.085455+00:00
+[INFO] 2025-10-19 18:21:20,046 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:21:20,062 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:06:19.085455+00:00
+[DEBUG] 2025-10-19 18:21:20,062 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:21:20,062 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:21:20,062 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:21:20,062 database - AXES: Getting access attempts that are newer than 2025-10-19 16:06:19.085455+00:00
+[WARNING] 2025-10-19 18:21:20,062 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-19 18:21:20,062 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:21:20,062 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:21:20,062 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:21:20,062 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:21:20,062 serializers - Validation attrs: {'username': 'testuser'}
+[WARNING] 2025-10-19 18:21:20,062 log - Forbidden: /api/users/auth/login
+[INFO] 2025-10-19 18:25:00,112 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-19 18:25:04,328 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-19 18:25:04,372 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:25:04,373 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:25:04,375 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:25:04,375 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:25:04,375 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:25:04,375 database - AXES: Getting access attempts that are newer than 2025-10-19 16:10:04.375327+00:00
+[INFO] 2025-10-19 18:25:05,331 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:25:05,331 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:10:04.375327+00:00
+[DEBUG] 2025-10-19 18:25:05,331 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:25:05,352 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-19 18:25:05,352 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:25:05,352 database - AXES: Getting access attempts that are newer than 2025-10-19 16:10:04.375327+00:00
+[DEBUG] 2025-10-19 18:25:05,360 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:25:05,360 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:25:05,362 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:25:05,364 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:25:05,364 serializers - Validation attrs: {'username': 'testuser'}
+[ERROR] 2025-10-19 18:25:05,427 log - Internal Server Error: /api/users/auth/login
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\decorators\csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\decorators\debug.py", line 143, in sensitive_post_parameters_wrapper
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\views.py", line 48, in dispatch
+    return super().dispatch(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 515, in dispatch
+    response = self.handle_exception(exc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 475, in handle_exception
+    self.raise_uncaught_exception(exc)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 486, in raise_uncaught_exception
+    raise exc
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\views.py", line 125, in post
+    self.serializer.is_valid(raise_exception=True)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\serializers.py", line 225, in is_valid
+    self._validated_data = self.run_validation(self.initial_data)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\serializers.py", line 447, in run_validation
+    value = self.validate(value)
+            ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\serializers.py", line 63, in validate
+    lockout_limit = self._get_lockout_limit()
+                    ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'CustomLoginSerializer' object has no attribute '_get_lockout_limit'
+[INFO] 2025-10-19 18:26:36,793 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-19 18:26:40,620 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-19 18:26:40,657 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:26:40,657 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:26:40,657 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:26:40,660 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:26:40,661 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:26:40,661 database - AXES: Getting access attempts that are newer than 2025-10-19 16:11:40.660205+00:00
+[INFO] 2025-10-19 18:26:41,699 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:26:41,699 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:11:40.660205+00:00
+[DEBUG] 2025-10-19 18:26:41,699 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:26:41,710 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-19 18:26:41,711 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:26:41,711 database - AXES: Getting access attempts that are newer than 2025-10-19 16:11:40.660205+00:00
+[DEBUG] 2025-10-19 18:26:41,716 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:26:41,716 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:26:41,719 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:26:41,719 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:26:41,719 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:26:41,723 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:26:41,723 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:26:41,723 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:26:41,723 database - AXES: Getting access attempts that are newer than 2025-10-19 16:11:41.723144+00:00
+[INFO] 2025-10-19 18:26:42,834 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:26:42,835 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:11:41.723144+00:00
+[DEBUG] 2025-10-19 18:26:42,836 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:26:42,842 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:26:42,844 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:26:42,844 database - AXES: Getting access attempts that are newer than 2025-10-19 16:11:41.723144+00:00
+[DEBUG] 2025-10-19 18:26:42,845 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:26:42,845 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:26:42,847 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:26:42,847 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:26:42,847 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:26:42,849 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:26:42,849 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:26:42,849 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:26:42,849 database - AXES: Getting access attempts that are newer than 2025-10-19 16:11:42.849264+00:00
+[INFO] 2025-10-19 18:26:43,780 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:26:43,780 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:11:42.849264+00:00
+[DEBUG] 2025-10-19 18:26:43,780 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:26:43,798 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:26:43,799 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:26:43,799 database - AXES: Getting access attempts that are newer than 2025-10-19 16:11:42.849264+00:00
+[DEBUG] 2025-10-19 18:26:43,801 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:26:43,803 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:26:43,803 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:26:43,803 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:26:43,803 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:26:43,803 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:26:43,806 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:26:43,806 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:26:43,806 database - AXES: Getting access attempts that are newer than 2025-10-19 16:11:43.806701+00:00
+[INFO] 2025-10-19 18:26:44,890 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:26:44,899 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:11:43.806701+00:00
+[DEBUG] 2025-10-19 18:26:44,899 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:26:44,905 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:26:44,907 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:26:44,909 database - AXES: Getting access attempts that are newer than 2025-10-19 16:11:43.806701+00:00
+[DEBUG] 2025-10-19 18:26:44,910 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:26:44,910 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:26:44,911 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:26:44,912 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:26:44,912 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:26:44,912 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:26:44,912 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:26:44,912 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:26:44,912 database - AXES: Getting access attempts that are newer than 2025-10-19 16:11:44.912307+00:00
+[INFO] 2025-10-19 18:26:45,883 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:26:45,899 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:11:44.912307+00:00
+[DEBUG] 2025-10-19 18:26:45,899 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:26:45,902 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:26:45,907 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:26:45,907 database - AXES: Getting access attempts that are newer than 2025-10-19 16:11:44.912307+00:00
+[WARNING] 2025-10-19 18:26:45,909 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-19 18:26:45,910 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:26:45,910 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:26:45,910 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:26:45,911 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:26:45,911 serializers - Validation attrs: {'username': 'testuser'}
+[WARNING] 2025-10-19 18:26:45,914 log - Forbidden: /api/users/auth/login
+[INFO] 2025-10-19 18:26:57,752 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-19 18:27:03,395 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-19 18:27:03,482 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:03,482 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:27:03,499 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:03,511 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:03,528 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:03,534 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:03.511020+00:00
+[INFO] 2025-10-19 18:27:05,999 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:27:06,012 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:12:03.511020+00:00
+[DEBUG] 2025-10-19 18:27:06,012 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:27:06,027 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-19 18:27:06,030 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:06,032 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:03.511020+00:00
+[DEBUG] 2025-10-19 18:27:06,035 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:27:06,035 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:27:06,038 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:27:06,038 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:06,038 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:27:06,042 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:06,042 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:06,042 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:06,043 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:06.042792+00:00
+[INFO] 2025-10-19 18:27:08,386 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:27:08,390 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:12:06.042792+00:00
+[DEBUG] 2025-10-19 18:27:08,392 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:27:08,402 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:27:08,406 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:08,408 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:06.042792+00:00
+[DEBUG] 2025-10-19 18:27:08,408 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:27:08,408 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:27:08,413 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:27:08,416 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:08,416 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:27:08,416 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:08,416 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:08,416 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:08,416 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:08.416047+00:00
+[INFO] 2025-10-19 18:27:10,264 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:27:10,266 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:12:08.416047+00:00
+[DEBUG] 2025-10-19 18:27:10,266 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:27:10,275 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:27:10,276 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:10,276 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:08.416047+00:00
+[DEBUG] 2025-10-19 18:27:10,281 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:27:10,281 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:27:10,282 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:27:10,282 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:10,282 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:27:10,286 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:10,286 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:10,287 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:10,287 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:10.286509+00:00
+[INFO] 2025-10-19 18:27:11,997 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:27:11,997 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:12:10.286509+00:00
+[DEBUG] 2025-10-19 18:27:11,997 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:27:12,013 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:27:12,016 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:12,016 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:10.286509+00:00
+[DEBUG] 2025-10-19 18:27:12,020 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:27:12,020 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:27:12,020 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:27:12,023 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:12,023 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:27:12,023 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:12,023 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:12,026 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:12,026 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:12.023333+00:00
+[INFO] 2025-10-19 18:27:13,526 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:27:13,534 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:12:12.023333+00:00
+[DEBUG] 2025-10-19 18:27:13,534 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:27:13,538 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:27:13,538 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:13,538 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:12.023333+00:00
+[WARNING] 2025-10-19 18:27:13,538 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-19 18:27:13,538 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:27:13,538 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:27:13,538 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:27:13,538 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:13,538 serializers - Validation attrs: {'username': 'testuser'}
+[WARNING] 2025-10-19 18:27:13,538 log - Forbidden: /api/users/auth/login
+[INFO] 2025-10-19 18:27:42,144 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-19 18:27:47,389 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-19 18:27:47,420 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:47,420 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:27:47,420 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:47,420 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:47,433 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:47,433 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:47.420402+00:00
+[INFO] 2025-10-19 18:27:48,401 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:27:48,406 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:12:47.420402+00:00
+[DEBUG] 2025-10-19 18:27:48,407 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:27:48,419 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-19 18:27:48,421 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:48,422 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:47.420402+00:00
+[DEBUG] 2025-10-19 18:27:48,422 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:27:48,422 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:27:48,427 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:27:48,427 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:48,427 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:27:48,431 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:48,431 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:48,431 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:48,431 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:48.431827+00:00
+[INFO] 2025-10-19 18:27:49,371 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:27:49,371 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:12:48.431827+00:00
+[DEBUG] 2025-10-19 18:27:49,371 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:27:49,386 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:27:49,387 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:49,389 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:48.431827+00:00
+[DEBUG] 2025-10-19 18:27:49,390 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:27:49,390 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:27:49,390 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:27:49,390 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:49,390 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:27:49,390 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:49,390 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:49,390 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:49,390 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:49.390713+00:00
+[INFO] 2025-10-19 18:27:50,324 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:27:50,324 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:12:49.390713+00:00
+[DEBUG] 2025-10-19 18:27:50,324 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:27:50,340 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:27:50,342 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:50,342 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:49.390713+00:00
+[DEBUG] 2025-10-19 18:27:50,344 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:27:50,344 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:27:50,345 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:27:50,346 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:50,346 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:27:50,346 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:50,346 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:50,346 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:50,346 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:50.346311+00:00
+[INFO] 2025-10-19 18:27:51,404 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:27:51,407 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:12:50.346311+00:00
+[DEBUG] 2025-10-19 18:27:51,407 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:27:51,411 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:27:51,411 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:51,411 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:50.346311+00:00
+[DEBUG] 2025-10-19 18:27:51,419 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:27:51,419 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:27:51,419 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:27:51,419 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:51,419 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-19 18:27:51,419 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:51,419 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:51,419 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:51,419 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:51.419294+00:00
+[INFO] 2025-10-19 18:27:52,509 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:27:52,509 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:12:51.419294+00:00
+[DEBUG] 2025-10-19 18:27:52,509 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:27:52,525 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-19 18:27:52,525 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:52,525 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:51.419294+00:00
+[WARNING] 2025-10-19 18:27:52,532 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-19 18:27:52,532 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:27:52,532 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:27:52,532 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:27:52,532 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:52,532 serializers - Validation attrs: {'username': 'testuser'}
+[WARNING] 2025-10-19 18:27:52,537 log - Forbidden: /api/users/auth/login
+[INFO] 2025-10-19 18:27:53,058 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:53,059 serializers - Validation attrs: {'username': '', 'email': 'test@example.com'}
+[INFO] 2025-10-19 18:27:53,063 serializers - Attempting email authentication: test@example.com
+[DEBUG] 2025-10-19 18:27:53,065 serializers - User found by email: testuser
+[DEBUG] 2025-10-19 18:27:53,065 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:53,065 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:53,065 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:53.065894+00:00
+[DEBUG] 2025-10-19 18:27:53,550 serializers - Email authentication result: Success
+[INFO] 2025-10-19 18:27:53,550 serializers - Authentication successful for user: testuser (ID: 2)
+[INFO] 2025-10-19 18:27:54,235 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:54,235 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-19 18:27:54,238 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:54,240 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:54,240 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:54,240 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:54.240017+00:00
+[DEBUG] 2025-10-19 18:27:54,858 serializers - Username authentication result: Success
+[INFO] 2025-10-19 18:27:54,858 serializers - Authentication successful for user: testuser (ID: 3)
+[INFO] 2025-10-19 18:27:55,425 views - Logout endpoint called
+[DEBUG] 2025-10-19 18:27:55,425 views - Logout request data: {}
+[DEBUG] 2025-10-19 18:27:55,425 views - Refresh token received: None...
+[INFO] 2025-10-19 18:27:55,425 views - Logout completed successfully
+[INFO] 2025-10-19 18:27:55,919 views - Logout endpoint called
+[DEBUG] 2025-10-19 18:27:55,919 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc2MDk3NzY3NSwiaWF0IjoxNzYwODkxMjc1LCJqdGkiOiIwMTAyNjAyY2YwNzE0ZDVjYjhjYTMxMWVlYzcyODQ0YiIsInVzZXJfaWQiOiI1In0.7LJdJjAVPLA4PoZpR_aB0xU3wEEBP-n1w3JS5ccOMbs'}
+[DEBUG] 2025-10-19 18:27:55,919 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-19 18:27:55,919 views - Attempting to blacklist token
+[WARNING] 2025-10-19 18:27:55,919 views - Token blacklisting failed: Token is blacklisted
+[DEBUG] 2025-10-19 18:27:55,919 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 72, in __init__
+    self.verify()
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 268, in verify
+    self.check_blacklist()
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 280, in check_blacklist
+    raise TokenError(_("Token is blacklisted"))
+rest_framework_simplejwt.exceptions.TokenError: Token is blacklisted
+[INFO] 2025-10-19 18:27:55,919 views - Logout completed successfully
+[INFO] 2025-10-19 18:27:56,417 views - Logout endpoint called
+[DEBUG] 2025-10-19 18:27:56,417 views - Logout request data: {}
+[DEBUG] 2025-10-19 18:27:56,417 views - Refresh token received: None...
+[INFO] 2025-10-19 18:27:56,417 views - Logout completed successfully
+[INFO] 2025-10-19 18:27:56,918 views - Logout endpoint called
+[DEBUG] 2025-10-19 18:27:56,918 views - Logout request data: {'refresh': 'completely_invalid_token_123'}
+[DEBUG] 2025-10-19 18:27:56,918 views - Refresh token received: completely_invalid_t...
+[INFO] 2025-10-19 18:27:56,918 views - Logout completed successfully
+[INFO] 2025-10-19 18:27:57,440 views - Logout endpoint called
+[DEBUG] 2025-10-19 18:27:57,440 views - Logout request data: {'refresh': 'malformed.token'}
+[DEBUG] 2025-10-19 18:27:57,440 views - Refresh token received: malformed.token...
+[INFO] 2025-10-19 18:27:57,440 views - Attempting to blacklist token
+[WARNING] 2025-10-19 18:27:57,440 views - Token blacklisting failed: Token is invalid
+[DEBUG] 2025-10-19 18:27:57,440 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 270, in _load
+    header_segment, payload_segment = signing_input.split(b".", 1)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: not enough values to unpack (expected 2, got 1)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 160, in decode
+    return jwt.decode(
+           ^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 222, in decode
+    decoded = self.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 156, in decode_complete
+    decoded = api_jws.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 209, in decode_complete
+    payload, signing_input, header, signature = self._load(jwt)
+                                                ^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 272, in _load
+    raise DecodeError("Not enough segments") from err
+jwt.exceptions.DecodeError: Not enough segments
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 65, in __init__
+    self.payload = token_backend.decode(token, verify=verify)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 177, in decode
+    raise TokenBackendError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenBackendError: Token is invalid
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 69, in __init__
+    raise TokenError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenError: Token is invalid
+[INFO] 2025-10-19 18:27:57,446 views - Logout completed successfully
+[INFO] 2025-10-19 18:27:57,946 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:57,946 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-19 18:27:57,946 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:57,946 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:57,946 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:57,946 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:57.946514+00:00
+[DEBUG] 2025-10-19 18:27:58,506 serializers - Username authentication result: Success
+[INFO] 2025-10-19 18:27:58,506 serializers - Authentication successful for user: testuser (ID: 9)
+[INFO] 2025-10-19 18:27:58,515 views - Logout endpoint called
+[DEBUG] 2025-10-19 18:27:58,515 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTcwMDAwMDAwMCwiaWF0IjoxNzAwMDAwMDAwLCJqdGkiOiJmYWtlX2lkIiwidXNlcl9pZCI6OTk5OX0.fake_signature_that_looks_real_but_is_invalid'}
+[DEBUG] 2025-10-19 18:27:58,515 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-19 18:27:58,515 views - Attempting to blacklist token
+[WARNING] 2025-10-19 18:27:58,515 views - Token blacklisting failed: Token is invalid
+[DEBUG] 2025-10-19 18:27:58,515 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 293, in _load
+    signature = base64url_decode(crypto_segment)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\utils.py", line 33, in base64url_decode
+    return base64.urlsafe_b64decode(input_bytes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\base64.py", line 134, in urlsafe_b64decode
+    return b64decode(s)
+           ^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\base64.py", line 88, in b64decode
+    return binascii.a2b_base64(s, strict_mode=validate)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+binascii.Error: Invalid base64-encoded string: number of data characters (45) cannot be 1 more than a multiple of 4
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 160, in decode
+    return jwt.decode(
+           ^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 222, in decode
+    decoded = self.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 156, in decode_complete
+    decoded = api_jws.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 209, in decode_complete
+    payload, signing_input, header, signature = self._load(jwt)
+                                                ^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 295, in _load
+    raise DecodeError("Invalid crypto padding") from err
+jwt.exceptions.DecodeError: Invalid crypto padding
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 65, in __init__
+    self.payload = token_backend.decode(token, verify=verify)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 177, in decode
+    raise TokenBackendError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenBackendError: Token is invalid
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 69, in __init__
+    raise TokenError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenError: Token is invalid
+[INFO] 2025-10-19 18:27:58,525 views - Logout completed successfully
+[INFO] 2025-10-19 18:27:59,038 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:27:59,040 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-19 18:27:59,040 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:27:59,040 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:27:59,040 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:27:59,044 database - AXES: Getting access attempts that are newer than 2025-10-19 16:12:59.040445+00:00
+[DEBUG] 2025-10-19 18:27:59,499 serializers - Username authentication result: Success
+[INFO] 2025-10-19 18:27:59,499 serializers - Authentication successful for user: testuser (ID: 10)
+[INFO] 2025-10-19 18:27:59,505 views - Logout endpoint called
+[DEBUG] 2025-10-19 18:27:59,505 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc2MDk3NzY3OSwiaWF0IjoxNzYwODkxMjc5LCJqdGkiOiJmN2QwMzc3NDhmZDk0NGYwOTIwNjNhMjdlMDQ1Yzg1MiIsInVzZXJfaWQiOiIxMCJ9.qYZ9Uz67kwzu-SBfv8m4jq4Mp-h-BFkxGkN3mhoh3F4'}
+[DEBUG] 2025-10-19 18:27:59,505 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-19 18:27:59,505 views - Attempting to blacklist token
+[INFO] 2025-10-19 18:27:59,516 views - Token successfully blacklisted
+[INFO] 2025-10-19 18:27:59,516 views - Logout completed successfully
+[WARNING] 2025-10-19 18:27:59,996 log - Unauthorized: /api/users/token/refresh/
+[INFO] 2025-10-19 18:28:01,199 views - Social profile completion attempt - user: 14
+[DEBUG] 2025-10-19 18:28:01,199 views - Profile completion data: {'username': 'socialuser3'}
+[INFO] 2025-10-19 18:28:01,199 views - Social complete profile - user: 14
+[DEBUG] 2025-10-19 18:28:01,199 serializers - Validating username: socialuser3
+[ERROR] 2025-10-19 18:28:01,199 views - Profile completion failed - user: 14, error: {'password': [ErrorDetail(string='This field is required.', code='required')]}
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 83, in update
+    response = super().update(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\mixins.py", line 67, in update
+    serializer.is_valid(raise_exception=True)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\serializers.py", line 233, in is_valid
+    raise ValidationError(self.errors)
+rest_framework.exceptions.ValidationError: {'password': [ErrorDetail(string='This field is required.', code='required')]}
+[WARNING] 2025-10-19 18:28:01,199 log - Bad Request: /api/users/social-complete-profile/
+[INFO] 2025-10-19 18:28:01,708 views - Social profile completion attempt - user: 16
+[DEBUG] 2025-10-19 18:28:01,708 views - Profile completion data: {'username': 'socialuser2', 'password': 'StrongPass!23'}
+[INFO] 2025-10-19 18:28:01,708 views - Social complete profile - user: 16
+[DEBUG] 2025-10-19 18:28:01,708 serializers - Validating username: socialuser2
+[INFO] 2025-10-19 18:28:01,717 serializers - SocialCompleteProfileSerializer validation started
+[DEBUG] 2025-10-19 18:28:01,717 serializers - Profile completion attrs: {'username': 'socialuser2'}
+[INFO] 2025-10-19 18:28:01,717 serializers - Updating social profile for user ID: 16
+[DEBUG] 2025-10-19 18:28:01,717 serializers - Update data - username: socialuser2
+[INFO] 2025-10-19 18:28:02,306 serializers - Saving profile completion for user: socialuser2
+[INFO] 2025-10-19 18:28:02,310 serializers - Social profile completed successfully
+[INFO] 2025-10-19 18:28:02,310 views - Profile completed successfully - user: 16
+[INFO] 2025-10-19 18:28:02,858 views - Social login attempt
+[DEBUG] 2025-10-19 18:28:02,858 views - Social login data: {'email': 'new_social@example.com'}
+[DEBUG] 2025-10-19 18:28:02,858 serializers - SocialLoginSerializer validating email: new_social@example.com
+[INFO] 2025-10-19 18:28:02,858 serializers - SocialLoginSerializer validation started
+[DEBUG] 2025-10-19 18:28:02,858 serializers - Social login attrs: {'email': 'new_social@example.com'}
+[INFO] 2025-10-19 18:28:02,858 views - Social login processing for email: new_social@example.com
+[INFO] 2025-10-19 18:28:02,862 views - Social login created new user - user_id: 18
+[INFO] 2025-10-19 18:28:02,865 views - Social login tokens generated successfully
+[INFO] 2025-10-19 18:28:03,363 views - Social login attempt
+[DEBUG] 2025-10-19 18:28:03,363 views - Social login data: {'email': 'test@example.com'}
+[DEBUG] 2025-10-19 18:28:03,364 serializers - SocialLoginSerializer validating email: test@example.com
+[INFO] 2025-10-19 18:28:03,364 serializers - SocialLoginSerializer validation started
+[DEBUG] 2025-10-19 18:28:03,364 serializers - Social login attrs: {'email': 'test@example.com'}
+[INFO] 2025-10-19 18:28:03,364 views - Social login processing for email: test@example.com
+[INFO] 2025-10-19 18:28:03,366 views - Social login found existing user - user_id: 19
+[INFO] 2025-10-19 18:28:03,368 views - Social login tokens generated successfully
+[INFO] 2025-10-19 18:28:03,889 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:28:03,890 serializers - Validation attrs: {'username': '', 'email': 'nouser@example.com'}
+[INFO] 2025-10-19 18:28:03,892 serializers - Attempting email authentication: nouser@example.com
+[WARNING] 2025-10-19 18:28:03,893 serializers - Email not found in database: nouser@example.com
+[WARNING] 2025-10-19 18:28:03,893 serializers - Authentication failed for username: , email: nouser@example.com
+[WARNING] 2025-10-19 18:28:03,894 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-19 18:28:04,439 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:28:04,439 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-19 18:28:04,439 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:28:04,439 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:28:04,439 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:28:04,439 database - AXES: Getting access attempts that are newer than 2025-10-19 16:13:04.439170+00:00
+[DEBUG] 2025-10-19 18:28:04,987 serializers - Username authentication result: Success
+[INFO] 2025-10-19 18:28:04,987 serializers - Authentication successful for user: testuser (ID: 21)
+[INFO] 2025-10-19 18:28:05,736 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-19 18:28:05,736 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-19 18:28:05,740 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-19 18:28:05,740 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-19 18:28:05,740 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:28:05,741 database - AXES: Getting access attempts that are newer than 2025-10-19 16:13:05.740673+00:00
+[INFO] 2025-10-19 18:28:06,773 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-19 18:28:06,775 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-19 16:13:05.740673+00:00
+[DEBUG] 2025-10-19 18:28:06,775 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-19 18:28:06,784 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-19 18:28:06,785 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-19 18:28:06,785 database - AXES: Getting access attempts that are newer than 2025-10-19 16:13:05.740673+00:00
+[DEBUG] 2025-10-19 18:28:06,788 serializers - Username authentication result: Failed
+[WARNING] 2025-10-19 18:28:06,788 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-19 18:28:06,789 log - Unauthorized: /api/users/auth/login
+[WARNING] 2025-10-19 18:28:07,312 log - Bad Request: /api/users/auth/registration/
+[WARNING] 2025-10-19 18:28:07,850 log - Bad Request: /api/users/auth/registration/
+[WARNING] 2025-10-19 18:28:08,429 log - Bad Request: /api/users/auth/registration/

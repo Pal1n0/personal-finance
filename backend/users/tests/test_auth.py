@@ -191,12 +191,6 @@ class UserAuthTests(APITestCase):
             'username': 'testuser',
             'password': 'wrongpass'
         }, format='json')
-        # Vypíše celý response
-        print("=== Response ===")
-        print("Status code:", response.status_code)
-        print("Headers:", dict(response.headers))
-        print("Body:", response.json())  # alebo response.content, ak nie je JSON
-        print("================")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     # ------------------------------
