@@ -1,3 +1,6 @@
+from django.http import JsonResponse
+from rest_framework import status
+
 # users/utils.py
 def get_axes_username(request, credentials):
     """
@@ -9,3 +12,7 @@ def get_axes_username(request, credentials):
     # vrátime username, ak je, inak email
     return credentials.get("username") or credentials.get("email")
 
+def custom_lockout_response(request, credentials):
+    return JsonResponse({
+        "detail": "Account temporarily locked due to too many failed login attempts."
+    }, status=status.HTTP_403_FORBIDDEN)
