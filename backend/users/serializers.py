@@ -1,9 +1,12 @@
 import logging
 from rest_framework import serializers
-from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied  
 from dj_rest_auth.serializers import LoginSerializer
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
+from axes.models import AccessAttempt
+from django.conf import settings
+
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
@@ -45,6 +48,28 @@ class CustomLoginSerializer(LoginSerializer):
         # Get the request from context
         request = self.context.get('request')
         
+        # PRIDANE: Kontrola zablokovania - na zaciatku validacie
+        lookup_username = username
+        if not lookup_username and email:
+            try:
+                user_obj = User.objects.get(email=email)
+                lookup_username = user_obj.username
+            except User.DoesNotExist:
+                pass
+        
+        if lookup_username:
+            try:
+                attempt = AccessAttempt.objects.get(username=lookup_username)
+                lockout_limit = getattr(settings, 'AXES_FAILURE_LIMIT', 5)
+                if attempt.failures_since_start >= lockout_limit:  # PRIDANE: kontrola ci ma viac ako 5 pokusov
+                    raise PermissionDenied({
+                        'detail': 'Too many atempts. Accout was tempoarily blocked for 15 minuts. Try it later.',
+                        'locked': True
+                    })
+            except AccessAttempt.DoesNotExist:
+                pass
+        # KONIEC PRIDANEHO KODU
+      
 
         if not password:
             logger.warning("Login attempt without password")
