@@ -22,8 +22,5 @@ class CustomUser(AbstractUser):
     is_social_account = models.BooleanField(default=False)  # True if google registration
     profile_completed = models.BooleanField(default=False)  # True if pw a nickname added
 
-    USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['username'] 
-
     def __str__(self):
         return self.username

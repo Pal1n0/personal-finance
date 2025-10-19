@@ -1,7 +1,6 @@
 from rest_framework import serializers
 from dj_rest_auth.serializers import LoginSerializer
-from django.contrib.auth import authenticate
-from .models import CustomUser
+from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 
 """class RegisterSerializer(serializers.ModelSerializer):
@@ -23,33 +22,41 @@ from django.contrib.auth.password_validation import validate_password
         user.save()
         return user"""
 
+User = get_user_model()
+
 class CustomLoginSerializer(LoginSerializer):
     username = serializers.CharField(required=False, allow_blank=True)
     email = serializers.EmailField(required=False, allow_blank=True)
-    password = serializers.CharField(style={'input_type': 'password'})
-
-    def _validate_username_email(self, username, email, password):
-        user = None
-
-        if email and password:
-            user = authenticate(email=email, password=password)
-        elif username and password:
-            user = authenticate(username=username, password=password)
-        else:
-            raise serializers.ValidationError("Please enter either username or email and password.")
-
-        return user
+    password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        username = attrs.get('username')
-        email = attrs.get('email')
-        password = attrs.get('password')
+        username = attrs.get("username", "").strip()
+        email = attrs.get("email", "").strip()
+        password = attrs.get("password")
 
-        user = self._validate_username_email(username, email, password)
+        # Get the request from context
+        request = self.context.get('request')
+
+        if not password:
+            raise serializers.ValidationError("Musíš zadať heslo.")
+
+        if username:
+            user = authenticate(request=request, username=username, password=password)
+        elif email:
+            try:
+                user_obj = User.objects.get(email=email)
+                user = authenticate(request=request, username=user_obj.username, password=password)
+            except User.DoesNotExist:
+                user = None
+        else:
+            raise serializers.ValidationError("Musíš zadať meno alebo email.")
+
         if not user:
-            raise serializers.ValidationError("Invalid login credentials.")
-        attrs['user'] = user
+            raise serializers.ValidationError("Neplatné prihlasovacie údaje.")
+
+        attrs["user"] = user
         return attrs
+
     
 # minimalny serializer pre social login request
 class SocialLoginSerializer(serializers.Serializer):
@@ -60,7 +67,7 @@ class SocialCompleteProfileSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
 
     class Meta:
-        model = CustomUser
+        model = User
         fields = ('username', 'password')
 
     def update(self, instance, validated_data):
