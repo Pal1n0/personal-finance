@@ -73,6 +73,7 @@ INSTALLED_APPS = [
 
 REST_AUTH_SERIALIZERS = {
     'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
+    # 'REGISTER_SERIALIZER': 'users.serializers.CustomRegisterSerializer',
 }
 
 REST_FRAMEWORK = {
@@ -102,12 +103,15 @@ SIMPLE_JWT = {
 SITE_ID = 1
 
 AUTH_USER_MODEL = 'users.CustomUser'  # alebo cesta ku tvojmu modelu
+ACCOUNT_ADAPTER = 'users.adapters.CustomAccountAdapter'
 ACCOUNT_USER_MODEL_USERNAME_FIELD = "username"
 ACCOUNT_USER_MODEL_EMAIL_FIELD = "email"
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
 ACCOUNT_EMAIL_VERIFICATION = 'mandatory'  
+ACCOUNT_LOGIN_AFTER_SIGNUP = False
 ACCOUNT_USERNAME_REQUIRED = True
 ACCOUNT_LOGIN_METHODS = ["username", "email"]
 ACCOUNT_PRESERVE_USERNAME_CASING = False
@@ -117,6 +121,8 @@ LOGOUT_URL = 'account_logout'
 
 
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # onyl for dev!
+DEFAULT_FROM_EMAIL = 'webmaster@localhost'
+ACCOUNT_EMAIL_SUBJECT_PREFIX = 'personal_finance'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

@@ -2,12 +2,15 @@ import logging
 from django.shortcuts import render
 # from dj_rest_auth.views import LoginView
 from rest_framework import generics, status, permissions
-from .models import CustomUser as User
+from django.contrib.auth import get_user_model
 from .serializers import SocialCompleteProfileSerializer, SocialLoginSerializer # , CustomLoginSerializer
 from rest_framework.response import Response
+from django.http import HttpResponse
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 # from rest_framework_simplejwt.views import TokenObtainPairView
+
+User = get_user_model()
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
@@ -133,3 +136,6 @@ class LogoutView(APIView):
                 {"detail": "Successfully logged out."},
                 status=status.HTTP_200_OK
             )
+class InactiveAccountView(APIView):
+    def get(self, request):
+        return Response({"detail": "Account is inactive, check your email."}, status=403)

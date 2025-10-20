@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
+
 class CustomLoginSerializer(LoginSerializer):
     username = serializers.CharField(required=False, allow_blank=True)
     email = serializers.EmailField(required=False, allow_blank=True)

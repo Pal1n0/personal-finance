@@ -1,9 +1,13 @@
 from django.urls import reverse
+from django.core import mail
+from allauth.account.models import EmailConfirmation
 from rest_framework.test import APITestCase
 from rest_framework import status
-from users.models import CustomUser as User
+from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 from axes.utils import reset
+
+User = get_user_model()
 
 class UserAuthTests(APITestCase):
     """
@@ -35,20 +39,45 @@ class UserAuthTests(APITestCase):
             'password1': 'testpass123',
             'password2': 'testpass123'
         }
+        email=data["email"]
+        mail.outbox = []
+        self.assertEqual(User.objects.filter(username='newuser').count(), 0)
+        self.assertEqual(User.objects.filter(email='newuser@gmail.com').count(), 0)
         response = self.client.post(self.register_url, data, format='json')
+        print(response.data)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(User.objects.filter(username='newuser').exists())
+        self.assertEqual(User.objects.filter(email='newuser@gmail.com').count(), 1)
+        new_user = User.objects.get(email='newuser@gmail.com')
+        self.assertFalse(new_user.is_active)
+        self.assertEqual(len(mail.outbox), 1)
+        email_message = mail.outbox[0]
+        self.assertIn(email, email_message.to)
 
     def test_user_registration_existing_username(self):
         data = {
             'username': 'testuser',
-            'email': 'testuser@gmail.com',
+            'email': 'testuser2@gmail.com',
             'password1': 'testpass123',
             'password2': 'testpass123'
         }
+        self.assertEqual(User.objects.filter(username='testuser').count(), 1)
         response = self.client.post(self.register_url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(User.objects.filter(username='testuser').count(), 1)
+
+    def test_user_registration_existing_email(self):
+        data = {
+            'username': 'testuser2',
+            'email': 'test@example.com',
+            'password1': 'testpass123',
+            'password2': 'testpass123'
+        }
+        self.assertEqual(User.objects.filter(email='test@example.com').count(), 1)
+        response = self.client.post(self.register_url, data, format='json')
+        self.assertEqual(User.objects.filter(email='test@example.com').count(), 1)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        
 
     def test_user_registration_empty_password(self):
         data = {'username': 'newuser', 'email': 'newuser@gmail.com', 'password1': '', 'password2': ''}
