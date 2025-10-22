@@ -7851,3 +7851,1957 @@ rest_framework.exceptions.ValidationError: {'password': [ErrorDetail(string='Thi
 [WARNING] 2025-10-22 12:47:30,897 log - Bad Request: /api/users/auth/registration/
 [WARNING] 2025-10-22 12:47:31,396 log - Bad Request: /api/users/auth/registration/
 [WARNING] 2025-10-22 12:47:31,914 log - Bad Request: /api/users/auth/registration/
+[INFO] 2025-10-22 13:54:50,217 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 13:54:55,119 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-22 13:54:55,167 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:54:55,167 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 13:54:55,171 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 13:54:55,175 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 13:54:55,176 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:54:55,179 database - AXES: Getting access attempts that are newer than 2025-10-22 11:39:55.175657+00:00
+[INFO] 2025-10-22 13:54:56,355 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 13:54:56,358 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 11:39:55.175657+00:00
+[DEBUG] 2025-10-22 13:54:56,359 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 13:54:56,371 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-22 13:54:56,375 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:54:56,375 database - AXES: Getting access attempts that are newer than 2025-10-22 11:39:55.175657+00:00
+[DEBUG] 2025-10-22 13:54:56,380 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 13:54:56,380 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 13:54:56,391 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 13:54:56,393 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:54:56,394 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 13:54:56,396 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 13:54:56,396 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 13:54:56,397 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:54:56,397 database - AXES: Getting access attempts that are newer than 2025-10-22 11:39:56.396287+00:00
+[INFO] 2025-10-22 13:54:57,542 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 13:54:57,544 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 11:39:56.396287+00:00
+[DEBUG] 2025-10-22 13:54:57,544 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 13:54:57,552 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 13:54:57,553 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:54:57,554 database - AXES: Getting access attempts that are newer than 2025-10-22 11:39:56.396287+00:00
+[DEBUG] 2025-10-22 13:54:57,555 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 13:54:57,555 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 13:54:57,556 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 13:54:57,558 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:54:57,558 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 13:54:57,562 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 13:54:57,562 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 13:54:57,563 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:54:57,564 database - AXES: Getting access attempts that are newer than 2025-10-22 11:39:57.562518+00:00
+[INFO] 2025-10-22 13:54:58,795 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 13:54:58,798 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 11:39:57.562518+00:00
+[DEBUG] 2025-10-22 13:54:58,798 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 13:54:58,810 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 13:54:58,812 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:54:58,812 database - AXES: Getting access attempts that are newer than 2025-10-22 11:39:57.562518+00:00
+[DEBUG] 2025-10-22 13:54:58,816 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 13:54:58,816 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 13:54:58,816 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 13:54:58,817 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:54:58,817 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 13:54:58,819 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 13:54:58,819 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 13:54:58,820 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:54:58,820 database - AXES: Getting access attempts that are newer than 2025-10-22 11:39:58.819064+00:00
+[INFO] 2025-10-22 13:54:59,932 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 13:54:59,935 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 11:39:58.819064+00:00
+[DEBUG] 2025-10-22 13:54:59,935 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 13:54:59,941 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 13:54:59,943 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:54:59,943 database - AXES: Getting access attempts that are newer than 2025-10-22 11:39:58.819064+00:00
+[DEBUG] 2025-10-22 13:54:59,946 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 13:54:59,946 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 13:54:59,947 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 13:54:59,948 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:54:59,948 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 13:54:59,950 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 13:54:59,950 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 13:54:59,950 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:54:59,950 database - AXES: Getting access attempts that are newer than 2025-10-22 11:39:59.950897+00:00
+[INFO] 2025-10-22 13:55:01,160 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 13:55:01,163 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 11:39:59.950897+00:00
+[DEBUG] 2025-10-22 13:55:01,163 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 13:55:01,168 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 13:55:01,169 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:55:01,171 database - AXES: Getting access attempts that are newer than 2025-10-22 11:39:59.950897+00:00
+[WARNING] 2025-10-22 13:55:01,172 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-22 13:55:01,174 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 13:55:01,174 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 13:55:01,174 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 13:55:01,175 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:55:01,175 serializers - Validation attrs: {'username': 'testuser'}
+[WARNING] 2025-10-22 13:55:01,177 log - Forbidden: /api/users/auth/login
+[INFO] 2025-10-22 13:55:01,753 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:55:01,753 serializers - Validation attrs: {'username': '', 'email': 'test@example.com'}
+[INFO] 2025-10-22 13:55:01,757 serializers - Attempting email authentication: test@example.com
+[DEBUG] 2025-10-22 13:55:01,759 serializers - User found by email: testuser
+[DEBUG] 2025-10-22 13:55:01,759 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 13:55:01,759 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:55:01,759 database - AXES: Getting access attempts that are newer than 2025-10-22 11:40:01.759521+00:00
+[DEBUG] 2025-10-22 13:55:02,279 serializers - Email authentication result: Success
+[INFO] 2025-10-22 13:55:02,280 serializers - Authentication successful for user: testuser (ID: 2)
+[INFO] 2025-10-22 13:55:03,359 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:55:03,360 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 13:55:03,362 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 13:55:03,362 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 13:55:03,363 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:55:03,363 database - AXES: Getting access attempts that are newer than 2025-10-22 11:40:03.362780+00:00
+[DEBUG] 2025-10-22 13:55:05,183 serializers - Username authentication result: Success
+[INFO] 2025-10-22 13:55:05,184 serializers - Authentication successful for user: testuser (ID: 3)
+[INFO] 2025-10-22 13:55:05,970 views - Logout endpoint called
+[DEBUG] 2025-10-22 13:55:05,971 views - Logout request data: {}
+[DEBUG] 2025-10-22 13:55:05,971 views - Refresh token received: None...
+[INFO] 2025-10-22 13:55:05,971 views - Logout completed successfully
+[INFO] 2025-10-22 13:55:06,606 views - Logout endpoint called
+[DEBUG] 2025-10-22 13:55:06,606 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc2MTIyMDUwNiwiaWF0IjoxNzYxMTM0MTA2LCJqdGkiOiJkMDJjYWFhN2RiNTQ0Zjg1YTg4Y2QxYzJkYTBlNGVhMyIsInVzZXJfaWQiOiI1In0.m_V93_QWAGjxjlVAJHHWRbEvvLzB_6xCWot7FAZG3Js'}
+[DEBUG] 2025-10-22 13:55:06,606 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-22 13:55:06,607 views - Attempting to blacklist token
+[WARNING] 2025-10-22 13:55:06,613 views - Token blacklisting failed: Token is blacklisted
+[DEBUG] 2025-10-22 13:55:06,613 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 72, in __init__
+    self.verify()
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 268, in verify
+    self.check_blacklist()
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 280, in check_blacklist
+    raise TokenError(_("Token is blacklisted"))
+rest_framework_simplejwt.exceptions.TokenError: Token is blacklisted
+[INFO] 2025-10-22 13:55:06,616 views - Logout completed successfully
+[INFO] 2025-10-22 13:55:07,284 views - Logout endpoint called
+[DEBUG] 2025-10-22 13:55:07,284 views - Logout request data: {}
+[DEBUG] 2025-10-22 13:55:07,284 views - Refresh token received: None...
+[INFO] 2025-10-22 13:55:07,285 views - Logout completed successfully
+[INFO] 2025-10-22 13:55:07,846 views - Logout endpoint called
+[DEBUG] 2025-10-22 13:55:07,846 views - Logout request data: {'refresh': 'completely_invalid_token_123'}
+[DEBUG] 2025-10-22 13:55:07,846 views - Refresh token received: completely_invalid_t...
+[INFO] 2025-10-22 13:55:07,846 views - Logout completed successfully
+[INFO] 2025-10-22 13:55:08,346 views - Logout endpoint called
+[DEBUG] 2025-10-22 13:55:08,346 views - Logout request data: {'refresh': 'malformed.token'}
+[DEBUG] 2025-10-22 13:55:08,346 views - Refresh token received: malformed.token...
+[INFO] 2025-10-22 13:55:08,346 views - Attempting to blacklist token
+[WARNING] 2025-10-22 13:55:08,346 views - Token blacklisting failed: Token is invalid
+[DEBUG] 2025-10-22 13:55:08,346 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 270, in _load
+    header_segment, payload_segment = signing_input.split(b".", 1)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: not enough values to unpack (expected 2, got 1)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 160, in decode
+    return jwt.decode(
+           ^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 222, in decode
+    decoded = self.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 156, in decode_complete
+    decoded = api_jws.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 209, in decode_complete
+    payload, signing_input, header, signature = self._load(jwt)
+                                                ^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 272, in _load
+    raise DecodeError("Not enough segments") from err
+jwt.exceptions.DecodeError: Not enough segments
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 65, in __init__
+    self.payload = token_backend.decode(token, verify=verify)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 177, in decode
+    raise TokenBackendError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenBackendError: Token is invalid
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 69, in __init__
+    raise TokenError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenError: Token is invalid
+[INFO] 2025-10-22 13:55:08,362 views - Logout completed successfully
+[INFO] 2025-10-22 13:55:08,847 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:55:08,848 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 13:55:08,850 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 13:55:08,850 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 13:55:08,850 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:55:08,850 database - AXES: Getting access attempts that are newer than 2025-10-22 11:40:08.850840+00:00
+[DEBUG] 2025-10-22 13:55:09,426 serializers - Username authentication result: Success
+[INFO] 2025-10-22 13:55:09,426 serializers - Authentication successful for user: testuser (ID: 9)
+[INFO] 2025-10-22 13:55:09,431 views - Logout endpoint called
+[DEBUG] 2025-10-22 13:55:09,431 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTcwMDAwMDAwMCwiaWF0IjoxNzAwMDAwMDAwLCJqdGkiOiJmYWtlX2lkIiwidXNlcl9pZCI6OTk5OX0.fake_signature_that_looks_real_but_is_invalid'}
+[DEBUG] 2025-10-22 13:55:09,431 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-22 13:55:09,431 views - Attempting to blacklist token
+[WARNING] 2025-10-22 13:55:09,431 views - Token blacklisting failed: Token is invalid
+[DEBUG] 2025-10-22 13:55:09,432 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 293, in _load
+    signature = base64url_decode(crypto_segment)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\utils.py", line 33, in base64url_decode
+    return base64.urlsafe_b64decode(input_bytes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\base64.py", line 134, in urlsafe_b64decode
+    return b64decode(s)
+           ^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\base64.py", line 88, in b64decode
+    return binascii.a2b_base64(s, strict_mode=validate)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+binascii.Error: Invalid base64-encoded string: number of data characters (45) cannot be 1 more than a multiple of 4
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 160, in decode
+    return jwt.decode(
+           ^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 222, in decode
+    decoded = self.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 156, in decode_complete
+    decoded = api_jws.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 209, in decode_complete
+    payload, signing_input, header, signature = self._load(jwt)
+                                                ^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 295, in _load
+    raise DecodeError("Invalid crypto padding") from err
+jwt.exceptions.DecodeError: Invalid crypto padding
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 65, in __init__
+    self.payload = token_backend.decode(token, verify=verify)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 177, in decode
+    raise TokenBackendError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenBackendError: Token is invalid
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 69, in __init__
+    raise TokenError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenError: Token is invalid
+[INFO] 2025-10-22 13:55:09,444 views - Logout completed successfully
+[INFO] 2025-10-22 13:55:09,990 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:55:09,991 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 13:55:10,002 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 13:55:10,002 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 13:55:10,002 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:55:10,002 database - AXES: Getting access attempts that are newer than 2025-10-22 11:40:10.002479+00:00
+[DEBUG] 2025-10-22 13:55:10,499 serializers - Username authentication result: Success
+[INFO] 2025-10-22 13:55:10,499 serializers - Authentication successful for user: testuser (ID: 10)
+[INFO] 2025-10-22 13:55:10,503 views - Logout endpoint called
+[DEBUG] 2025-10-22 13:55:10,504 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc2MTIyMDUxMCwiaWF0IjoxNzYxMTM0MTEwLCJqdGkiOiJlNTU0ZDE1MzFlMmU0NTljYTE0ZDkzOWQyMjAxNzY0OCIsInVzZXJfaWQiOiIxMCJ9.sIF9n9TL34H_v0oBDqkcNIDmkF5OcIFmIAkUIdPbn98'}
+[DEBUG] 2025-10-22 13:55:10,504 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-22 13:55:10,504 views - Attempting to blacklist token
+[INFO] 2025-10-22 13:55:10,524 views - Token successfully blacklisted
+[INFO] 2025-10-22 13:55:10,525 views - Logout completed successfully
+[WARNING] 2025-10-22 13:55:11,083 log - Unauthorized: /api/users/token/refresh/
+[INFO] 2025-10-22 13:55:12,143 views - Social profile completion attempt - user: 14
+[DEBUG] 2025-10-22 13:55:12,143 views - Profile completion data: {'username': 'socialuser3'}
+[INFO] 2025-10-22 13:55:12,143 views - Social complete profile - user: 14
+[DEBUG] 2025-10-22 13:55:12,143 serializers - Validating username: socialuser3
+[ERROR] 2025-10-22 13:55:12,143 views - Profile completion failed - user: 14, error: {'password': [ErrorDetail(string='This field is required.', code='required')]}
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 83, in update
+    response = super().update(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\mixins.py", line 67, in update
+    serializer.is_valid(raise_exception=True)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\serializers.py", line 233, in is_valid
+    raise ValidationError(self.errors)
+rest_framework.exceptions.ValidationError: {'password': [ErrorDetail(string='This field is required.', code='required')]}
+[WARNING] 2025-10-22 13:55:12,156 log - Bad Request: /api/users/social-complete-profile/
+[INFO] 2025-10-22 13:55:12,883 views - Social profile completion attempt - user: 16
+[DEBUG] 2025-10-22 13:55:12,883 views - Profile completion data: {'username': 'socialuser2', 'password': 'StrongPass!23'}
+[INFO] 2025-10-22 13:55:12,883 views - Social complete profile - user: 16
+[DEBUG] 2025-10-22 13:55:12,884 serializers - Validating username: socialuser2
+[INFO] 2025-10-22 13:55:12,900 serializers - SocialCompleteProfileSerializer validation started
+[DEBUG] 2025-10-22 13:55:12,901 serializers - Profile completion attrs: {'username': 'socialuser2'}
+[INFO] 2025-10-22 13:55:12,901 serializers - Updating social profile for user ID: 16
+[DEBUG] 2025-10-22 13:55:12,901 serializers - Update data - username: socialuser2
+[INFO] 2025-10-22 13:55:13,784 serializers - Saving profile completion for user: socialuser2
+[INFO] 2025-10-22 13:55:13,795 serializers - Social profile completed successfully
+[INFO] 2025-10-22 13:55:13,796 views - Profile completed successfully - user: 16
+[INFO] 2025-10-22 13:55:14,775 views - Social login attempt
+[DEBUG] 2025-10-22 13:55:14,776 views - Social login data: {'email': 'new_social@example.com'}
+[DEBUG] 2025-10-22 13:55:14,776 serializers - SocialLoginSerializer validating email: new_social@example.com
+[INFO] 2025-10-22 13:55:14,776 serializers - SocialLoginSerializer validation started
+[DEBUG] 2025-10-22 13:55:14,776 serializers - Social login attrs: {'email': 'new_social@example.com'}
+[INFO] 2025-10-22 13:55:14,776 views - Social login processing for email: new_social@example.com
+[INFO] 2025-10-22 13:55:14,784 views - Social login created new user - user_id: 18
+[WARNING] 2025-10-22 13:55:14,784 tokens - Creating token for inactive user: 18. If this is not intentional, consider checking the user's status before calling the `for_user` method.
+[INFO] 2025-10-22 13:55:14,787 views - Social login tokens generated successfully
+[INFO] 2025-10-22 13:55:15,386 views - Social login attempt
+[DEBUG] 2025-10-22 13:55:15,386 views - Social login data: {'email': 'test@example.com'}
+[DEBUG] 2025-10-22 13:55:15,387 serializers - SocialLoginSerializer validating email: test@example.com
+[INFO] 2025-10-22 13:55:15,387 serializers - SocialLoginSerializer validation started
+[DEBUG] 2025-10-22 13:55:15,387 serializers - Social login attrs: {'email': 'test@example.com'}
+[INFO] 2025-10-22 13:55:15,387 views - Social login processing for email: test@example.com
+[INFO] 2025-10-22 13:55:15,390 views - Social login found existing user - user_id: 19
+[INFO] 2025-10-22 13:55:15,392 views - Social login tokens generated successfully
+[INFO] 2025-10-22 13:55:15,894 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:55:15,895 serializers - Validation attrs: {'username': '', 'email': 'nouser@example.com'}
+[INFO] 2025-10-22 13:55:15,905 serializers - Attempting email authentication: nouser@example.com
+[WARNING] 2025-10-22 13:55:15,907 serializers - Email not found in database: nouser@example.com
+[WARNING] 2025-10-22 13:55:15,907 serializers - Authentication failed for username: , email: nouser@example.com
+[WARNING] 2025-10-22 13:55:15,908 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 13:55:16,396 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:55:16,396 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 13:55:16,399 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 13:55:16,399 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 13:55:16,399 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:55:16,400 database - AXES: Getting access attempts that are newer than 2025-10-22 11:40:16.399410+00:00
+[DEBUG] 2025-10-22 13:55:16,910 serializers - Username authentication result: Success
+[INFO] 2025-10-22 13:55:16,910 serializers - Authentication successful for user: testuser (ID: 21)
+[INFO] 2025-10-22 13:55:17,463 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 13:55:17,463 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 13:55:17,465 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 13:55:17,465 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 13:55:17,465 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:55:17,465 database - AXES: Getting access attempts that are newer than 2025-10-22 11:40:17.465820+00:00
+[INFO] 2025-10-22 13:55:19,127 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 13:55:19,130 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 11:40:17.465820+00:00
+[DEBUG] 2025-10-22 13:55:19,132 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 13:55:19,141 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-22 13:55:19,142 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 13:55:19,144 database - AXES: Getting access attempts that are newer than 2025-10-22 11:40:17.465820+00:00
+[DEBUG] 2025-10-22 13:55:19,146 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 13:55:19,146 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 13:55:19,146 log - Unauthorized: /api/users/auth/login
+[WARNING] 2025-10-22 13:55:19,849 log - Bad Request: /api/users/auth/registration/
+[WARNING] 2025-10-22 13:55:20,378 log - Bad Request: /api/users/auth/registration/
+[WARNING] 2025-10-22 13:55:20,872 log - Bad Request: /api/users/auth/registration/
+[INFO] 2025-10-22 13:57:37,203 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:08:25,913 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:08:50,765 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:12:56,981 apps - AXES: BEGIN version 8.0.0, blocking by username
+[ERROR] 2025-10-22 14:13:01,825 log - Internal Server Error: /api/users/auth/registration/
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\query.py", line 946, in get_or_create
+    return self.get(**kwargs), False
+           ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\query.py", line 633, in get
+    raise self.model.DoesNotExist(
+allauth.account.models.EmailConfirmation.DoesNotExist: EmailConfirmation matching query does not exist.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+psycopg2.errors.UniqueViolation: duplicate key value violates unique constraint "account_emailconfirmation_key_key"
+DETAIL:  Key (key)=() already exists.
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\decorators\csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\decorators\debug.py", line 143, in sensitive_post_parameters_wrapper
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\registration\views.py", line 47, in dispatch
+    return super().dispatch(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 515, in dispatch
+    response = self.handle_exception(exc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 475, in handle_exception
+    self.raise_uncaught_exception(exc)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 486, in raise_uncaught_exception
+    raise exc
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\generics.py", line 194, in post
+    return self.create(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\registration\views.py", line 68, in create
+    user = self.perform_create(serializer)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\registration\views.py", line 84, in perform_create
+    user = serializer.save(self.request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\registration\serializers.py", line 277, in save
+    user.save()
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\contrib\auth\base_user.py", line 65, in save
+    super().save(*args, **kwargs)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\base.py", line 902, in save
+    self.save_base(
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\base.py", line 1023, in save_base
+    post_save.send(
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\dispatch\dispatcher.py", line 189, in send
+    response = receiver(signal=self, sender=sender, **named)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\signals.py", line 22, in ensure_email_confirmation
+    EmailConfirmation.objects.get_or_create(email_address=email_address)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\query.py", line 953, in get_or_create
+    return self.create(**params), True
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\query.py", line 663, in create
+    obj.save(force_insert=True, using=self.db)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\base.py", line 902, in save
+    self.save_base(
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\base.py", line 1008, in save_base
+    updated = self._save_table(
+              ^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\base.py", line 1169, in _save_table
+    results = self._do_insert(
+              ^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\base.py", line 1210, in _do_insert
+    return manager._insert(
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\query.py", line 1868, in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\models\sql\compiler.py", line 1882, in execute_sql
+    cursor.execute(sql, params)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\backends\utils.py", line 79, in execute
+    return self._execute_with_wrappers(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\backends\utils.py", line 92, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\backends\utils.py", line 100, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+django.db.utils.IntegrityError: duplicate key value violates unique constraint "account_emailconfirmation_key_key"
+DETAIL:  Key (key)=() already exists.
+
+[INFO] 2025-10-22 14:14:36,566 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:15:15,336 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:15:35,493 apps - AXES: BEGIN version 8.0.0, blocking by username
+[ERROR] 2025-10-22 14:15:40,774 log - Internal Server Error: /api/users/auth/registration/
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\decorators\csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\decorators\debug.py", line 143, in sensitive_post_parameters_wrapper
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\registration\views.py", line 47, in dispatch
+    return super().dispatch(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 515, in dispatch
+    response = self.handle_exception(exc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 475, in handle_exception
+    self.raise_uncaught_exception(exc)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 486, in raise_uncaught_exception
+    raise exc
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\generics.py", line 194, in post
+    return self.create(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\registration\views.py", line 68, in create
+    user = self.perform_create(serializer)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\registration\views.py", line 84, in perform_create
+    user = serializer.save(self.request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\registration\serializers.py", line 279, in save
+    setup_user_email(request, user, [])
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\allauth\account\utils.py", line 193, in setup_user_email
+    assert not EmailAddress.objects.filter(user=user).exists()  # nosec
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError
+[INFO] 2025-10-22 14:17:43,989 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:19:34,855 apps - AXES: BEGIN version 8.0.0, blocking by username
+[ERROR] 2025-10-22 14:19:39,032 log - Internal Server Error: /api/users/auth/registration/
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\decorators\csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\utils\decorators.py", line 48, in _wrapper
+    return bound_method(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\decorators\debug.py", line 143, in sensitive_post_parameters_wrapper
+    return view(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\registration\views.py", line 47, in dispatch
+    return super().dispatch(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 515, in dispatch
+    response = self.handle_exception(exc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 475, in handle_exception
+    self.raise_uncaught_exception(exc)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 486, in raise_uncaught_exception
+    raise exc
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\generics.py", line 194, in post
+    return self.create(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\registration\views.py", line 67, in create
+    serializer.is_valid(raise_exception=True)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\serializers.py", line 225, in is_valid
+    self._validated_data = self.run_validation(self.initial_data)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\serializers.py", line 444, in run_validation
+    value = self.to_internal_value(data)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\serializers.py", line 503, in to_internal_value
+    validated_value = validate_method(validated_value)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\dj_rest_auth\registration\serializers.py", line 235, in validate_username
+    username = get_adapter().clean_username(username)
+               ^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\allauth\account\adapter.py", line 975, in get_adapter
+    return import_attribute(app_settings.ADAPTER)(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\allauth\utils.py", line 118, in import_attribute
+    ret = getattr(importlib.import_module(pkg), attr)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\importlib\__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1324, in _find_and_load_unlocked
+ModuleNotFoundError: No module named 'users.adapters'
+[INFO] 2025-10-22 14:20:41,376 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:22:08,662 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:22:15,978 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-22 14:22:16,060 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:16,060 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 14:22:16,064 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 14:22:16,068 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 14:22:16,070 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:16,073 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:16.068892+00:00
+[INFO] 2025-10-22 14:22:19,669 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 14:22:19,673 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 12:07:16.068892+00:00
+[DEBUG] 2025-10-22 14:22:19,674 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 14:22:19,691 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-22 14:22:19,693 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:19,694 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:16.068892+00:00
+[DEBUG] 2025-10-22 14:22:19,699 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 14:22:19,699 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 14:22:19,708 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 14:22:19,718 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:19,719 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 14:22:19,727 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 14:22:19,728 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 14:22:19,730 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:19,730 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:19.728995+00:00
+[INFO] 2025-10-22 14:22:23,911 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 14:22:23,953 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 12:07:19.728995+00:00
+[DEBUG] 2025-10-22 14:22:23,953 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 14:22:23,991 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 14:22:23,993 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:23,994 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:19.728995+00:00
+[DEBUG] 2025-10-22 14:22:23,999 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 14:22:24,000 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 14:22:24,002 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 14:22:24,005 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:24,005 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 14:22:24,009 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 14:22:24,009 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 14:22:24,009 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:24,010 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:24.009704+00:00
+[INFO] 2025-10-22 14:22:26,246 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 14:22:26,250 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 12:07:24.009704+00:00
+[DEBUG] 2025-10-22 14:22:26,250 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 14:22:26,294 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 14:22:26,295 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:26,296 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:24.009704+00:00
+[DEBUG] 2025-10-22 14:22:26,299 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 14:22:26,299 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 14:22:26,300 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 14:22:26,302 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:26,302 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 14:22:26,304 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 14:22:26,305 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 14:22:26,305 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:26,305 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:26.305818+00:00
+[INFO] 2025-10-22 14:22:27,684 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 14:22:27,687 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 12:07:26.305818+00:00
+[DEBUG] 2025-10-22 14:22:27,687 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 14:22:27,694 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 14:22:27,695 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:27,696 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:26.305818+00:00
+[DEBUG] 2025-10-22 14:22:27,698 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 14:22:27,699 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 14:22:27,699 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 14:22:27,700 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:27,701 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 14:22:27,703 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 14:22:27,703 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 14:22:27,703 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:27,704 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:27.703643+00:00
+[INFO] 2025-10-22 14:22:29,365 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 14:22:29,369 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 12:07:27.703643+00:00
+[DEBUG] 2025-10-22 14:22:29,370 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 14:22:29,384 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 14:22:29,387 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:29,389 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:27.703643+00:00
+[WARNING] 2025-10-22 14:22:29,394 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-22 14:22:29,394 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 14:22:29,394 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 14:22:29,395 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 14:22:29,397 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:29,398 serializers - Validation attrs: {'username': 'testuser'}
+[WARNING] 2025-10-22 14:22:29,402 log - Forbidden: /api/users/auth/login
+[INFO] 2025-10-22 14:22:31,031 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:31,032 serializers - Validation attrs: {'username': '', 'email': 'test@example.com'}
+[INFO] 2025-10-22 14:22:31,041 serializers - Attempting email authentication: test@example.com
+[DEBUG] 2025-10-22 14:22:31,046 serializers - User found by email: testuser
+[DEBUG] 2025-10-22 14:22:31,046 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 14:22:31,047 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:31,047 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:31.046925+00:00
+[DEBUG] 2025-10-22 14:22:32,220 serializers - Email authentication result: Success
+[INFO] 2025-10-22 14:22:32,220 serializers - Authentication successful for user: testuser (ID: 2)
+[INFO] 2025-10-22 14:22:33,608 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:33,608 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 14:22:33,613 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 14:22:33,614 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 14:22:33,614 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:33,615 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:33.614616+00:00
+[DEBUG] 2025-10-22 14:22:34,828 serializers - Username authentication result: Success
+[INFO] 2025-10-22 14:22:34,829 serializers - Authentication successful for user: testuser (ID: 3)
+[INFO] 2025-10-22 14:22:35,944 views - Logout endpoint called
+[DEBUG] 2025-10-22 14:22:35,945 views - Logout request data: {}
+[DEBUG] 2025-10-22 14:22:35,945 views - Refresh token received: None...
+[INFO] 2025-10-22 14:22:35,945 views - Logout completed successfully
+[INFO] 2025-10-22 14:22:36,802 views - Logout endpoint called
+[DEBUG] 2025-10-22 14:22:36,802 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc2MTIyMjE1NiwiaWF0IjoxNzYxMTM1NzU2LCJqdGkiOiI5Y2JiMDhlYWM0ZjI0YTcyODAyMGYwM2M1OTdlZWRhNyIsInVzZXJfaWQiOiI1In0.KYd_bFFTY1NiXP9nAWGx484HAAjN08z72L3GIvLB02E'}
+[DEBUG] 2025-10-22 14:22:36,802 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-22 14:22:36,802 views - Attempting to blacklist token
+[WARNING] 2025-10-22 14:22:36,805 views - Token blacklisting failed: Token is blacklisted
+[DEBUG] 2025-10-22 14:22:36,805 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 72, in __init__
+    self.verify()
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 268, in verify
+    self.check_blacklist()
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 280, in check_blacklist
+    raise TokenError(_("Token is blacklisted"))
+rest_framework_simplejwt.exceptions.TokenError: Token is blacklisted
+[INFO] 2025-10-22 14:22:36,809 views - Logout completed successfully
+[INFO] 2025-10-22 14:22:37,583 views - Logout endpoint called
+[DEBUG] 2025-10-22 14:22:37,584 views - Logout request data: {}
+[DEBUG] 2025-10-22 14:22:37,584 views - Refresh token received: None...
+[INFO] 2025-10-22 14:22:37,584 views - Logout completed successfully
+[INFO] 2025-10-22 14:22:38,363 views - Logout endpoint called
+[DEBUG] 2025-10-22 14:22:38,363 views - Logout request data: {'refresh': 'completely_invalid_token_123'}
+[DEBUG] 2025-10-22 14:22:38,363 views - Refresh token received: completely_invalid_t...
+[INFO] 2025-10-22 14:22:38,363 views - Logout completed successfully
+[INFO] 2025-10-22 14:22:38,988 views - Logout endpoint called
+[DEBUG] 2025-10-22 14:22:38,988 views - Logout request data: {'refresh': 'malformed.token'}
+[DEBUG] 2025-10-22 14:22:38,988 views - Refresh token received: malformed.token...
+[INFO] 2025-10-22 14:22:38,989 views - Attempting to blacklist token
+[WARNING] 2025-10-22 14:22:38,989 views - Token blacklisting failed: Token is invalid
+[DEBUG] 2025-10-22 14:22:38,989 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 270, in _load
+    header_segment, payload_segment = signing_input.split(b".", 1)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: not enough values to unpack (expected 2, got 1)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 160, in decode
+    return jwt.decode(
+           ^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 222, in decode
+    decoded = self.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 156, in decode_complete
+    decoded = api_jws.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 209, in decode_complete
+    payload, signing_input, header, signature = self._load(jwt)
+                                                ^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 272, in _load
+    raise DecodeError("Not enough segments") from err
+jwt.exceptions.DecodeError: Not enough segments
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 65, in __init__
+    self.payload = token_backend.decode(token, verify=verify)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 177, in decode
+    raise TokenBackendError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenBackendError: Token is invalid
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 69, in __init__
+    raise TokenError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenError: Token is invalid
+[INFO] 2025-10-22 14:22:38,995 views - Logout completed successfully
+[INFO] 2025-10-22 14:22:39,549 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:39,549 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 14:22:39,551 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 14:22:39,552 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 14:22:39,552 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:39,552 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:39.552889+00:00
+[DEBUG] 2025-10-22 14:22:40,296 serializers - Username authentication result: Success
+[INFO] 2025-10-22 14:22:40,296 serializers - Authentication successful for user: testuser (ID: 9)
+[INFO] 2025-10-22 14:22:40,301 views - Logout endpoint called
+[DEBUG] 2025-10-22 14:22:40,302 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTcwMDAwMDAwMCwiaWF0IjoxNzAwMDAwMDAwLCJqdGkiOiJmYWtlX2lkIiwidXNlcl9pZCI6OTk5OX0.fake_signature_that_looks_real_but_is_invalid'}
+[DEBUG] 2025-10-22 14:22:40,302 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-22 14:22:40,302 views - Attempting to blacklist token
+[WARNING] 2025-10-22 14:22:40,302 views - Token blacklisting failed: Token is invalid
+[DEBUG] 2025-10-22 14:22:40,302 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 293, in _load
+    signature = base64url_decode(crypto_segment)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\utils.py", line 33, in base64url_decode
+    return base64.urlsafe_b64decode(input_bytes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\base64.py", line 134, in urlsafe_b64decode
+    return b64decode(s)
+           ^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\base64.py", line 88, in b64decode
+    return binascii.a2b_base64(s, strict_mode=validate)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+binascii.Error: Invalid base64-encoded string: number of data characters (45) cannot be 1 more than a multiple of 4
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 160, in decode
+    return jwt.decode(
+           ^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 222, in decode
+    decoded = self.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 156, in decode_complete
+    decoded = api_jws.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 209, in decode_complete
+    payload, signing_input, header, signature = self._load(jwt)
+                                                ^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 295, in _load
+    raise DecodeError("Invalid crypto padding") from err
+jwt.exceptions.DecodeError: Invalid crypto padding
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 65, in __init__
+    self.payload = token_backend.decode(token, verify=verify)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 177, in decode
+    raise TokenBackendError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenBackendError: Token is invalid
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 69, in __init__
+    raise TokenError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenError: Token is invalid
+[INFO] 2025-10-22 14:22:40,309 views - Logout completed successfully
+[INFO] 2025-10-22 14:22:40,949 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:40,950 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 14:22:40,953 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 14:22:40,953 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 14:22:40,953 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:40,954 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:40.953131+00:00
+[DEBUG] 2025-10-22 14:22:41,610 serializers - Username authentication result: Success
+[INFO] 2025-10-22 14:22:41,610 serializers - Authentication successful for user: testuser (ID: 10)
+[INFO] 2025-10-22 14:22:41,616 views - Logout endpoint called
+[DEBUG] 2025-10-22 14:22:41,616 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc2MTIyMjE2MSwiaWF0IjoxNzYxMTM1NzYxLCJqdGkiOiIwZDRhYzMwZGNlNjI0MTBiYTZhYTE2OWFlNDQ1YzU2YyIsInVzZXJfaWQiOiIxMCJ9.PwQx5-FU01dB9kZf-rPQScXzmz4yLWg71Z8YP55GV-0'}
+[DEBUG] 2025-10-22 14:22:41,616 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-22 14:22:41,616 views - Attempting to blacklist token
+[INFO] 2025-10-22 14:22:41,630 views - Token successfully blacklisted
+[INFO] 2025-10-22 14:22:41,630 views - Logout completed successfully
+[WARNING] 2025-10-22 14:22:42,253 log - Unauthorized: /api/users/token/refresh/
+[INFO] 2025-10-22 14:22:43,689 views - Social profile completion attempt - user: 14
+[DEBUG] 2025-10-22 14:22:43,689 views - Profile completion data: {'username': 'socialuser3'}
+[INFO] 2025-10-22 14:22:43,689 views - Social complete profile - user: 14
+[DEBUG] 2025-10-22 14:22:43,690 serializers - Validating username: socialuser3
+[ERROR] 2025-10-22 14:22:43,690 views - Profile completion failed - user: 14, error: {'password': [ErrorDetail(string='This field is required.', code='required')]}
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 83, in update
+    response = super().update(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\mixins.py", line 67, in update
+    serializer.is_valid(raise_exception=True)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\serializers.py", line 233, in is_valid
+    raise ValidationError(self.errors)
+rest_framework.exceptions.ValidationError: {'password': [ErrorDetail(string='This field is required.', code='required')]}
+[WARNING] 2025-10-22 14:22:43,695 log - Bad Request: /api/users/social-complete-profile/
+[INFO] 2025-10-22 14:22:44,358 views - Social profile completion attempt - user: 16
+[DEBUG] 2025-10-22 14:22:44,358 views - Profile completion data: {'username': 'socialuser2', 'password': 'StrongPass!23'}
+[INFO] 2025-10-22 14:22:44,358 views - Social complete profile - user: 16
+[DEBUG] 2025-10-22 14:22:44,359 serializers - Validating username: socialuser2
+[INFO] 2025-10-22 14:22:44,380 serializers - SocialCompleteProfileSerializer validation started
+[DEBUG] 2025-10-22 14:22:44,381 serializers - Profile completion attrs: {'username': 'socialuser2'}
+[INFO] 2025-10-22 14:22:44,381 serializers - Updating social profile for user ID: 16
+[DEBUG] 2025-10-22 14:22:44,381 serializers - Update data - username: socialuser2
+[INFO] 2025-10-22 14:22:44,925 serializers - Saving profile completion for user: socialuser2
+[INFO] 2025-10-22 14:22:44,929 serializers - Social profile completed successfully
+[INFO] 2025-10-22 14:22:44,929 views - Profile completed successfully - user: 16
+[INFO] 2025-10-22 14:22:45,524 views - Social login attempt
+[DEBUG] 2025-10-22 14:22:45,525 views - Social login data: {'email': 'new_social@example.com'}
+[DEBUG] 2025-10-22 14:22:45,525 serializers - SocialLoginSerializer validating email: new_social@example.com
+[INFO] 2025-10-22 14:22:45,525 serializers - SocialLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:45,525 serializers - Social login attrs: {'email': 'new_social@example.com'}
+[INFO] 2025-10-22 14:22:45,525 views - Social login processing for email: new_social@example.com
+[INFO] 2025-10-22 14:22:45,531 views - Social login created new user - user_id: 18
+[WARNING] 2025-10-22 14:22:45,531 tokens - Creating token for inactive user: 18. If this is not intentional, consider checking the user's status before calling the `for_user` method.
+[INFO] 2025-10-22 14:22:45,533 views - Social login tokens generated successfully
+[INFO] 2025-10-22 14:22:46,195 views - Social login attempt
+[DEBUG] 2025-10-22 14:22:46,196 views - Social login data: {'email': 'test@example.com'}
+[DEBUG] 2025-10-22 14:22:46,197 serializers - SocialLoginSerializer validating email: test@example.com
+[INFO] 2025-10-22 14:22:46,198 serializers - SocialLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:46,198 serializers - Social login attrs: {'email': 'test@example.com'}
+[INFO] 2025-10-22 14:22:46,198 views - Social login processing for email: test@example.com
+[INFO] 2025-10-22 14:22:46,200 views - Social login found existing user - user_id: 19
+[INFO] 2025-10-22 14:22:46,203 views - Social login tokens generated successfully
+[INFO] 2025-10-22 14:22:46,860 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:46,860 serializers - Validation attrs: {'username': '', 'email': 'nouser@example.com'}
+[INFO] 2025-10-22 14:22:46,862 serializers - Attempting email authentication: nouser@example.com
+[WARNING] 2025-10-22 14:22:46,864 serializers - Email not found in database: nouser@example.com
+[WARNING] 2025-10-22 14:22:46,864 serializers - Authentication failed for username: , email: nouser@example.com
+[WARNING] 2025-10-22 14:22:46,865 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 14:22:47,625 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:47,625 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 14:22:47,630 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 14:22:47,631 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 14:22:47,631 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:47,632 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:47.631996+00:00
+[DEBUG] 2025-10-22 14:22:49,181 serializers - Username authentication result: Success
+[INFO] 2025-10-22 14:22:49,181 serializers - Authentication successful for user: testuser (ID: 21)
+[INFO] 2025-10-22 14:22:50,496 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 14:22:50,496 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 14:22:50,499 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 14:22:50,499 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 14:22:50,500 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:50,500 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:50.499487+00:00
+[INFO] 2025-10-22 14:22:51,820 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 14:22:51,822 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 12:07:50.499487+00:00
+[DEBUG] 2025-10-22 14:22:51,823 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 14:22:51,833 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-22 14:22:51,834 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 14:22:51,835 database - AXES: Getting access attempts that are newer than 2025-10-22 12:07:50.499487+00:00
+[DEBUG] 2025-10-22 14:22:51,837 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 14:22:51,837 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 14:22:51,837 log - Unauthorized: /api/users/auth/login
+[WARNING] 2025-10-22 14:22:52,574 log - Bad Request: /api/users/auth/registration/
+[WARNING] 2025-10-22 14:22:53,363 log - Bad Request: /api/users/auth/registration/
+[WARNING] 2025-10-22 14:22:54,522 log - Bad Request: /api/users/auth/registration/
+[INFO] 2025-10-22 14:27:59,335 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:29:47,594 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:31:13,261 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:33:01,020 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:33:22,496 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:33:38,181 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:33:53,240 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:34:21,009 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:35:04,483 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:35:54,937 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:36:06,472 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:36:15,815 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:37:05,529 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:37:27,058 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:38:25,880 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:38:38,805 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:39:06,762 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:40:04,091 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:40:11,225 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:42:40,943 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:42:46,884 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:42:59,836 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:43:44,251 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:44:09,353 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:44:52,495 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:46:51,582 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:51:05,871 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:51:57,126 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:52:15,862 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 14:52:32,000 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 16:50:06,867 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 16:58:45,697 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 16:59:18,801 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:01:23,260 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:03:54,986 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:05:53,705 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:10:26,213 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:13:01,454 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:13:36,666 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:14:42,155 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:14:58,164 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:15:20,442 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:30:04,548 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:30:09,921 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-22 17:30:09,954 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:09,954 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:30:09,960 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:30:09,970 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:30:09,976 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:09,991 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:09.970838+00:00
+[INFO] 2025-10-22 17:30:11,083 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:30:11,088 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:15:09.970838+00:00
+[DEBUG] 2025-10-22 17:30:11,088 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:30:11,100 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-22 17:30:11,103 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:11,104 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:09.970838+00:00
+[DEBUG] 2025-10-22 17:30:11,106 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:30:11,106 serializers - Authentication failed for username: testuser, email: 
+[INFO] 2025-10-22 17:30:11,106 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:30:11,109 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:15:09.970838+00:00
+[DEBUG] 2025-10-22 17:30:11,109 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:30:11,119 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:30:11,120 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:11,122 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:09.970838+00:00
+[WARNING] 2025-10-22 17:30:11,127 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:30:11,128 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:11,129 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:30:11,131 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:30:11,131 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:30:11,132 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:11,132 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:11.131625+00:00
+[INFO] 2025-10-22 17:30:12,238 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:30:12,241 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:15:11.131625+00:00
+[DEBUG] 2025-10-22 17:30:12,242 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:30:12,254 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:30:12,255 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:12,255 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:11.131625+00:00
+[DEBUG] 2025-10-22 17:30:12,257 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:30:12,257 serializers - Authentication failed for username: testuser, email: 
+[INFO] 2025-10-22 17:30:12,257 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:30:12,259 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:15:11.131625+00:00
+[DEBUG] 2025-10-22 17:30:12,259 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:30:12,265 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:30:12,266 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:12,267 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:11.131625+00:00
+[WARNING] 2025-10-22 17:30:12,272 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:30:12,273 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:12,273 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:30:12,275 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:30:12,275 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:30:12,275 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:12,275 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:12.275262+00:00
+[INFO] 2025-10-22 17:30:13,499 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:30:13,501 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:15:12.275262+00:00
+[DEBUG] 2025-10-22 17:30:13,501 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:30:13,510 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:30:13,512 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:13,513 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:12.275262+00:00
+[WARNING] 2025-10-22 17:30:13,519 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-22 17:30:13,520 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:30:13,520 serializers - Authentication failed for username: testuser, email: 
+[INFO] 2025-10-22 17:30:13,520 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:30:13,525 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:15:12.275262+00:00
+[DEBUG] 2025-10-22 17:30:13,526 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:30:13,537 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:30:13,541 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:13,542 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:12.275262+00:00
+[WARNING] 2025-10-22 17:30:13,546 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[WARNING] 2025-10-22 17:30:13,546 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:30:13,547 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:13,547 serializers - Validation attrs: {'username': 'testuser'}
+[WARNING] 2025-10-22 17:30:13,556 log - Forbidden: /api/users/auth/login
+[INFO] 2025-10-22 17:30:14,810 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:14,810 serializers - Validation attrs: {'username': '', 'email': 'test@example.com'}
+[INFO] 2025-10-22 17:30:14,815 serializers - Attempting email authentication: test@example.com
+[DEBUG] 2025-10-22 17:30:14,817 serializers - User found by email: testuser
+[DEBUG] 2025-10-22 17:30:14,817 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:30:14,817 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:14,819 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:14.817979+00:00
+[DEBUG] 2025-10-22 17:30:15,316 serializers - Email authentication result: Success
+[INFO] 2025-10-22 17:30:15,316 serializers - Authentication successful for user: testuser (ID: 2)
+[INFO] 2025-10-22 17:30:15,976 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:15,976 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 17:30:15,977 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:30:15,978 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:30:15,978 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:15,978 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:15.978837+00:00
+[DEBUG] 2025-10-22 17:30:16,537 serializers - Username authentication result: Success
+[INFO] 2025-10-22 17:30:16,538 serializers - Authentication successful for user: testuser (ID: 3)
+[INFO] 2025-10-22 17:30:17,139 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:30:17,139 views - Logout request data: {}
+[DEBUG] 2025-10-22 17:30:17,139 views - Refresh token received: None...
+[INFO] 2025-10-22 17:30:17,140 views - Logout completed successfully
+[INFO] 2025-10-22 17:30:17,770 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:30:17,771 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc2MTIzMzQxNywiaWF0IjoxNzYxMTQ3MDE3LCJqdGkiOiI3NjI5ZjM2NjhlYzc0NWEwOGFjYTgxNjgxZjQ0ZjlmYSIsInVzZXJfaWQiOiI1In0.lnR7BB_jcjUCFgGIEDZWVzaglTDxxaE9N7URWywHGRM'}
+[DEBUG] 2025-10-22 17:30:17,771 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-22 17:30:17,771 views - Attempting to blacklist token
+[WARNING] 2025-10-22 17:30:17,773 views - Token blacklisting failed: Token is blacklisted
+[DEBUG] 2025-10-22 17:30:17,773 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 72, in __init__
+    self.verify()
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 268, in verify
+    self.check_blacklist()
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 280, in check_blacklist
+    raise TokenError(_("Token is blacklisted"))
+rest_framework_simplejwt.exceptions.TokenError: Token is blacklisted
+[INFO] 2025-10-22 17:30:17,784 views - Logout completed successfully
+[INFO] 2025-10-22 17:30:18,379 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:30:18,380 views - Logout request data: {}
+[DEBUG] 2025-10-22 17:30:18,380 views - Refresh token received: None...
+[INFO] 2025-10-22 17:30:18,380 views - Logout completed successfully
+[INFO] 2025-10-22 17:30:18,975 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:30:18,975 views - Logout request data: {'refresh': 'completely_invalid_token_123'}
+[DEBUG] 2025-10-22 17:30:18,975 views - Refresh token received: completely_invalid_t...
+[INFO] 2025-10-22 17:30:18,975 views - Logout completed successfully
+[INFO] 2025-10-22 17:30:19,565 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:30:19,565 views - Logout request data: {'refresh': 'malformed.token'}
+[DEBUG] 2025-10-22 17:30:19,565 views - Refresh token received: malformed.token...
+[INFO] 2025-10-22 17:30:19,565 views - Attempting to blacklist token
+[WARNING] 2025-10-22 17:30:19,565 views - Token blacklisting failed: Token is invalid
+[DEBUG] 2025-10-22 17:30:19,565 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 270, in _load
+    header_segment, payload_segment = signing_input.split(b".", 1)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: not enough values to unpack (expected 2, got 1)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 160, in decode
+    return jwt.decode(
+           ^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 222, in decode
+    decoded = self.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 156, in decode_complete
+    decoded = api_jws.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 209, in decode_complete
+    payload, signing_input, header, signature = self._load(jwt)
+                                                ^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 272, in _load
+    raise DecodeError("Not enough segments") from err
+jwt.exceptions.DecodeError: Not enough segments
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 65, in __init__
+    self.payload = token_backend.decode(token, verify=verify)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 177, in decode
+    raise TokenBackendError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenBackendError: Token is invalid
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 69, in __init__
+    raise TokenError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenError: Token is invalid
+[INFO] 2025-10-22 17:30:19,576 views - Logout completed successfully
+[INFO] 2025-10-22 17:30:20,228 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:20,229 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 17:30:20,231 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:30:20,231 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:30:20,231 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:20,232 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:20.231659+00:00
+[DEBUG] 2025-10-22 17:30:20,777 serializers - Username authentication result: Success
+[INFO] 2025-10-22 17:30:20,777 serializers - Authentication successful for user: testuser (ID: 9)
+[INFO] 2025-10-22 17:30:20,781 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:30:20,781 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTcwMDAwMDAwMCwiaWF0IjoxNzAwMDAwMDAwLCJqdGkiOiJmYWtlX2lkIiwidXNlcl9pZCI6OTk5OX0.fake_signature_that_looks_real_but_is_invalid'}
+[DEBUG] 2025-10-22 17:30:20,781 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-22 17:30:20,781 views - Attempting to blacklist token
+[WARNING] 2025-10-22 17:30:20,782 views - Token blacklisting failed: Token is invalid
+[DEBUG] 2025-10-22 17:30:20,782 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 293, in _load
+    signature = base64url_decode(crypto_segment)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\utils.py", line 33, in base64url_decode
+    return base64.urlsafe_b64decode(input_bytes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\base64.py", line 134, in urlsafe_b64decode
+    return b64decode(s)
+           ^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\base64.py", line 88, in b64decode
+    return binascii.a2b_base64(s, strict_mode=validate)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+binascii.Error: Invalid base64-encoded string: number of data characters (45) cannot be 1 more than a multiple of 4
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 160, in decode
+    return jwt.decode(
+           ^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 222, in decode
+    decoded = self.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 156, in decode_complete
+    decoded = api_jws.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 209, in decode_complete
+    payload, signing_input, header, signature = self._load(jwt)
+                                                ^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 295, in _load
+    raise DecodeError("Invalid crypto padding") from err
+jwt.exceptions.DecodeError: Invalid crypto padding
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 65, in __init__
+    self.payload = token_backend.decode(token, verify=verify)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 177, in decode
+    raise TokenBackendError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenBackendError: Token is invalid
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 69, in __init__
+    raise TokenError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenError: Token is invalid
+[INFO] 2025-10-22 17:30:20,786 views - Logout completed successfully
+[INFO] 2025-10-22 17:30:21,291 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:21,291 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 17:30:21,292 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:30:21,294 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:30:21,294 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:21,294 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:21.294026+00:00
+[DEBUG] 2025-10-22 17:30:21,786 serializers - Username authentication result: Success
+[INFO] 2025-10-22 17:30:21,786 serializers - Authentication successful for user: testuser (ID: 10)
+[INFO] 2025-10-22 17:30:21,791 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:30:21,791 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc2MTIzMzQyMSwiaWF0IjoxNzYxMTQ3MDIxLCJqdGkiOiIwODJjZjMzZDZmNzM0MjhiYmU3YzEzYjlkMmZlMGQwNiIsInVzZXJfaWQiOiIxMCJ9.Fp_AE2IOoIZNPLayLIYtjRiRssxH70zVSoiRbvcAc3g'}
+[DEBUG] 2025-10-22 17:30:21,791 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-22 17:30:21,791 views - Attempting to blacklist token
+[INFO] 2025-10-22 17:30:21,803 views - Token successfully blacklisted
+[INFO] 2025-10-22 17:30:21,803 views - Logout completed successfully
+[WARNING] 2025-10-22 17:30:22,314 log - Unauthorized: /api/users/token/refresh/
+[INFO] 2025-10-22 17:30:23,387 views - Social profile completion attempt - user: 14
+[DEBUG] 2025-10-22 17:30:23,387 views - Profile completion data: {'username': 'socialuser3'}
+[INFO] 2025-10-22 17:30:23,387 views - Social complete profile - user: 14
+[DEBUG] 2025-10-22 17:30:23,387 serializers - Validating username: socialuser3
+[ERROR] 2025-10-22 17:30:23,387 views - Profile completion failed - user: 14, error: {'password': [ErrorDetail(string='This field is required.', code='required')]}
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 83, in update
+    response = super().update(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\mixins.py", line 67, in update
+    serializer.is_valid(raise_exception=True)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\serializers.py", line 233, in is_valid
+    raise ValidationError(self.errors)
+rest_framework.exceptions.ValidationError: {'password': [ErrorDetail(string='This field is required.', code='required')]}
+[WARNING] 2025-10-22 17:30:23,402 log - Bad Request: /api/users/social-complete-profile/
+[INFO] 2025-10-22 17:30:23,891 views - Social profile completion attempt - user: 16
+[DEBUG] 2025-10-22 17:30:23,891 views - Profile completion data: {'username': 'socialuser2', 'password': 'StrongPass!23'}
+[INFO] 2025-10-22 17:30:23,891 views - Social complete profile - user: 16
+[DEBUG] 2025-10-22 17:30:23,891 serializers - Validating username: socialuser2
+[INFO] 2025-10-22 17:30:23,912 serializers - SocialCompleteProfileSerializer validation started
+[DEBUG] 2025-10-22 17:30:23,913 serializers - Profile completion attrs: {'username': 'socialuser2'}
+[INFO] 2025-10-22 17:30:23,913 serializers - Updating social profile for user ID: 16
+[DEBUG] 2025-10-22 17:30:23,913 serializers - Update data - username: socialuser2
+[INFO] 2025-10-22 17:30:24,450 serializers - Saving profile completion for user: socialuser2
+[INFO] 2025-10-22 17:30:24,452 serializers - Social profile completed successfully
+[INFO] 2025-10-22 17:30:24,452 views - Profile completed successfully - user: 16
+[INFO] 2025-10-22 17:30:25,000 views - Social login attempt
+[DEBUG] 2025-10-22 17:30:25,000 views - Social login data: {'email': 'new_social@example.com'}
+[DEBUG] 2025-10-22 17:30:25,001 serializers - SocialLoginSerializer validating email: new_social@example.com
+[INFO] 2025-10-22 17:30:25,001 serializers - SocialLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:25,001 serializers - Social login attrs: {'email': 'new_social@example.com'}
+[INFO] 2025-10-22 17:30:25,001 views - Social login processing for email: new_social@example.com
+[INFO] 2025-10-22 17:30:25,008 views - Social login created new user - user_id: 18
+[WARNING] 2025-10-22 17:30:25,008 tokens - Creating token for inactive user: 18. If this is not intentional, consider checking the user's status before calling the `for_user` method.
+[INFO] 2025-10-22 17:30:25,011 views - Social login tokens generated successfully
+[INFO] 2025-10-22 17:30:25,509 views - Social login attempt
+[DEBUG] 2025-10-22 17:30:25,509 views - Social login data: {'email': 'test@example.com'}
+[DEBUG] 2025-10-22 17:30:25,510 serializers - SocialLoginSerializer validating email: test@example.com
+[INFO] 2025-10-22 17:30:25,511 serializers - SocialLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:25,511 serializers - Social login attrs: {'email': 'test@example.com'}
+[INFO] 2025-10-22 17:30:25,511 views - Social login processing for email: test@example.com
+[INFO] 2025-10-22 17:30:25,513 views - Social login found existing user - user_id: 19
+[INFO] 2025-10-22 17:30:25,514 views - Social login tokens generated successfully
+[INFO] 2025-10-22 17:30:26,008 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:26,008 serializers - Validation attrs: {'username': '', 'email': 'nouser@example.com'}
+[INFO] 2025-10-22 17:30:26,010 serializers - Attempting email authentication: nouser@example.com
+[WARNING] 2025-10-22 17:30:26,012 serializers - Email not found in database: nouser@example.com
+[WARNING] 2025-10-22 17:30:26,012 serializers - Authentication failed for username: , email: nouser@example.com
+[WARNING] 2025-10-22 17:30:26,012 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:30:26,495 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:26,495 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 17:30:26,497 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:30:26,497 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:30:26,498 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:26,498 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:26.497284+00:00
+[DEBUG] 2025-10-22 17:30:26,983 serializers - Username authentication result: Success
+[INFO] 2025-10-22 17:30:26,983 serializers - Authentication successful for user: testuser (ID: 21)
+[INFO] 2025-10-22 17:30:27,482 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:30:27,482 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 17:30:27,484 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:30:27,484 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:30:27,484 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:27,485 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:27.484411+00:00
+[INFO] 2025-10-22 17:30:28,446 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:30:28,456 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:15:27.484411+00:00
+[DEBUG] 2025-10-22 17:30:28,456 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:30:28,464 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-22 17:30:28,465 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:28,465 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:27.484411+00:00
+[DEBUG] 2025-10-22 17:30:28,468 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:30:28,468 serializers - Authentication failed for username: testuser, email: 
+[INFO] 2025-10-22 17:30:28,468 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:30:28,471 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:15:27.484411+00:00
+[DEBUG] 2025-10-22 17:30:28,471 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:30:28,478 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:30:28,479 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:30:28,479 database - AXES: Getting access attempts that are newer than 2025-10-22 15:15:27.484411+00:00
+[WARNING] 2025-10-22 17:30:28,482 log - Unauthorized: /api/users/auth/login
+[WARNING] 2025-10-22 17:30:28,996 log - Bad Request: /api/users/auth/registration/
+[WARNING] 2025-10-22 17:30:29,495 log - Bad Request: /api/users/auth/registration/
+[WARNING] 2025-10-22 17:30:30,040 log - Bad Request: /api/users/auth/registration/
+[INFO] 2025-10-22 17:34:24,665 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:34:29,151 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-22 17:34:29,177 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:34:29,178 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:34:29,180 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:34:29,181 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:34:29,182 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:34:29,183 database - AXES: Getting access attempts that are newer than 2025-10-22 15:19:29.181878+00:00
+[INFO] 2025-10-22 17:34:30,180 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:34:30,183 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:19:29.181878+00:00
+[DEBUG] 2025-10-22 17:34:30,183 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:34:30,192 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-22 17:34:30,193 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:34:30,193 database - AXES: Getting access attempts that are newer than 2025-10-22 15:19:29.181878+00:00
+[DEBUG] 2025-10-22 17:34:30,196 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:34:30,196 serializers - Authentication failed for username: testuser, email: 
+[INFO] 2025-10-22 17:34:30,196 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:34:30,198 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:19:29.181878+00:00
+[DEBUG] 2025-10-22 17:34:30,198 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:34:30,203 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:34:30,205 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:34:30,205 database - AXES: Getting access attempts that are newer than 2025-10-22 15:19:29.181878+00:00
+[WARNING] 2025-10-22 17:34:30,208 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:34:30,209 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:34:30,209 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:34:30,211 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:34:30,211 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:34:30,212 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:34:30,212 database - AXES: Getting access attempts that are newer than 2025-10-22 15:19:30.211610+00:00
+[INFO] 2025-10-22 17:34:31,162 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:34:31,164 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:19:30.211610+00:00
+[DEBUG] 2025-10-22 17:34:31,165 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:34:31,172 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:34:31,174 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:34:31,174 database - AXES: Getting access attempts that are newer than 2025-10-22 15:19:30.211610+00:00
+[DEBUG] 2025-10-22 17:34:31,176 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:34:31,176 serializers - Authentication failed for username: testuser, email: 
+[INFO] 2025-10-22 17:34:31,176 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:34:31,178 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:19:30.211610+00:00
+[DEBUG] 2025-10-22 17:34:31,178 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:34:31,184 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:34:31,185 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:34:31,186 database - AXES: Getting access attempts that are newer than 2025-10-22 15:19:30.211610+00:00
+[WARNING] 2025-10-22 17:34:31,189 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:34:31,189 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:34:31,189 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:34:31,192 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:34:31,192 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:34:31,192 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:34:31,192 database - AXES: Getting access attempts that are newer than 2025-10-22 15:19:31.192465+00:00
+[INFO] 2025-10-22 17:34:32,364 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:34:32,366 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:19:31.192465+00:00
+[DEBUG] 2025-10-22 17:34:32,366 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:34:32,373 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:34:32,374 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:34:32,375 database - AXES: Getting access attempts that are newer than 2025-10-22 15:19:31.192465+00:00
+[WARNING] 2025-10-22 17:34:32,377 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-22 17:34:32,377 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:34:32,378 serializers - Authentication failed for username: testuser, email: 
+[INFO] 2025-10-22 17:34:32,378 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:34:32,380 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:19:31.192465+00:00
+[DEBUG] 2025-10-22 17:34:32,380 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:34:32,386 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:34:32,387 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:34:32,387 database - AXES: Getting access attempts that are newer than 2025-10-22 15:19:31.192465+00:00
+[WARNING] 2025-10-22 17:34:32,389 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[WARNING] 2025-10-22 17:34:32,389 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:34:32,391 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:34:32,391 serializers - Validation attrs: {'username': 'testuser'}
+[WARNING] 2025-10-22 17:34:32,394 log - Forbidden: /api/users/auth/login
+[INFO] 2025-10-22 17:35:53,364 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:35:57,855 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-22 17:35:57,888 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:35:57,888 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:35:57,890 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:35:57,891 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:35:57,892 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:35:57,894 database - AXES: Getting access attempts that are newer than 2025-10-22 15:20:57.891333+00:00
+[INFO] 2025-10-22 17:35:59,060 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:35:59,063 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:20:57.891333+00:00
+[DEBUG] 2025-10-22 17:35:59,063 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:35:59,074 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-22 17:35:59,076 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:35:59,076 database - AXES: Getting access attempts that are newer than 2025-10-22 15:20:57.891333+00:00
+[DEBUG] 2025-10-22 17:35:59,078 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:35:59,078 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 17:35:59,080 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:35:59,082 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:35:59,082 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:35:59,084 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:35:59,084 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:35:59,084 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:35:59,084 database - AXES: Getting access attempts that are newer than 2025-10-22 15:20:59.084164+00:00
+[INFO] 2025-10-22 17:36:00,190 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:36:00,193 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:20:59.084164+00:00
+[DEBUG] 2025-10-22 17:36:00,193 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:36:00,202 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:36:00,204 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:36:00,205 database - AXES: Getting access attempts that are newer than 2025-10-22 15:20:59.084164+00:00
+[DEBUG] 2025-10-22 17:36:00,208 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:36:00,209 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 17:36:00,210 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:36:00,212 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:36:00,212 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:36:00,215 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:36:00,215 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:36:00,215 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:36:00,215 database - AXES: Getting access attempts that are newer than 2025-10-22 15:21:00.215836+00:00
+[INFO] 2025-10-22 17:36:01,622 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:36:01,630 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:21:00.215836+00:00
+[DEBUG] 2025-10-22 17:36:01,630 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:36:01,641 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:36:01,644 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:36:01,645 database - AXES: Getting access attempts that are newer than 2025-10-22 15:21:00.215836+00:00
+[DEBUG] 2025-10-22 17:36:01,651 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:36:01,651 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 17:36:01,653 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:36:01,654 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:36:01,655 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:36:01,658 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:36:01,658 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:36:01,658 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:36:01,658 database - AXES: Getting access attempts that are newer than 2025-10-22 15:21:01.658002+00:00
+[INFO] 2025-10-22 17:36:03,716 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:36:03,718 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:21:01.658002+00:00
+[DEBUG] 2025-10-22 17:36:03,719 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:36:03,728 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:36:03,730 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:36:03,731 database - AXES: Getting access attempts that are newer than 2025-10-22 15:21:01.658002+00:00
+[DEBUG] 2025-10-22 17:36:03,733 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:36:03,734 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 17:36:03,734 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:36:03,737 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:36:03,737 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:36:03,740 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:36:03,741 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:36:03,741 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:36:03,742 database - AXES: Getting access attempts that are newer than 2025-10-22 15:21:03.740478+00:00
+[INFO] 2025-10-22 17:36:05,204 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:36:05,206 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:21:03.740478+00:00
+[DEBUG] 2025-10-22 17:36:05,206 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:36:05,212 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:36:05,213 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:36:05,213 database - AXES: Getting access attempts that are newer than 2025-10-22 15:21:03.740478+00:00
+[WARNING] 2025-10-22 17:36:05,215 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-22 17:36:05,215 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:36:05,216 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 17:36:05,216 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:38:15,097 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:38:20,993 database - AXES: Reset 0 access attempts from database.
+[INFO] 2025-10-22 17:38:21,021 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:21,021 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:38:21,022 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:38:21,023 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:38:21,025 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:21,027 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:21.023942+00:00
+[INFO] 2025-10-22 17:38:22,076 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:38:22,079 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:23:21.023942+00:00
+[DEBUG] 2025-10-22 17:38:22,079 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:38:22,090 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-22 17:38:22,091 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:22,091 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:21.023942+00:00
+[DEBUG] 2025-10-22 17:38:22,094 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:38:22,094 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 17:38:22,096 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:38:22,098 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:22,098 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:38:22,100 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:38:22,100 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:38:22,100 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:22,101 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:22.100902+00:00
+[INFO] 2025-10-22 17:38:23,252 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:38:23,255 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:23:22.100902+00:00
+[DEBUG] 2025-10-22 17:38:23,255 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:38:23,264 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:38:23,266 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:23,266 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:22.100902+00:00
+[DEBUG] 2025-10-22 17:38:23,269 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:38:23,270 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 17:38:23,270 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:38:23,271 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:23,271 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:38:23,273 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:38:23,273 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:38:23,273 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:23,274 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:23.273939+00:00
+[INFO] 2025-10-22 17:38:25,264 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:38:25,267 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:23:23.273939+00:00
+[DEBUG] 2025-10-22 17:38:25,267 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:38:25,277 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:38:25,279 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:25,279 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:23.273939+00:00
+[DEBUG] 2025-10-22 17:38:25,283 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:38:25,283 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 17:38:25,284 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:38:25,286 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:25,286 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:38:25,289 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:38:25,290 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:38:25,290 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:25,290 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:25.290452+00:00
+[INFO] 2025-10-22 17:38:26,782 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:38:26,784 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:23:25.290452+00:00
+[DEBUG] 2025-10-22 17:38:26,785 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:38:26,792 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:38:26,794 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:26,794 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:25.290452+00:00
+[DEBUG] 2025-10-22 17:38:26,796 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:38:26,797 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 17:38:26,797 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:38:26,798 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:26,798 serializers - Validation attrs: {'username': 'testuser'}
+[INFO] 2025-10-22 17:38:26,800 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:38:26,800 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:38:26,801 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:26,801 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:26.800777+00:00
+[INFO] 2025-10-22 17:38:27,977 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:38:27,979 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:23:26.800777+00:00
+[DEBUG] 2025-10-22 17:38:27,980 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:38:27,986 database - AXES: Repeated login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Updated existing record in the database.
+[DEBUG] 2025-10-22 17:38:27,988 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:27,988 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:26.800777+00:00
+[WARNING] 2025-10-22 17:38:27,990 database - AXES: Locking out {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"} after repeated login failures.
+[DEBUG] 2025-10-22 17:38:27,990 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:38:27,990 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 17:38:27,992 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:38:27,993 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:27,993 serializers - Validation attrs: {'username': 'testuser'}
+[WARNING] 2025-10-22 17:38:27,995 log - Forbidden: /api/users/auth/login
+[INFO] 2025-10-22 17:38:28,613 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:28,614 serializers - Validation attrs: {'username': '', 'email': 'test@example.com'}
+[INFO] 2025-10-22 17:38:28,618 serializers - Attempting email authentication: test@example.com
+[DEBUG] 2025-10-22 17:38:28,621 serializers - User found by email: testuser
+[DEBUG] 2025-10-22 17:38:28,621 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:38:28,621 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:28,621 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:28.621101+00:00
+[DEBUG] 2025-10-22 17:38:29,154 serializers - Email authentication result: Success
+[INFO] 2025-10-22 17:38:29,154 serializers - Authentication successful for user: testuser (ID: 2)
+[INFO] 2025-10-22 17:38:29,831 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:29,831 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 17:38:29,834 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:38:29,834 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:38:29,834 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:29,835 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:29.834723+00:00
+[DEBUG] 2025-10-22 17:38:30,444 serializers - Username authentication result: Success
+[INFO] 2025-10-22 17:38:30,444 serializers - Authentication successful for user: testuser (ID: 3)
+[INFO] 2025-10-22 17:38:31,022 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:38:31,022 views - Logout request data: {}
+[DEBUG] 2025-10-22 17:38:31,022 views - Refresh token received: None...
+[INFO] 2025-10-22 17:38:31,022 views - Logout completed successfully
+[INFO] 2025-10-22 17:38:31,585 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:38:31,585 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc2MTIzMzkxMSwiaWF0IjoxNzYxMTQ3NTExLCJqdGkiOiI5ZTg4OWM2NTEyNTk0YTI4OWQzY2U5MWE5ZjkzNDYyMSIsInVzZXJfaWQiOiI1In0.-B4eTiTdBcDfqn_ajD5PT9UI2J0g5RQjHUrngDhMbPk'}
+[DEBUG] 2025-10-22 17:38:31,585 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-22 17:38:31,585 views - Attempting to blacklist token
+[WARNING] 2025-10-22 17:38:31,588 views - Token blacklisting failed: Token is blacklisted
+[DEBUG] 2025-10-22 17:38:31,588 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 72, in __init__
+    self.verify()
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 268, in verify
+    self.check_blacklist()
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 280, in check_blacklist
+    raise TokenError(_("Token is blacklisted"))
+rest_framework_simplejwt.exceptions.TokenError: Token is blacklisted
+[INFO] 2025-10-22 17:38:31,590 views - Logout completed successfully
+[INFO] 2025-10-22 17:38:32,456 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:38:32,457 views - Logout request data: {}
+[DEBUG] 2025-10-22 17:38:32,457 views - Refresh token received: None...
+[INFO] 2025-10-22 17:38:32,457 views - Logout completed successfully
+[INFO] 2025-10-22 17:38:33,575 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:38:33,576 views - Logout request data: {'refresh': 'completely_invalid_token_123'}
+[DEBUG] 2025-10-22 17:38:33,576 views - Refresh token received: completely_invalid_t...
+[INFO] 2025-10-22 17:38:33,576 views - Logout completed successfully
+[INFO] 2025-10-22 17:38:34,273 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:38:34,273 views - Logout request data: {'refresh': 'malformed.token'}
+[DEBUG] 2025-10-22 17:38:34,273 views - Refresh token received: malformed.token...
+[INFO] 2025-10-22 17:38:34,275 views - Attempting to blacklist token
+[WARNING] 2025-10-22 17:38:34,275 views - Token blacklisting failed: Token is invalid
+[DEBUG] 2025-10-22 17:38:34,275 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 270, in _load
+    header_segment, payload_segment = signing_input.split(b".", 1)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: not enough values to unpack (expected 2, got 1)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 160, in decode
+    return jwt.decode(
+           ^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 222, in decode
+    decoded = self.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 156, in decode_complete
+    decoded = api_jws.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 209, in decode_complete
+    payload, signing_input, header, signature = self._load(jwt)
+                                                ^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 272, in _load
+    raise DecodeError("Not enough segments") from err
+jwt.exceptions.DecodeError: Not enough segments
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 65, in __init__
+    self.payload = token_backend.decode(token, verify=verify)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 177, in decode
+    raise TokenBackendError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenBackendError: Token is invalid
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 69, in __init__
+    raise TokenError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenError: Token is invalid
+[INFO] 2025-10-22 17:38:34,281 views - Logout completed successfully
+[INFO] 2025-10-22 17:38:34,813 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:34,813 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 17:38:34,814 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:38:34,815 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:38:34,815 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:34,815 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:34.815991+00:00
+[DEBUG] 2025-10-22 17:38:35,508 serializers - Username authentication result: Success
+[INFO] 2025-10-22 17:38:35,508 serializers - Authentication successful for user: testuser (ID: 9)
+[INFO] 2025-10-22 17:38:35,514 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:38:35,514 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTcwMDAwMDAwMCwiaWF0IjoxNzAwMDAwMDAwLCJqdGkiOiJmYWtlX2lkIiwidXNlcl9pZCI6OTk5OX0.fake_signature_that_looks_real_but_is_invalid'}
+[DEBUG] 2025-10-22 17:38:35,514 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-22 17:38:35,514 views - Attempting to blacklist token
+[WARNING] 2025-10-22 17:38:35,514 views - Token blacklisting failed: Token is invalid
+[DEBUG] 2025-10-22 17:38:35,514 views - Blacklisting failure details:
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 293, in _load
+    signature = base64url_decode(crypto_segment)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\utils.py", line 33, in base64url_decode
+    return base64.urlsafe_b64decode(input_bytes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\base64.py", line 134, in urlsafe_b64decode
+    return b64decode(s)
+           ^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\base64.py", line 88, in b64decode
+    return binascii.a2b_base64(s, strict_mode=validate)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+binascii.Error: Invalid base64-encoded string: number of data characters (45) cannot be 1 more than a multiple of 4
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 160, in decode
+    return jwt.decode(
+           ^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 222, in decode
+    decoded = self.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jwt.py", line 156, in decode_complete
+    decoded = api_jws.decode_complete(
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 209, in decode_complete
+    payload, signing_input, header, signature = self._load(jwt)
+                                                ^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\jwt\api_jws.py", line 295, in _load
+    raise DecodeError("Invalid crypto padding") from err
+jwt.exceptions.DecodeError: Invalid crypto padding
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 65, in __init__
+    self.payload = token_backend.decode(token, verify=verify)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\backends.py", line 177, in decode
+    raise TokenBackendError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenBackendError: Token is invalid
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 113, in post
+    token = RefreshToken(refresh_token)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework_simplejwt\tokens.py", line 69, in __init__
+    raise TokenError(_("Token is invalid")) from e
+rest_framework_simplejwt.exceptions.TokenError: Token is invalid
+[INFO] 2025-10-22 17:38:35,521 views - Logout completed successfully
+[INFO] 2025-10-22 17:38:36,099 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:36,099 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 17:38:36,101 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:38:36,102 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:38:36,102 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:36,103 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:36.102489+00:00
+[DEBUG] 2025-10-22 17:38:36,658 serializers - Username authentication result: Success
+[INFO] 2025-10-22 17:38:36,658 serializers - Authentication successful for user: testuser (ID: 10)
+[INFO] 2025-10-22 17:38:36,663 views - Logout endpoint called
+[DEBUG] 2025-10-22 17:38:36,663 views - Logout request data: {'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc2MTIzMzkxNiwiaWF0IjoxNzYxMTQ3NTE2LCJqdGkiOiJhM2E5Yjg2ZWM4N2E0NTI5YjRmMzc5OTEwN2U2NDg2YSIsInVzZXJfaWQiOiIxMCJ9.sdWkxCvaJytFuAqqE_3FA0jTxBtj0TNqFQ4lpUrGiwc'}
+[DEBUG] 2025-10-22 17:38:36,663 views - Refresh token received: eyJhbGciOiJIUzI1NiIs...
+[INFO] 2025-10-22 17:38:36,663 views - Attempting to blacklist token
+[INFO] 2025-10-22 17:38:36,676 views - Token successfully blacklisted
+[INFO] 2025-10-22 17:38:36,676 views - Logout completed successfully
+[WARNING] 2025-10-22 17:38:37,249 log - Unauthorized: /api/users/token/refresh/
+[INFO] 2025-10-22 17:38:38,475 views - Social profile completion attempt - user: 14
+[DEBUG] 2025-10-22 17:38:38,475 views - Profile completion data: {'username': 'socialuser3'}
+[INFO] 2025-10-22 17:38:38,475 views - Social complete profile - user: 14
+[DEBUG] 2025-10-22 17:38:38,475 serializers - Validating username: socialuser3
+[ERROR] 2025-10-22 17:38:38,475 views - Profile completion failed - user: 14, error: {'password': [ErrorDetail(string='This field is required.', code='required')]}
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\Desktop\Personal_finance\personal-finance\backend\users\views.py", line 83, in update
+    response = super().update(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\mixins.py", line 67, in update
+    serializer.is_valid(raise_exception=True)
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\rest_framework\serializers.py", line 233, in is_valid
+    raise ValidationError(self.errors)
+rest_framework.exceptions.ValidationError: {'password': [ErrorDetail(string='This field is required.', code='required')]}
+[WARNING] 2025-10-22 17:38:38,487 log - Bad Request: /api/users/social-complete-profile/
+[INFO] 2025-10-22 17:38:39,226 views - Social profile completion attempt - user: 16
+[DEBUG] 2025-10-22 17:38:39,226 views - Profile completion data: {'username': 'socialuser2', 'password': 'StrongPass!23'}
+[INFO] 2025-10-22 17:38:39,226 views - Social complete profile - user: 16
+[DEBUG] 2025-10-22 17:38:39,227 serializers - Validating username: socialuser2
+[INFO] 2025-10-22 17:38:39,241 serializers - SocialCompleteProfileSerializer validation started
+[DEBUG] 2025-10-22 17:38:39,241 serializers - Profile completion attrs: {'username': 'socialuser2'}
+[INFO] 2025-10-22 17:38:39,241 serializers - Updating social profile for user ID: 16
+[DEBUG] 2025-10-22 17:38:39,241 serializers - Update data - username: socialuser2
+[INFO] 2025-10-22 17:38:39,769 serializers - Saving profile completion for user: socialuser2
+[INFO] 2025-10-22 17:38:39,772 serializers - Social profile completed successfully
+[INFO] 2025-10-22 17:38:39,772 views - Profile completed successfully - user: 16
+[INFO] 2025-10-22 17:38:40,598 views - Social login attempt
+[DEBUG] 2025-10-22 17:38:40,599 views - Social login data: {'email': 'new_social@example.com'}
+[DEBUG] 2025-10-22 17:38:40,599 serializers - SocialLoginSerializer validating email: new_social@example.com
+[INFO] 2025-10-22 17:38:40,599 serializers - SocialLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:40,599 serializers - Social login attrs: {'email': 'new_social@example.com'}
+[INFO] 2025-10-22 17:38:40,599 views - Social login processing for email: new_social@example.com
+[INFO] 2025-10-22 17:38:40,605 views - Social login created new user - user_id: 18
+[WARNING] 2025-10-22 17:38:40,605 tokens - Creating token for inactive user: 18. If this is not intentional, consider checking the user's status before calling the `for_user` method.
+[INFO] 2025-10-22 17:38:40,607 views - Social login tokens generated successfully
+[INFO] 2025-10-22 17:38:41,998 views - Social login attempt
+[DEBUG] 2025-10-22 17:38:41,999 views - Social login data: {'email': 'test@example.com'}
+[DEBUG] 2025-10-22 17:38:42,002 serializers - SocialLoginSerializer validating email: test@example.com
+[INFO] 2025-10-22 17:38:42,003 serializers - SocialLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:42,003 serializers - Social login attrs: {'email': 'test@example.com'}
+[INFO] 2025-10-22 17:38:42,003 views - Social login processing for email: test@example.com
+[INFO] 2025-10-22 17:38:42,008 views - Social login found existing user - user_id: 19
+[INFO] 2025-10-22 17:38:42,016 views - Social login tokens generated successfully
+[INFO] 2025-10-22 17:38:42,984 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:42,984 serializers - Validation attrs: {'username': '', 'email': 'nouser@example.com'}
+[INFO] 2025-10-22 17:38:42,987 serializers - Attempting email authentication: nouser@example.com
+[WARNING] 2025-10-22 17:38:42,990 serializers - Email not found in database: nouser@example.com
+[WARNING] 2025-10-22 17:38:42,990 serializers - Authentication failed for username: , email: nouser@example.com
+[WARNING] 2025-10-22 17:38:42,990 log - Unauthorized: /api/users/auth/login
+[INFO] 2025-10-22 17:38:43,606 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:43,606 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 17:38:43,609 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:38:43,609 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:38:43,609 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:43,610 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:43.609292+00:00
+[DEBUG] 2025-10-22 17:38:44,167 serializers - Username authentication result: Success
+[INFO] 2025-10-22 17:38:44,167 serializers - Authentication successful for user: testuser (ID: 21)
+[INFO] 2025-10-22 17:38:44,868 serializers - CustomLoginSerializer validation started
+[DEBUG] 2025-10-22 17:38:44,869 serializers - Validation attrs: {'username': 'testuser', 'email': ''}
+[INFO] 2025-10-22 17:38:44,871 serializers - Attempting username authentication: testuser
+[DEBUG] 2025-10-22 17:38:44,872 helpers - Using request.META.get('REMOTE_ADDR', None) fallback method to get client IP address
+[DEBUG] 2025-10-22 17:38:44,872 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:44,872 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:44.872000+00:00
+[INFO] 2025-10-22 17:38:46,213 database - AXES: User login failed, running database handler for failure.
+[INFO] 2025-10-22 17:38:46,216 database - AXES: Cleaned up 0 expired access attempts from database that were older than 2025-10-22 15:23:44.872000+00:00
+[DEBUG] 2025-10-22 17:38:46,217 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[WARNING] 2025-10-22 17:38:46,227 database - AXES: New login failure by {username: "********************", ip_address: "********************", user_agent: "<unknown>", path_info: "/api/users/auth/login"}. Created new record in the database.
+[DEBUG] 2025-10-22 17:38:46,228 helpers - Using settings.AXES_USERNAME_CALLABLE to get username
+[DEBUG] 2025-10-22 17:38:46,228 database - AXES: Getting access attempts that are newer than 2025-10-22 15:23:44.872000+00:00
+[DEBUG] 2025-10-22 17:38:46,231 serializers - Username authentication result: Failed
+[WARNING] 2025-10-22 17:38:46,231 serializers - Authentication failed for username: testuser, email: 
+[WARNING] 2025-10-22 17:38:46,232 log - Unauthorized: /api/users/auth/login
+[WARNING] 2025-10-22 17:38:47,264 log - Bad Request: /api/users/auth/registration/
+[WARNING] 2025-10-22 17:38:48,521 log - Bad Request: /api/users/auth/registration/
+[WARNING] 2025-10-22 17:38:49,640 log - Bad Request: /api/users/auth/registration/
+[INFO] 2025-10-22 17:38:56,859 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:39:58,476 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:43:53,648 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 17:44:17,202 apps - AXES: BEGIN version 8.0.0, blocking by username
+[ERROR] 2025-10-22 17:44:23,047 log - Internal Server Error: /api/users/auth/registration/account-confirm-email/vs3facp319svjxgbw6fyaexrawje6oc7myd35kfrhgy9oih95viejpbkmtxwpcnz/
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 144, in dispatch
+    return handler(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 229, in get
+    return self.render_to_response(context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 202, in render_to_response
+    template=self.get_template_names(),
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 214, in get_template_names
+    raise ImproperlyConfigured(
+django.core.exceptions.ImproperlyConfigured: TemplateResponseMixin requires either a definition of 'template_name' or an implementation of 'get_template_names()'
+[INFO] 2025-10-22 17:47:38,768 apps - AXES: BEGIN version 8.0.0, blocking by username
+[ERROR] 2025-10-22 17:47:49,922 log - Internal Server Error: /api/users/auth/registration/account-confirm-email/6hdsmc7ik9jedjahzawuk6zatxjrpgq7hb4qwclangl4a5wa0ijmo1yukqcjmo8t/
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 144, in dispatch
+    return handler(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 229, in get
+    return self.render_to_response(context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 202, in render_to_response
+    template=self.get_template_names(),
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 214, in get_template_names
+    raise ImproperlyConfigured(
+django.core.exceptions.ImproperlyConfigured: TemplateResponseMixin requires either a definition of 'template_name' or an implementation of 'get_template_names()'
+[INFO] 2025-10-22 17:49:52,201 apps - AXES: BEGIN version 8.0.0, blocking by username
+[ERROR] 2025-10-22 17:49:58,110 log - Internal Server Error: /api/users/auth/registration/account-confirm-email/vioud67bhtonubfmnbftsdxkneejgxf6ftu6dm0xnrhwfdqnl3aqnovrbd8npb3f/
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 144, in dispatch
+    return handler(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 229, in get
+    return self.render_to_response(context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 202, in render_to_response
+    template=self.get_template_names(),
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 214, in get_template_names
+    raise ImproperlyConfigured(
+django.core.exceptions.ImproperlyConfigured: TemplateResponseMixin requires either a definition of 'template_name' or an implementation of 'get_template_names()'
+[INFO] 2025-10-22 17:51:07,517 apps - AXES: BEGIN version 8.0.0, blocking by username
+[ERROR] 2025-10-22 17:51:13,143 log - Internal Server Error: /api/users/auth/registration/account-confirm-email/tjofdynpnjpvsqwje2ajupmtchsfd19qfrqj9tcbmns1cimv1feu7smjsrblkgru/
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 144, in dispatch
+    return handler(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 229, in get
+    return self.render_to_response(context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 202, in render_to_response
+    template=self.get_template_names(),
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 214, in get_template_names
+    raise ImproperlyConfigured(
+django.core.exceptions.ImproperlyConfigured: TemplateResponseMixin requires either a definition of 'template_name' or an implementation of 'get_template_names()'
+[INFO] 2025-10-22 17:54:15,949 apps - AXES: BEGIN version 8.0.0, blocking by username
+[ERROR] 2025-10-22 17:54:22,176 log - Internal Server Error: /api/users/auth/registration/account-confirm-email/e1loz6dbhqcuxtbggpgjhicgvoecgkdsyq3zzjnufgfogfvltlehtpkxadd3baa1/
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\base.py", line 220, in _get_response
+    response = response.render()
+               ^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\template\response.py", line 114, in render
+    self.content = self.rendered_content
+                   ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\template\response.py", line 90, in rendered_content
+    template = self.resolve_template(self.template_name)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\template\response.py", line 72, in resolve_template
+    return select_template(template, using=self.using)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\template\loader.py", line 49, in select_template
+    raise TemplateDoesNotExist("No template names provided")
+django.template.exceptions.TemplateDoesNotExist: No template names provided
+[INFO] 2025-10-22 17:56:41,672 apps - AXES: BEGIN version 8.0.0, blocking by username
+[ERROR] 2025-10-22 17:56:47,424 log - Internal Server Error: /api/users/auth/registration/account-email-verification-sent
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 144, in dispatch
+    return handler(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 229, in get
+    return self.render_to_response(context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 202, in render_to_response
+    template=self.get_template_names(),
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 214, in get_template_names
+    raise ImproperlyConfigured(
+django.core.exceptions.ImproperlyConfigured: TemplateResponseMixin requires either a definition of 'template_name' or an implementation of 'get_template_names()'
+[INFO] 2025-10-22 17:58:28,040 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 18:00:41,060 apps - AXES: BEGIN version 8.0.0, blocking by username
+[WARNING] 2025-10-22 18:00:47,564 log - Method Not Allowed: /api/users/auth/login
+[ERROR] 2025-10-22 18:00:47,568 log - Internal Server Error: /api/users/auth/registration/account-confirm-email/vyuuft5tmm4dokcvffoxxsghdzsbc7rbkyfscfkadru01wrwfd6ffcs8lki4gqxu/
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\corsheaders\middleware.py", line 54, in __call__
+    assert isinstance(result, HttpResponseBase)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError
+[INFO] 2025-10-22 18:02:55,840 apps - AXES: BEGIN version 8.0.0, blocking by username
+[INFO] 2025-10-22 18:10:54,633 apps - AXES: BEGIN version 8.0.0, blocking by username
+[ERROR] 2025-10-22 18:11:01,918 log - Internal Server Error: /api/users/auth/registration/account-confirm-email/qbdxo7vh78uplpparari4hj97kv0ftmtgiw644fvy4uuigflv4mxemweif5ptbdf/
+Traceback (most recent call last):
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 105, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 144, in dispatch
+    return handler(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 229, in get
+    return self.render_to_response(context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 202, in render_to_response
+    template=self.get_template_names(),
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Paulinecko\miniconda3\envs\backend\Lib\site-packages\django\views\generic\base.py", line 214, in get_template_names
+    raise ImproperlyConfigured(
+django.core.exceptions.ImproperlyConfigured: TemplateResponseMixin requires either a definition of 'template_name' or an implementation of 'get_template_names()'
