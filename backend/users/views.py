@@ -133,3 +133,6 @@ class LogoutView(APIView):
                 {"detail": "Successfully logged out."},
                 status=status.HTTP_200_OK
             )
+class InactiveAccountView(APIView):
+    def get(self, request):
+        return Response({"detail": "Account is inactive, check your email."}, status=403)

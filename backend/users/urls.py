@@ -1,5 +1,5 @@
 from django.urls import path, include
-from .views import SocialLoginView, SocialCompleteProfileView, LogoutView#, CustomTokenObtainPairView
+from .views import SocialLoginView, SocialCompleteProfileView, LogoutView, InactiveAccountView
 from rest_framework_simplejwt.views import TokenRefreshView
 
 urlpatterns = [
@@ -12,4 +12,5 @@ urlpatterns = [
     #path('token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     #path('logout/', LogoutView.as_view(), name='logout'),
+    path('inactive/', InactiveAccountView.as_view(), name='account_inactive'),
 ]
