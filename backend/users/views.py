@@ -7,6 +7,9 @@ from .serializers import SocialCompleteProfileSerializer, SocialLoginSerializer 
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.http import JsonResponse
+from allauth.account.views import ConfirmEmailView
+from allauth.account.models import EmailConfirmation
 # from rest_framework_simplejwt.views import TokenObtainPairView
 
 # Get logger for this module
@@ -136,3 +139,90 @@ class LogoutView(APIView):
 class InactiveAccountView(APIView):
     def get(self, request):
         return Response({"detail": "Account is inactive, check your email."}, status=403)
+    
+
+class CustomConfirmEmailView(ConfirmEmailView):
+    """
+    Vlastný pohľad, ktorý obíde renderovanie šablóny a vráti JSON odpoveď/redirect.
+    """
+    def get_object(self, queryset=None):
+        try:
+            key = self.kwargs['key']
+            print(f"🔍 Looking for key: {key}")
+            
+            # Skontrolujme všetky kľúče v DB
+            all_keys = list(EmailConfirmation.objects.values_list('key', flat=True))
+            print(f"📋 All keys in DB: {all_keys}")
+            
+            confirmation = EmailConfirmation.objects.get(key=key)
+            print(f"✅ Found confirmation: {confirmation.email_address.email}")
+            
+            return confirmation
+            
+        except EmailConfirmation.DoesNotExist:
+            print(f"❌ Key '{key}' not found in database")
+            return None
+        except Exception as e:
+            print(f"💥 Error in get_object: {e}")
+            return None
+    def get(self, *args, **kwargs):
+        print("=== CUSTOM CONFIRM EMAIL VIEW ===")
+        
+        try:
+            # 1. Získanie objektu
+            print("🔍 Getting confirmation object...")
+            self.object = self.get_object()
+            
+            if not self.object:
+                print("❌ Confirmation object is None")
+                return JsonResponse(
+                    {"detail": "Neplatný konfirmačný odkaz."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            print(f"✅ Found confirmation for: {self.object.email_address.email}")
+            print(f"🔑 Key: {self.object.key}")
+            print(f"📅 Created: {self.object.created}")
+            print(f"📤 Sent: {self.object.sent}")
+            print(f"👤 User active before: {self.object.email_address.user.is_active}")
+            print(f"📧 Email verified before: {self.object.email_address.verified}")
+            
+            # 2. Potvrdenie
+            print("🔄 Confirming email...")
+            self.object.confirm(self.request)
+            user = self.object.email_address.user
+            if not user.is_active:
+                print("⭐️ Manually activating user...")
+                user.is_active = True
+                user.save()
+            
+            # 3. Overenie výsledku
+            self.object.email_address.refresh_from_db()
+            self.object.email_address.user.refresh_from_db()
+            
+            print(f"👤 User active after: {self.object.email_address.user.is_active}")
+            print(f"📧 Email verified after: {self.object.email_address.verified}")
+            
+            # 4. Úspešná odpoveď
+            print("✅ Confirmation successful")
+            return JsonResponse(
+                {
+                    "detail": "E-mail bol úspešne potvrdený a účet aktivovaný.",
+                    "user": {
+                        "email": self.object.email_address.email,
+                        "username": self.object.email_address.user.username,
+                        "is_active": self.object.email_address.user.is_active
+                    }
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            print(f"💥 ERROR in confirmation: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            return JsonResponse(
+                {"detail": f"Chyba pri potvrdzovaní: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )

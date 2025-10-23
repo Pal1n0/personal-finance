@@ -34,7 +34,6 @@ REST_AUTH = {
     'JWT_AUTH_COOKIE': None,
     'JWT_AUTH_REFRESH_COOKIE': None,
     'JWT_AUTH_HTTPONLY': False,
-    'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
     'TOKEN_MODEL': None,
     'SESSION_LOGIN': False,
 }
@@ -123,7 +122,8 @@ DEFAULT_DOMAIN = "example.com"
 
 EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'  # onyl for dev!
 ACCOUNT_CONFIRM_EMAIL_URL_REVERSE = None # onyl for dev!
-ACCOUNT_EMAIL_CONFIRMATION_DONE_URL = '/' # onyl for dev!
+# ACCOUNT_ADAPTER = 'users.adapters.CustomAccountAdapter'
+ACCOUNT_EMAIL_CONFIRMATION_DONE_URL = '/email-verified/'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

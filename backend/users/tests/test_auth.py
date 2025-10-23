@@ -1,6 +1,7 @@
 from django.urls import reverse
 from django.core import mail
 from django.apps import apps
+from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.contrib.auth.management import create_permissions
 from django.contrib.contenttypes.models import ContentType
@@ -11,6 +12,7 @@ from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from axes.utils import reset
 import re
+from django.urls import resolve #
 
 from allauth.account.adapter import get_adapter
 from django.test import RequestFactory # <--
@@ -72,14 +74,18 @@ class UserAuthTests(APITestCase):
         email_address = EmailAddress.objects.get(user=new_user, email=email)
 
         email_confirmation_obj = EmailConfirmation.create(email_address)
+        email_confirmation_obj.created = timezone.now()
+        email_confirmation_obj.sent = timezone.now()
+        email_confirmation_obj.save()
+
 
         factory = RequestFactory()
         fake_request = factory.post(self.register_url) 
         # Allauth potrebuje používateľa v requeste, ak je to možné
         fake_request.user = new_user
 
-        adapter = get_adapter()
-        adapter.send_confirmation_mail(fake_request, email_confirmation_obj, signup=True)
+        adapter = get_adapter() # only for dev test!!
+        adapter.send_confirmation_mail(fake_request, email_confirmation_obj, signup=True) # only for dev test!!
         # Táto možnosť je len pre debug/overenie, ak by testovací klient neposkytol dostatočný kontext.
         
         # Ak kód registračnej sériaľky bol správny, tieto tvrdenia MUSIA prejsť:
@@ -100,7 +106,50 @@ class UserAuthTests(APITestCase):
         body = email_message.body
         match = re.search(r'(http[s]?://[^\s]*account-confirm-email/[a-zA-Z0-9]+/)', body)
         confirmation_url = match.group(0)
-        response_confirm = self.client.get(confirmation_url, follow=True)
+
+
+        # --- KĽÚČOVÁ DIAGNOSTIKA ---
+
+        # 1. Overenie, či URL resolver nájde VÁŠ pohľad (nie allauth)
+        # confirmation_url vyzerá asi takto: /api/users/auth/registration/account-confirm-email/KLUC/
+        resolver_match = resolve(confirmation_url.replace('http://testserver', ''))
+        
+        # Overenie, že resolver našiel CustomConfirmEmailView a správny názov URL
+        self.assertEqual(resolver_match.func.view_class.__name__, 'CustomConfirmEmailView')
+        self.assertEqual(resolver_match.url_name, 'account_confirm_email')
+        
+        # Ak tento krok prejde, problém nie je v URLs, ale v logike pohľadu (Kľúč!)
+        
+        # 2. Overenie, či kľúč existuje v DB a či je platný
+        key = resolver_match.kwargs.get('key')
+        self.assertTrue(EmailConfirmation.objects.filter(key=key).exists(), 
+                        f"Konfirmačný kľúč '{key}' sa nenašiel v databáze!")
+
+
+
+
+
+
+
+        self.client.raise_exception = True
+
+        print(f"🎯 Calling confirmation URL: {confirmation_url}")
+        print(f"🔑 Key from URL: {key}")
+        print(f"📊 EmailConfirmations in DB: {EmailConfirmation.objects.count()}")
+
+        response_confirm = self.client.get(confirmation_url, follow=False)
+
+        print(f"Confirmation response status: {response_confirm.status_code}")
+        print(f"Confirmation response content: {response_confirm.content}")
+    
+        # Ak je status 400, pozrime sa na detaily
+        if response_confirm.status_code == status.HTTP_400_BAD_REQUEST:
+            try:
+                response_data = response_confirm.json()
+                print(f"Error detail: {response_data}")
+            except:
+                print("Could not parse error response as JSON")
+
         self.assertIn(response_confirm.status_code, 
                       [status.HTTP_302_FOUND, status.HTTP_200_OK],
                       f"Potvrdenie e-mailu zlyhalo s kódom {response_confirm.status_code}")
@@ -111,6 +160,32 @@ class UserAuthTests(APITestCase):
                         "Používateľ nebol AKTIVOVANÝ po potvrdení e-mailu.")
         self.assertTrue(email_address.verified, 
                         "E-mailová adresa nie je označená ako OVERENÁ.")
+        
+        # ⭐️⭐️⭐️ TESTOVANIE LOGINU PO POTVRDENÍ EMAILU ⭐️⭐️⭐️
+        print("=== TESTING LOGIN AFTER CONFIRMATION ===")
+
+        # Skúsime sa prihlásiť s novým používateľom
+        login_data = {
+            'username': 'newuser',  # alebo 'email': 'newuser@gmail.com'
+            'password': 'testpass123'
+        }
+
+        login_response = self.client.post(self.login_url, login_data, format='json')
+        print(f"🔐 Login response status: {login_response.status_code}")
+        print(f"🔐 Login response data: {login_response.data}")
+
+        # Overíme že login bol úspešný
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', login_response.data)
+        self.assertIn('refresh', login_response.data)
+
+        # Overíme že dostaneme JWT tokeny
+        access_token = login_response.data['access']
+        refresh_token = login_response.data['refresh']
+        self.assertTrue(len(access_token) > 0)
+        self.assertTrue(len(refresh_token) > 0)
+
+        print("✅ Login successful after email confirmation!")
 
     def test_user_registration_existing_username(self):
         data = {
