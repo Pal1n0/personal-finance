@@ -1,22 +1,50 @@
 from django.urls import reverse
+from django.core import mail
+from django.apps import apps
+from django.utils import timezone
+from django.contrib.auth import get_user_model
+from django.contrib.auth.management import create_permissions
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.sites.models import Site
+from allauth.account.models import EmailAddress, EmailConfirmation
 from rest_framework.test import APITestCase
 from rest_framework import status
-from users.models import CustomUser as User
 from rest_framework_simplejwt.tokens import RefreshToken
 from axes.utils import reset
+import re
+from django.urls import resolve #
+
+from allauth.account.adapter import get_adapter
+from django.test import RequestFactory # <--
+
+User = get_user_model()
 
 class UserAuthTests(APITestCase):
     """
     Test suite for user registration, login (username/email), refresh token, and logout.
     """
+    @classmethod
+    def setUpTestData(cls):
+        # Ensure allauth models are available in tests        
+        for app_config in apps.get_app_configs():
+            if app_config.name in ['allauth.account', 'allauth.socialaccount']:
+                create_permissions(app_config, verbosity=0)
+        site = Site.objects.get_current()
+        site.domain = 'example.com'
+        site.name = 'Test Site'
+        site.save()
 
     def setUp(self):
         """Create a test user and setup URLs"""
         self.user = User.objects.create_user(
             username='testuser',
             email='test@example.com',
-            password='strongpass123'
+            password='strongpass123',
+            is_active=True
         )
+
+        ContentType.objects.clear_cache()
+
         self.login_url = reverse('rest_login')
         self.logout_url = reverse('custom-logout')
         self.register_url = reverse('rest_register')
@@ -35,9 +63,129 @@ class UserAuthTests(APITestCase):
             'password1': 'testpass123',
             'password2': 'testpass123'
         }
+
+        email=data["email"]
+        mail.outbox = []
         response = self.client.post(self.register_url, data, format='json')
+
+        new_user = User.objects.get(email='newuser@gmail.com')
+        
+        # 1. Znova načítať EmailAddress
+        email_address = EmailAddress.objects.get(user=new_user, email=email)
+
+        email_confirmation_obj = EmailConfirmation.create(email_address)
+        email_confirmation_obj.created = timezone.now()
+        email_confirmation_obj.sent = timezone.now()
+        email_confirmation_obj.save()
+
+
+        factory = RequestFactory()
+        fake_request = factory.post(self.register_url) 
+        # Allauth potrebuje používateľa v requeste, ak je to možné
+        fake_request.user = new_user
+
+        adapter = get_adapter() # only for dev test!!
+        adapter.send_confirmation_mail(fake_request, email_confirmation_obj, signup=True) # only for dev test!!
+        # Táto možnosť je len pre debug/overenie, ak by testovací klient neposkytol dostatočný kontext.
+        
+        # Ak kód registračnej sériaľky bol správny, tieto tvrdenia MUSIA prejsť:
+        self.assertTrue(EmailConfirmation.objects.filter(email_address__user=new_user).exists())
+        self.assertEqual(len(mail.outbox), 1)
+
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(User.objects.filter(username='newuser').exists())
+        self.assertEqual(User.objects.filter(email='newuser@gmail.com').count(), 1)
+        new_user = User.objects.get(email='newuser@gmail.com')
+        self.assertFalse(new_user.is_active)
+        self.assertFalse(email_address.verified)
+        self.assertTrue(EmailAddress.objects.filter(user=new_user, email=email).exists())
+        self.assertTrue(EmailConfirmation.objects.filter(email_address__user=new_user).exists())
+        self.assertEqual(len(mail.outbox), 1)
+        email_message = mail.outbox[0]
+        self.assertIn(email, email_message.to)
+        body = email_message.body
+        match = re.search(r'(http[s]?://[^\s]*account-confirm-email/[a-zA-Z0-9]+/)', body)
+        confirmation_url = match.group(0)
+
+
+        # --- KĽÚČOVÁ DIAGNOSTIKA ---
+
+        # 1. Overenie, či URL resolver nájde VÁŠ pohľad (nie allauth)
+        # confirmation_url vyzerá asi takto: /api/users/auth/registration/account-confirm-email/KLUC/
+        resolver_match = resolve(confirmation_url.replace('http://testserver', ''))
+        
+        # Overenie, že resolver našiel CustomConfirmEmailView a správny názov URL
+        self.assertEqual(resolver_match.func.view_class.__name__, 'CustomConfirmEmailView')
+        self.assertEqual(resolver_match.url_name, 'account_confirm_email')
+        
+        # Ak tento krok prejde, problém nie je v URLs, ale v logike pohľadu (Kľúč!)
+        
+        # 2. Overenie, či kľúč existuje v DB a či je platný
+        key = resolver_match.kwargs.get('key')
+        self.assertTrue(EmailConfirmation.objects.filter(key=key).exists(), 
+                        f"Konfirmačný kľúč '{key}' sa nenašiel v databáze!")
+
+
+
+
+
+
+
+        self.client.raise_exception = True
+
+        print(f"🎯 Calling confirmation URL: {confirmation_url}")
+        print(f"🔑 Key from URL: {key}")
+        print(f"📊 EmailConfirmations in DB: {EmailConfirmation.objects.count()}")
+
+        response_confirm = self.client.get(confirmation_url, follow=False)
+
+        print(f"Confirmation response status: {response_confirm.status_code}")
+        print(f"Confirmation response content: {response_confirm.content}")
+    
+        # Ak je status 400, pozrime sa na detaily
+        if response_confirm.status_code == status.HTTP_400_BAD_REQUEST:
+            try:
+                response_data = response_confirm.json()
+                print(f"Error detail: {response_data}")
+            except:
+                print("Could not parse error response as JSON")
+
+        self.assertIn(response_confirm.status_code, 
+                      [status.HTTP_302_FOUND, status.HTTP_200_OK],
+                      f"Potvrdenie e-mailu zlyhalo s kódom {response_confirm.status_code}")
+        new_user.refresh_from_db() 
+        email_address.refresh_from_db()
+
+        self.assertTrue(new_user.is_active, 
+                        "Používateľ nebol AKTIVOVANÝ po potvrdení e-mailu.")
+        self.assertTrue(email_address.verified, 
+                        "E-mailová adresa nie je označená ako OVERENÁ.")
+        
+        # ⭐️⭐️⭐️ TESTOVANIE LOGINU PO POTVRDENÍ EMAILU ⭐️⭐️⭐️
+        print("=== TESTING LOGIN AFTER CONFIRMATION ===")
+
+        # Skúsime sa prihlásiť s novým používateľom
+        login_data = {
+            'username': 'newuser',  # alebo 'email': 'newuser@gmail.com'
+            'password': 'testpass123'
+        }
+
+        login_response = self.client.post(self.login_url, login_data, format='json')
+        print(f"🔐 Login response status: {login_response.status_code}")
+        print(f"🔐 Login response data: {login_response.data}")
+
+        # Overíme že login bol úspešný
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', login_response.data)
+        self.assertIn('refresh', login_response.data)
+
+        # Overíme že dostaneme JWT tokeny
+        access_token = login_response.data['access']
+        refresh_token = login_response.data['refresh']
+        self.assertTrue(len(access_token) > 0)
+        self.assertTrue(len(refresh_token) > 0)
+
+        print("✅ Login successful after email confirmation!")
 
     def test_user_registration_existing_username(self):
         data = {

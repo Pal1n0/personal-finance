@@ -16,8 +16,15 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.http import HttpResponse
+from django.views import View
+
+class DummySuccessView(View):
+    def get(self, request, *args, **kwargs):
+        return HttpResponse(status=200)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/users/', include('users.urls')),
+    path('email-verified/', DummySuccessView.as_view(), name='email-verified-success'),  
 ]
