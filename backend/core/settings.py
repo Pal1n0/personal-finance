@@ -33,6 +33,7 @@ REST_AUTH = {
     'USE_JWT': True,
     'JWT_AUTH_COOKIE': None,
     'JWT_AUTH_REFRESH_COOKIE': None,
+    'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
     'JWT_AUTH_HTTPONLY': False,
     'TOKEN_MODEL': None,
     'SESSION_LOGIN': False,
@@ -131,10 +132,10 @@ MIDDLEWARE = [
     'django.middleware.locale.LocaleMiddleware',   # multi language middleware
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
+    'axes.middleware.AxesMiddleware', 
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'axes.middleware.AxesMiddleware', 
     'allauth.account.middleware.AccountMiddleware',
     'corsheaders.middleware.CorsMiddleware'
 ]

@@ -8,6 +8,7 @@ from axes.models import AccessAttempt
 from django.conf import settings
 
 
+
 # Get logger for this module
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ class CustomLoginSerializer(LoginSerializer):
 
         # Get the request from context
         request = self.context.get('request')
-        
+
         # PRIDANE: Kontrola zablokovania - na zaciatku validacie
         lookup_username = username
         if not lookup_username and email:
@@ -68,7 +69,7 @@ class CustomLoginSerializer(LoginSerializer):
                     })
             except AccessAttempt.DoesNotExist:
                 pass
-        # KONIEC PRIDANEHO KODU
+        # KONIEC PRIDANEHO KODU 
       
 
         if not password:
