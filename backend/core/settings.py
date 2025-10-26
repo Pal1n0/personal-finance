@@ -13,10 +13,10 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 from decouple import config
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -29,27 +29,114 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+REST_AUTH = {
+    'USE_JWT': True,
+    'JWT_AUTH_COOKIE': None,
+    'JWT_AUTH_REFRESH_COOKIE': None,
+    'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
+    'JWT_AUTH_HTTPONLY': False,
+    'TOKEN_MODEL': None,
+    'SESSION_LOGIN': False,
+}
 
 # Application definition
 
 INSTALLED_APPS = [
+    # Django core apps
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
+    'django.contrib.sites',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    # Third-party
+    'axes',
     'corsheaders',
+    'rest_framework',
+    'rest_framework.authtoken',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
+
+    # Auth + registration
+    'dj_rest_auth',
+    'dj_rest_auth.registration',
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',  #  Google login 
+
+    # My apps
+    'users',
 ]
+
+
+REST_AUTH_SERIALIZERS = {
+    'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
+}
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}
+
+AUTHENTICATION_BACKENDS = (
+    'axes.backends.AxesBackend', # <-- MUSÍ BÝT PRVNÍ
+
+    # Tvoje stávající backendy
+    'allauth.account.auth_backends.AuthenticationBackend',
+    'django.contrib.auth.backends.ModelBackend',
+)
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+}
+
+SITE_ID = 1
+AUTH_USER_MODEL = 'users.CustomUser'  # alebo cesta ku tvojmu modelu
+ACCOUNT_USER_MODEL_USERNAME_FIELD = "username"
+ACCOUNT_USER_MODEL_EMAIL_FIELD = "email"
+ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
+ACCOUNT_UNIQUE_EMAIL = True
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_USERNAME_REQUIRED = True
+ACCOUNT_LOGIN_METHODS = ["username", "email"]
+ACCOUNT_PRESERVE_USERNAME_CASING = False
+ACCOUNT_CONFIRM_EMAIL_ON_GET = True  # after link click accout will activate
+LOGIN_URL = 'account_login'
+LOGOUT_URL = 'account_logout'
+
+ACCOUNT_EMAIL_VERIFICATION = 'mandatory' 
+
+ACCOUNT_AUTHENTICATION_METHOD = 'username_email'
+DEFAULT_FROM_EMAIL = 'webmaster@localhost'  
+ACCOUNT_EMAIL_SUBJECT_PREFIX = '[Personal Finance] ' 
+ACCOUNT_DEFAULT_HTTP_PROTOCOL = "http"
+DEFAULT_DOMAIN = "example.com"
+
+EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'  # onyl for dev!
+ACCOUNT_CONFIRM_EMAIL_URL_REVERSE = None # onyl for dev!
+# ACCOUNT_ADAPTER = 'users.adapters.CustomAccountAdapter'
+ACCOUNT_EMAIL_CONFIRMATION_DONE_URL = '/email-verified/'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.locale.LocaleMiddleware',   # multi language middleware
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
+    'axes.middleware.AxesMiddleware', 
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
     'corsheaders.middleware.CorsMiddleware'
 ]
 
@@ -114,13 +201,26 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'en' # default
+
+LANGUAGES = [
+    ('en', 'English'),
+    ('cz', 'Czech'),
+    ('sk', 'Slovak'),
+]
 
 TIME_ZONE = 'UTC'
 
 USE_I18N = True
 
+USE_L10N = True
+
 USE_TZ = True
+
+
+LOCALE_PATHS = [
+    BASE_DIR / "locale",  # path to folder with translations
+]
 
 
 # Static files (CSS, JavaScript, Images)
@@ -141,3 +241,84 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+AXES_FAILURE_LIMIT = 5            
+
+AXES_COOLOFF_TIME = timedelta(minutes=15) 
+
+AXES_ONLY_USER_FAILURES = True
+
+AXES_HTTP_RESPONSE_CODE = 403
+
+AXES_ALLOWED_CORS_ORIGINS = "*"
+
+# Jak se má "jméno" z požadavku získat. 
+# dj-rest-auth posílá JSON, takže mu musíme říct, kde ho hledat
+AXES_USERNAME_CALLABLE = 'users.utils.get_axes_username'
+AXES_LOCKOUT_CALLABLE = 'users.utils.custom_lockout_response'
+
+
+# Pokud bys používal ten scénář, že email je v poli "email"
+# AXES_USERNAME_FORM_FIELD = "email"
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    
+    # Formatters - how the logs will look
+    'formatters': {
+        'verbose': {
+            'format': '[{levelname}] {asctime} {module} - {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '[{levelname}] {message}',
+            'style': '{',
+        },
+        'detailed': {  # This was missing!
+            'format': '[{levelname}] {asctime} {pathname}:{lineno} - {message}',
+            'style': '{',
+        },
+    },
+    
+    # Handlers - where to send logs
+    'handlers': {
+        'console': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'detailed'
+        },
+        'file': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': 'logs/django.log',  # This will create logs/ folder
+            'formatter': 'verbose',
+        },
+    },
+    
+    # Loggers - what to log
+    'loggers': {
+        # Django's built-in loggers
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Catch ALL Django request errors (including 500s)
+        'django.request': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        # Your app's logger
+        'users': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        '': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+        },
+    },
+}
