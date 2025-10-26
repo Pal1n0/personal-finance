@@ -73,6 +73,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
         # Nastavenie VAŠICH custom fields
         user.is_social_account = True
         user.profile_completed = False  # Podľa vášho modelu
+        user.is_active = True
                 
         user.save()
         

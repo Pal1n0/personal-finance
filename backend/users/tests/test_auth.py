@@ -6,16 +6,16 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.management import create_permissions
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.sites.models import Site
-from allauth.account.models import EmailAddress, EmailConfirmation, SocialLogin
+from allauth.socialaccount.models import SocialLogin
+from allauth.account.models import EmailAddress, EmailConfirmation
 from rest_framework.test import APITestCase
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from axes.utils import reset
 import re
 from unittest.mock import patch, MagicMock
-
 from allauth.account.adapter import get_adapter
-from django.test import RequestFactory 
+from django.test import RequestFactory # <--
 
 User = get_user_model()
 
@@ -448,7 +448,8 @@ class UserAuthTests(APITestCase):
             email='incomplete@example.com',
             is_social_account=True,
             profile_completed=False,
-            username='google_user_123'
+            username=None,
+            is_active=True
         )
         
         # Simulácia prihlásenia - získame token
