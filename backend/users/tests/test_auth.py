@@ -43,6 +43,18 @@ class UserAuthTests(APITestCase):
             is_active=True
         )
 
+        email_address, created = EmailAddress.objects.get_or_create(
+            user=self.user,
+            email=self.user.email,
+            defaults={'verified': True, 'primary': True}
+        )
+        
+        # Ak už existoval, nastav ho ako verified
+        if not created:
+            email_address.verified = True
+            email_address.primary = True
+            email_address.save()
+
         ContentType.objects.clear_cache()
 
         self.login_url = reverse('rest_login')
@@ -124,12 +136,6 @@ class UserAuthTests(APITestCase):
         key = resolver_match.kwargs.get('key')
         self.assertTrue(EmailConfirmation.objects.filter(key=key).exists(), 
                         f"Konfirmačný kľúč '{key}' sa nenašiel v databáze!")
-
-
-
-
-
-
 
         self.client.raise_exception = True
 
@@ -334,11 +340,13 @@ class UserAuthTests(APITestCase):
                 'password': 'wrongpass'
             }, format='json')
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            print(f"REQUEST {i} - Status: {response.status_code}, Data: {response.data}")
         # 6th attempt should be blocked by AXES
         response = self.client.post(self.login_url, {
             'username': 'testuser',
             'password': 'wrongpass'
         }, format='json')
+        print(f"REQUEST last - Status: {response.status_code}, Data: {response.data}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     # ------------------------------
@@ -403,3 +411,213 @@ class UserAuthTests(APITestCase):
         response = self.client.post(self.logout_url, {'refresh': 'malformed.token'}, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('detail', response.data)
+
+    # ------------------------------
+    # SECURITY & VALIDATION TESTS
+    # ------------------------------
+
+    def test_login_with_sql_injection_attempt(self):
+        """Test SQL injection attempt in username"""
+        data = {
+            'username': "admin' OR '1'='1' --", 
+            'password': 'anypassword'
+        }
+        response = self.client.post(self.login_url, data, format='json')
+        # Should return 401, not 500
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def test_login_with_xss_attempt(self):
+        """Test XSS attempt in email field"""
+        data = {
+            'email': '<script>alert("xss")</script>@example.com',
+            'password': 'anypassword'
+        }
+        response = self.client.post(self.login_url, data, format='json')
+        # Should return 401, not crash
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_login_with_unicode_characters(self):
+        """Test unicode characters in credentials"""
+        data = {
+            'username': '用户',  # Chinese characters
+            'password': '密码'
+        }
+        response = self.client.post(self.login_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_login_with_null_characters(self):
+        """Test null characters in credentials"""
+        data = {
+            'username': 'testuser\0injection',
+            'password': 'password\0test'
+        }
+        response = self.client.post(self.login_url, data, format='json')
+        # Should handle gracefully
+        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_401_UNAUTHORIZED])
+
+    def test_login_with_whitespace_only(self):
+        """Test credentials with only whitespace"""
+        data = {
+            'username': '   ',
+            'email': '   ',
+            'password': '   '
+        }
+        response = self.client.post(self.login_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_login_with_newline_characters(self):
+        """Test newline characters in credentials"""
+        data = {
+            'username': 'testuser\ninjection',
+            'password': 'password\ntest'
+        }
+        response = self.client.post(self.login_url, data, format='json')
+        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_401_UNAUTHORIZED])
+
+    def test_login_with_json_injection(self):
+        """Test JSON injection in credentials"""
+        data = {
+            'username': '{"username": "admin", "password": "hacked"}',
+            'password': 'test'
+        }
+        response = self.client.post(self.login_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_login_with_email_injection(self):
+        """Test email field with command injection"""
+        data = {
+            'email': 'test@example.com; rm -rf /',
+            'password': 'anypassword'
+        }
+        response = self.client.post(self.login_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # ------------------------------
+    # REGISTRATION SECURITY TESTS  
+    # ------------------------------
+
+    def test_register_with_sql_injection_username(self):
+        """Test SQL injection in username during registration"""
+        data = {
+            'username': "admin' OR '1'='1' --",
+            'email': 'test@example.com',
+            'password1': 'testpass123',
+            'password2': 'testpass123'
+        }
+        response = self.client.post(self.register_url, data, format='json')
+        # Should return 400 (validation error), not 500
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def test_register_with_xss_email(self):
+        """Test XSS in email during registration"""
+        data = {
+            'username': 'normaluser',
+            'email': '<script>alert("xss")</script>@example.com',
+            'password1': 'testpass123', 
+            'password2': 'testpass123'
+        }
+        response = self.client.post(self.register_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_register_with_invalid_email_format(self):
+        """Test various invalid email formats"""
+        invalid_emails = [
+            'invalid-email',
+            'user@',
+            '@example.com',
+            'user@.com',
+            'user@example.',
+            'user@example..com'
+        ]
+        
+        for invalid_email in invalid_emails:
+            with self.subTest(email=invalid_email):
+                data = {
+                    'username': f'testuser_{invalid_emails.index(invalid_email)}',
+                    'email': invalid_email,
+                    'password1': 'testpass123',
+                    'password2': 'testpass123'
+                }
+                response = self.client.post(self.register_url, data, format='json')
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_register_with_very_long_fields(self):
+        """Test extremely long field values"""
+        data = {
+            'username': 'a' * 1000,  # Very long username
+            'email': 'a' * 200 + '@example.com',  # Very long email local part
+            'password1': 'a' * 1000,  # Very long password
+            'password2': 'a' * 1000
+        }
+        response = self.client.post(self.register_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_register_with_unicode_injection(self):
+        """Test unicode characters that might cause issues"""
+        data = {
+            'username': '用户👀',  # Chinese + emoji
+            'email': 'test@例子.com',  # Internationalized domain
+            'password1': '密码🔑',
+            'password2': '密码🔑'
+        }
+        response = self.client.post(self.register_url, data, format='json')
+        # Could be 400 or 201 depending on your validation
+        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_201_CREATED])
+
+    def test_register_with_json_injection(self):
+        """Test JSON-like data in fields"""
+        data = {
+            'username': '{"username": "admin"}',
+            'email': '{"email": "hacked@example.com"}@test.com',
+            'password1': 'testpass123',
+            'password2': 'testpass123'
+        }
+        response = self.client.post(self.register_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_register_with_command_injection(self):
+        """Test command injection attempts"""
+        data = {
+            'username': 'user; rm -rf /',
+            'email': 'test; ls /etc/passwd@example.com',
+            'password1': 'testpass123',
+            'password2': 'testpass123'
+        }
+        response = self.client.post(self.register_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_register_with_null_bytes(self):
+        """Test null byte injection"""
+        data = {
+            'username': 'user\0injection',
+            'email': 'test\0@example.com',
+            'password1': 'pass\0word',
+            'password2': 'pass\0word'
+        }
+        response = self.client.post(self.register_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_register_with_whitespace_only(self):
+        """Test whitespace-only credentials"""
+        data = {
+            'username': '   ',
+            'email': '   ',
+            'password1': '   ',
+            'password2': '   '
+        }
+        response = self.client.post(self.register_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_register_with_email_as_username(self):
+        """Test using email format as username"""
+        data = {
+            'username': 'user@example.com',  # Email format in username
+            'email': 'test@example.com',
+            'password1': 'testpass123',
+            'password2': 'testpass123'
+        }
+        response = self.client.post(self.register_url, data, format='json')
+        # Could be 400 or 201 depending on your username validation
+        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_201_CREATED])
