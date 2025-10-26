@@ -1,3 +1,84 @@
-# .gitignore
+# Django
+*.log
+*.pot
+*.pyc
+__pycache__/
+db.sqlite3
+media/
+staticfiles/
+
+# Environment
 .env
 .env.docker
+.env.local
+.env.production
+.venv
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Database migrations (optional - careful!)
+# !/users/migrations/
+# /users/migrations/*.py
+# !/users/migrations/__init__.py
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Pytest
+.pytest_cache/
+.cache
+nosetests.xml
+
+# Package management
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# Virtual environments
+venv*/
+ENV*/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyCharm
+.idea/
+
+# macOS
+._*
+
+# Windows
+[Tt]humbs.db
+ehthumbs.db
+
+# Backup files
+*.bak
+*.backup
+
+# Logs
+logs/
+*.log
