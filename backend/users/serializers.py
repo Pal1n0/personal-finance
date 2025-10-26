@@ -102,13 +102,14 @@ class CustomLoginSerializer(LoginSerializer):
         attrs["user"] = user
         return attrs
 
-    
-# minimalny serializer pre social login request
 class SocialLoginSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
+    provider = serializers.CharField(required=False, default='google')
 
     def validate_email(self, value):
         logger.debug(f"SocialLoginSerializer validating email: {value}")
+        if not value:
+            raise serializers.ValidationError("Email is required for social login.")
         return value
 
     def validate(self, attrs):
