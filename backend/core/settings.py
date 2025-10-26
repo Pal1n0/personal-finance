@@ -34,7 +34,6 @@ REST_AUTH = {
     'JWT_AUTH_COOKIE': None,
     'JWT_AUTH_REFRESH_COOKIE': None,
     'JWT_AUTH_HTTPONLY': False,
-    'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
     'TOKEN_MODEL': None,
     'SESSION_LOGIN': False,
 }
@@ -100,14 +99,12 @@ SIMPLE_JWT = {
 }
 
 SITE_ID = 1
-
 AUTH_USER_MODEL = 'users.CustomUser'  # alebo cesta ku tvojmu modelu
 ACCOUNT_USER_MODEL_USERNAME_FIELD = "username"
 ACCOUNT_USER_MODEL_EMAIL_FIELD = "email"
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_EMAIL_REQUIRED = True
-ACCOUNT_EMAIL_VERIFICATION = 'mandatory'  
 ACCOUNT_USERNAME_REQUIRED = True
 ACCOUNT_LOGIN_METHODS = ["username", "email"]
 ACCOUNT_PRESERVE_USERNAME_CASING = False
@@ -115,8 +112,18 @@ ACCOUNT_CONFIRM_EMAIL_ON_GET = True  # after link click accout will activate
 LOGIN_URL = 'account_login'
 LOGOUT_URL = 'account_logout'
 
+ACCOUNT_EMAIL_VERIFICATION = 'mandatory' 
 
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # onyl for dev!
+ACCOUNT_AUTHENTICATION_METHOD = 'username_email'
+DEFAULT_FROM_EMAIL = 'webmaster@localhost'  
+ACCOUNT_EMAIL_SUBJECT_PREFIX = '[Personal Finance] ' 
+ACCOUNT_DEFAULT_HTTP_PROTOCOL = "http"
+DEFAULT_DOMAIN = "example.com"
+
+EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'  # onyl for dev!
+ACCOUNT_CONFIRM_EMAIL_URL_REVERSE = None # onyl for dev!
+# ACCOUNT_ADAPTER = 'users.adapters.CustomAccountAdapter'
+ACCOUNT_EMAIL_CONFIRMATION_DONE_URL = '/email-verified/'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -127,6 +134,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'axes.middleware.AxesMiddleware', 
     'allauth.account.middleware.AccountMiddleware',
     'corsheaders.middleware.CorsMiddleware'
 ]

@@ -11,6 +11,11 @@ class CustomUser(AbstractUser):
     username = models.CharField(max_length=150, unique=True, null=True, blank=True) # Optinal for google registration
     password = models.CharField(max_length=128, null=True, blank=True) # Optinal for google registration
 
+    is_active = models.BooleanField(
+        default=False, # <-- Vynúti, aby bol nový používateľ neaktívny
+        help_text='Designates whether this user should be treated as active. '
+                  'Unselect this instead of deleting accounts.'
+    )
     # optional profile picture
     profile_picture = models.ImageField(
         upload_to='profile_pics/',
