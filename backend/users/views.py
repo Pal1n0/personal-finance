@@ -10,7 +10,12 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.http import JsonResponse
 from allauth.account.views import ConfirmEmailView
 from allauth.account.models import EmailConfirmation
-# from rest_framework_simplejwt.views import TokenObtainPairView
+from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount.providers.oauth2.client import OAuth2Client
+from dj_rest_auth.registration.views import SocialLoginView
+from django.conf import settings
+from rest_framework.response import Response
+
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
@@ -35,40 +40,52 @@ logger = logging.getLogger(__name__)
             logger.error(f"Login failed: {str(e)}", exc_info=True)
             raise"""
 
-class SocialLoginView(APIView):
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        logger.info("Social login attempt")
-        logger.debug(f"Social login data: {request.data}")
+class GoogleLoginView(SocialLoginView):
+    """
+    Google OAuth2 login - spracuje Google token a vráti JWT
+    """
+    adapter_class = GoogleOAuth2Adapter
+    callback_url = "http://localhost:5173"
+    client_class = OAuth2Client
+    
+    def get_response(self):
+        logger.info("Google login successful")
+        response = super().get_response()
         
+        user = self.user
+        
+        if user:
+            # Používame VAŠE existujúce polia z modelu
+            if isinstance(response.data, dict):
+                response.data['profile_completed'] = user.profile_completed
+                response.data['user_id'] = user.id
+                response.data['email'] = user.email
+                response.data['username'] = user.username
+                
+                # DÔLEŽITÉ: Flag pre frontend - či treba dokončiť profil
+                requires_completion = (
+                    not user.profile_completed or 
+                    not user.username or 
+                    user.username.startswith('google_user_')
+                )
+                response.data['requires_profile_completion'] = requires_completion
+                
+                logger.info(f"User {user.email} - profile_completed: {user.profile_completed}, requires_completion: {requires_completion}")
+        
+        return response
+
+    def post(self, request, *args, **kwargs):
+        logger.info("Google OAuth2 login attempt")
         try:
-            serializer = SocialLoginSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            email = serializer.validated_data['email']
-            
-            logger.info(f"Social login processing for email: {email}")
-
-            user, created = User.objects.get_or_create(
-                email=email,
-                defaults={'is_social_account': True, 'profile_completed': False}
-            )
-
-            logger.info(f"Social login {'created new user' if created else 'found existing user'} - user_id: {user.id}")
-
-            # generovanie JWT tokenov
-            refresh = RefreshToken.for_user(user)
-            logger.info("Social login tokens generated successfully")
-            
-            return Response({
-                'refresh': str(refresh),
-                'access': str(refresh.access_token),
-                'created': created  # True = nový užívateľ, False = už existuje
-            }, status=status.HTTP_200_OK)
-            
+            response = super().post(request, *args, **kwargs)
+            logger.info("Google OAuth2 login processed successfully")
+            return response
         except Exception as e:
-            logger.error(f"Social login failed: {str(e)}", exc_info=True)
-            raise
+            logger.error(f"Google OAuth2 login failed: {str(e)}", exc_info=True)
+            return Response(
+                {'detail': 'Google login failed. Please try again.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 class SocialCompleteProfileView(generics.UpdateAPIView):
     queryset = User.objects.all()
@@ -77,15 +94,32 @@ class SocialCompleteProfileView(generics.UpdateAPIView):
 
     def get_object(self):
         logger.info(f"Social complete profile - user: {self.request.user.id}")
-        return self.request.user  # doplní svoj profil
+        return self.request.user
 
     def update(self, request, *args, **kwargs):
         logger.info(f"Social profile completion attempt - user: {request.user.id}")
         logger.debug(f"Profile completion data: {request.data}")
+        
         try:
+            # Zavoláme parent metódu ktorá spracuje update
             response = super().update(request, *args, **kwargs)
+            
+            # DÔLEŽITÉ: Po úspešnom update generujeme NOVÉ tokeny
+            user = self.get_object()
+            refresh = RefreshToken.for_user(user)
+            
             logger.info(f"Profile completed successfully - user: {request.user.id}")
-            return response
+            
+            # Vrátime pôvodnú response + nové tokeny
+            return Response({
+                'username': user.username,
+                'profile_completed': user.profile_completed,
+                'access': str(refresh.access_token),  # ⬅️ PRIDANÉ
+                'refresh': str(refresh),              # ⬅️ PRIDANÉ
+                'user_id': user.id,
+                'email': user.email
+            }, status=status.HTTP_200_OK)
+            
         except Exception as e:
             logger.error(f"Profile completion failed - user: {request.user.id}, error: {str(e)}", exc_info=True)
             raise
