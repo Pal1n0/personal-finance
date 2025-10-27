@@ -6,6 +6,7 @@ and profile completion with custom validation and security features.
 """
 
 import logging
+import re
 
 from axes.models import AccessAttempt
 from dj_rest_auth.serializers import LoginSerializer
@@ -14,6 +15,8 @@ from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
+from rest_framework.validators import UniqueValidator
+
 
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
@@ -403,9 +406,23 @@ class SocialCompleteProfileSerializer(serializers.ModelSerializer):
     and need to complete their profile information.
     """
 
-    username = serializers.CharField(required=True)
+    username = serializers.CharField(
+        required=True,
+        min_length=3,
+        max_length=30,
+        validators=[
+            UniqueValidator(
+                queryset=User.objects.all(),
+                message="This username is already taken. Please choose a different one."
+            )
+        ],
+        help_text="Must be unique and 3-30 characters long"
+    )
     password = serializers.CharField(
-        write_only=True, required=True, validators=[validate_password]
+        write_only=True, 
+        required=True, 
+        validators=[validate_password],
+        help_text="Must meet password strength requirements"
     )
 
     class Meta:
@@ -416,11 +433,30 @@ class SocialCompleteProfileSerializer(serializers.ModelSerializer):
         """
         Validate username for profile completion.
         """
-        logger.debug(
-            "Validating username for profile completion",
+        value = value.strip()
+        
+        # Basic validation
+        if len(value) < 3:
+            raise serializers.ValidationError("Username must be at least 3 characters long.")
+        
+        if len(value) > 30:
+            raise serializers.ValidationError("Username cannot exceed 30 characters.")
+        
+        # Check for allowed characters
+        if not re.match(r'^[a-zA-Z0-9_\.]+$', value):
+            raise serializers.ValidationError(
+                "Username can only contain letters, numbers, underscores and dots."
+            )
+        
+        # Check if username already exists (redundant but safe)
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("This username is already taken.")
+        
+        logger.info(
+            "Username validation successful",
             extra={
                 "username": value,
-                "action": "username_validation",
+                "action": "username_validation_success",
                 "component": "SocialCompleteProfileSerializer",
             },
         )
@@ -430,12 +466,29 @@ class SocialCompleteProfileSerializer(serializers.ModelSerializer):
         """
         Validate profile completion data.
         """
+        username = attrs.get('username', '').strip()
+        
+        # Final uniqueness check before save
+        if username and User.objects.filter(username=username).exists():
+            logger.warning(
+                "Username uniqueness validation failed in final check",
+                extra={
+                    "username": username,
+                    "action": "uniqueness_validation_failure", 
+                    "component": "SocialCompleteProfileSerializer",
+                    "severity": "medium",
+                },
+            )
+            raise serializers.ValidationError({
+                "username": "This username is already taken. Please choose a different one."
+            })
+        
         logger.info(
-            "Social profile completion validation started",
+            "Social profile completion validation successful",
             extra={
-                "username_provided": bool(attrs.get("username")),
-                "password_provided": bool(attrs.get("password")),
-                "action": "profile_completion_validation",
+                "username": username,
+                "has_password": bool(attrs.get("password")),
+                "action": "profile_completion_validation_success",
                 "component": "SocialCompleteProfileSerializer",
             },
         )
@@ -445,41 +498,62 @@ class SocialCompleteProfileSerializer(serializers.ModelSerializer):
         """
         Update user instance with profile completion data.
         """
+        username = validated_data["username"]
+        
         logger.info(
             "Initiating social profile completion",
             extra={
                 "user_id": instance.id,
                 "current_email": instance.email,
-                "new_username": validated_data.get("username"),
+                "new_username": username,
                 "action": "profile_completion_start",
                 "component": "SocialCompleteProfileSerializer",
             },
         )
 
-        # Update user profile with provided data
-        instance.username = validated_data["username"]
-        instance.set_password(validated_data["password"])
-        instance.profile_completed = True
+        try:
+            # Update user profile with provided data
+            instance.username = username
+            instance.set_password(validated_data["password"])
+            instance.profile_completed = True
 
-        logger.info(
-            "Saving completed social profile",
-            extra={
-                "user_id": instance.id,
-                "username": instance.username,
-                "profile_completed": True,
-                "action": "profile_completion_save",
-                "component": "SocialCompleteProfileSerializer",
-            },
-        )
-        instance.save()
+            logger.info(
+                "Saving completed social profile",
+                extra={
+                    "user_id": instance.id,
+                    "username": instance.username,
+                    "profile_completed": True,
+                    "action": "profile_completion_save",
+                    "component": "SocialCompleteProfileSerializer",
+                },
+            )
+            instance.save()
 
-        logger.info(
-            "Social profile completed successfully",
-            extra={
-                "user_id": instance.id,
-                "username": instance.username,
-                "action": "profile_completion_success",
-                "component": "SocialCompleteProfileSerializer",
-            },
-        )
-        return instance
+            logger.info(
+                "Social profile completed successfully",
+                extra={
+                    "user_id": instance.id,
+                    "username": instance.username,
+                    "action": "profile_completion_success",
+                    "component": "SocialCompleteProfileSerializer",
+                },
+            )
+            return instance
+            
+        except Exception as e:
+            logger.error(
+                "Social profile completion failed",
+                extra={
+                    "user_id": instance.id,
+                    "username": username,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "action": "profile_completion_failure",
+                    "component": "SocialCompleteProfileSerializer",
+                    "severity": "high",
+                },
+                exc_info=True,
+            )
+            raise serializers.ValidationError({
+                "non_field_errors": "Profile completion failed. Please try again."
+            })
