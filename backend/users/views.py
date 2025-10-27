@@ -8,11 +8,9 @@ profile completion, email confirmation, and user session management.
 import logging
 
 from allauth.account.models import EmailConfirmation
-from allauth.account.views import ConfirmEmailView
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
-from django.http import JsonResponse
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -454,116 +452,68 @@ class InactiveAccountView(APIView):
         return ip
 
 
-class CustomConfirmEmailView(ConfirmEmailView):
+
+class CustomConfirmEmailView(APIView):
     """
     Custom email confirmation view that returns JSON responses instead of rendering templates.
 
     Overrides the default allauth behavior to provide API-friendly JSON responses
     for email confirmation in a REST API context.
     """
+    permission_classes = [permissions.AllowAny]
+    http_method_names = ['get']
 
-    def get_object(self, queryset=None):
+    def get(self, request, *args, **kwargs):
         """
-        Retrieve email confirmation object by key.
+        Handle email confirmation GET requests with JSON response.
         """
-        key = self.kwargs["key"]
-
-        logger.debug(
-            "Looking up email confirmation by key",
+        key = self.kwargs.get("key", "")
+        
+        logger.info(
+            "Email confirmation request received",
             extra={
                 "confirmation_key": key,
-                "action": "confirmation_lookup",
+                "client_ip": self._get_client_ip(request),
+                "action": "email_confirmation_request",
                 "component": "CustomConfirmEmailView",
             },
         )
 
-        try:
-            confirmation = EmailConfirmation.objects.get(key=key)
+        if not key:
+            logger.warning(
+                "Email confirmation failed - missing key",
+                extra={
+                    "action": "email_confirmation_failure", 
+                    "component": "CustomConfirmEmailView",
+                    "reason": "missing_key",
+                },
+            )
+            return Response(
+                {"detail": "Confirmation key is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
+        try:
+            # Retrieve confirmation object
+            confirmation = EmailConfirmation.objects.get(key=key)
+            
             logger.info(
                 "Email confirmation object found",
                 extra={
                     "confirmation_key": key,
                     "email": confirmation.email_address.email,
                     "user_id": confirmation.email_address.user.id,
+                    "user_active_before": confirmation.email_address.user.is_active,
+                    "email_verified_before": confirmation.email_address.verified,
                     "action": "confirmation_found",
                     "component": "CustomConfirmEmailView",
                 },
             )
 
-            return confirmation
-
-        except EmailConfirmation.DoesNotExist:
-            logger.warning(
-                "Email confirmation key not found",
-                extra={
-                    "confirmation_key": key,
-                    "action": "confirmation_not_found",
-                    "component": "CustomConfirmEmailView",
-                    "severity": "medium",
-                },
-            )
-            return None
-        except Exception as e:
-            logger.error(
-                "Error retrieving confirmation object",
-                extra={
-                    "confirmation_key": key,
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                    "action": "confirmation_retrieval_error",
-                    "component": "CustomConfirmEmailView",
-                    "severity": "high",
-                },
-                exc_info=True,
-            )
-            return None
-
-    def get(self, *args, **kwargs):
-        """
-        Handle email confirmation GET requests.
-        """
-        logger.info(
-            "Email confirmation request received",
-            extra={
-                "action": "email_confirmation_request",
-                "component": "CustomConfirmEmailView",
-            },
-        )
-
-        try:
-            # Retrieve confirmation object
-            self.object = self.get_object()
-
-            if not self.object:
-                logger.warning(
-                    "Email confirmation failed - invalid key",
-                    extra={
-                        "action": "email_confirmation_failure",
-                        "component": "CustomConfirmEmailView",
-                        "reason": "invalid_confirmation_key",
-                    },
-                )
-                return JsonResponse(
-                    {"detail": "Invalid confirmation link."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            user = self.object.email_address.user
-            logger.info(
-                "Processing email confirmation",
-                extra={
-                    "user_id": user.id,
-                    "email": self.object.email_address.email,
-                    "user_active_before": user.is_active,
-                    "email_verified_before": self.object.email_address.verified,
-                    "action": "email_confirmation_processing",
-                    "component": "CustomConfirmEmailView",
-                },
-            )
-
-            # Confirm email address
-            self.object.confirm(self.request)
+            user = confirmation.email_address.user
+            
+            # Confirm email address using allauth's logic
+            confirmation.confirm(request)
 
             # Ensure user is activated after email confirmation
             if not user.is_active:
@@ -578,37 +528,53 @@ class CustomConfirmEmailView(ConfirmEmailView):
                     },
                 )
 
-            # Verify confirmation results
-            self.object.email_address.refresh_from_db()
-            self.object.email_address.user.refresh_from_db()
+            # Refresh data from database
+            confirmation.email_address.refresh_from_db()
+            user.refresh_from_db()
 
             logger.info(
                 "Email confirmation completed successfully",
                 extra={
                     "user_id": user.id,
                     "user_active_after": user.is_active,
-                    "email_verified_after": self.object.email_address.verified,
+                    "email_verified_after": confirmation.email_address.verified,
                     "action": "email_confirmation_success",
                     "component": "CustomConfirmEmailView",
                 },
             )
 
-            return JsonResponse(
+            return Response(
                 {
                     "detail": "Email was successfully confirmed and account activated.",
                     "user": {
-                        "email": self.object.email_address.email,
-                        "username": self.object.email_address.user.username,
-                        "is_active": self.object.email_address.user.is_active,
+                        "email": confirmation.email_address.email,
+                        "username": user.username,
+                        "is_active": user.is_active,
                     },
                 },
                 status=status.HTTP_200_OK,
             )
 
+        except EmailConfirmation.DoesNotExist:
+            logger.warning(
+                "Email confirmation key not found",
+                extra={
+                    "confirmation_key": key,
+                    "action": "confirmation_not_found",
+                    "component": "CustomConfirmEmailView",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {"detail": "Invalid confirmation link."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
         except Exception as e:
             logger.error(
                 "Email confirmation processing failed",
                 extra={
+                    "confirmation_key": key,
                     "error_type": type(e).__name__,
                     "error_message": str(e),
                     "action": "email_confirmation_error",
@@ -617,7 +583,19 @@ class CustomConfirmEmailView(ConfirmEmailView):
                 },
                 exc_info=True,
             )
-            return JsonResponse(
-                {"detail": f"Confirmation error: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
+            return Response(
+                {"detail": "Confirmation failed. Please try again or request a new confirmation email."},
+                status=status.HTTP_400_BAD_REQUEST
             )
+
+    def _get_client_ip(self, request) -> str:
+        """
+        Extract client IP address from request for security logging.
+        """
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR', 'unknown')
+        return ip 
+
