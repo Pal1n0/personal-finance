@@ -11,13 +11,13 @@ from django.apps import AppConfig
 class UsersConfig(AppConfig):
     """
     Configuration class for the users application.
-    
+
     This class defines application-specific configuration including
     the default auto field type and application name.
     """
-    
+
     # Use BigAutoField as default for primary keys
-    default_auto_field = 'django.db.models.BigAutoField'
-    
+    default_auto_field = "django.db.models.BigAutoField"
+
     # Application name (Python path)
-    name = 'users'
+    name = "users"

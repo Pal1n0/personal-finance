@@ -17,18 +17,19 @@ Including another URLconf
 """
 
 from django.contrib import admin
-from django.urls import path, include
 from django.http import HttpResponse
+from django.urls import include, path
 from django.views import View
 
 
 class DummySuccessView(View):
     """
     A simple view that returns a 200 OK response.
-    
+
     This view is used as a placeholder for success endpoints that don't
     require complex logic, such as email verification confirmation pages.
     """
+
     def get(self, request, *args, **kwargs):
         """Handle GET requests by returning a 200 OK response."""
         return HttpResponse(status=200)
@@ -37,11 +38,9 @@ class DummySuccessView(View):
 # Main URL patterns for the core application
 urlpatterns = [
     # Django admin interface
-    path('admin/', admin.site.urls),
-    
+    path("admin/", admin.site.urls),
     # User management API endpoints
-    path('api/users/', include('users.urls')),
-    
+    path("api/users/", include("users.urls")),
     # Email verification success endpoint
-    path('email-verified/', DummySuccessView.as_view(), name='email-verified-success'),  
+    path("email-verified/", DummySuccessView.as_view(), name="email-verified-success"),
 ]
