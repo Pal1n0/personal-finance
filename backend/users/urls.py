@@ -17,7 +17,7 @@ urlpatterns = [
     re_path(
         r"^auth/registration/account-confirm-email/(?P<key>[-:\w]+)/$",
         CustomConfirmEmailView.as_view(),
-        name="account_confirm_email",  # Maintain same name for allauth compatibility
+        name="custom_account_confirm_email",  # Maintain same name for allauth compatibility
     ),
     # Custom logout endpoint with JWT token handling
     path("auth/custom-logout/", LogoutView.as_view(), name="custom-logout"),
