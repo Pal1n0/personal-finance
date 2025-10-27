@@ -7,33 +7,42 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('users', '0001_initial'),
+        ("users", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='customuser',
-            name='is_social_account',
+            model_name="customuser",
+            name="is_social_account",
             field=models.BooleanField(default=False),
         ),
         migrations.AddField(
-            model_name='customuser',
-            name='profile_completed',
+            model_name="customuser",
+            name="profile_completed",
             field=models.BooleanField(default=False),
         ),
         migrations.AlterField(
-            model_name='customuser',
-            name='password',
+            model_name="customuser",
+            name="password",
             field=models.CharField(blank=True, max_length=128, null=True),
         ),
         migrations.AlterField(
-            model_name='customuser',
-            name='profile_picture',
-            field=models.ImageField(blank=True, null=True, upload_to='profile_pics/', validators=[django.core.validators.FileExtensionValidator(['jpg', 'jpeg', 'png'])]),
+            model_name="customuser",
+            name="profile_picture",
+            field=models.ImageField(
+                blank=True,
+                null=True,
+                upload_to="profile_pics/",
+                validators=[
+                    django.core.validators.FileExtensionValidator(
+                        ["jpg", "jpeg", "png"]
+                    )
+                ],
+            ),
         ),
         migrations.AlterField(
-            model_name='customuser',
-            name='username',
+            model_name="customuser",
+            name="username",
             field=models.CharField(blank=True, max_length=150, null=True, unique=True),
         ),
     ]

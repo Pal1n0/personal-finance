@@ -3,6 +3,7 @@ URL configuration for core project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/5.2/topics/http/urls/
+
 Examples:
 Function views
     1. Add an import:  from my_app import views
@@ -14,17 +15,32 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
 from django.contrib import admin
-from django.urls import path, include
 from django.http import HttpResponse
+from django.urls import include, path
 from django.views import View
 
+
 class DummySuccessView(View):
+    """
+    A simple view that returns a 200 OK response.
+
+    This view is used as a placeholder for success endpoints that don't
+    require complex logic, such as email verification confirmation pages.
+    """
+
     def get(self, request, *args, **kwargs):
+        """Handle GET requests by returning a 200 OK response."""
         return HttpResponse(status=200)
 
+
+# Main URL patterns for the core application
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/users/', include('users.urls')),
-    path('email-verified/', DummySuccessView.as_view(), name='email-verified-success'),  
+    # Django admin interface
+    path("admin/", admin.site.urls),
+    # User management API endpoints
+    path("api/users/", include("users.urls")),
+    # Email verification success endpoint
+    path("email-verified/", DummySuccessView.as_view(), name="email-verified-success"),
 ]
