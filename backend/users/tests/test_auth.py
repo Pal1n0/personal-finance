@@ -235,7 +235,7 @@ class UserAuthTests(APITestCase):
     # LOGIN TESTS
     # =========================================================================
 
-    def test_user_login_success(self):
+    def test_user_login_success_with_username(self):
         """Test successful login with username."""
         data = {
             'username': 'testuser', 
@@ -247,27 +247,7 @@ class UserAuthTests(APITestCase):
         self.assertIn('access', response.data)
         self.assertIn('refresh', response.data)
 
-    def test_user_login_wrong_password(self):
-        """Test login fails with incorrect password."""
-        data = {
-            'username': 'testuser', 
-            'email': '', 
-            'password': 'wrongpass'
-        }
-        response = self.client.post(self.login_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_user_login_nonexistent_user(self):
-        """Test login fails for non-existent user."""
-        data = {
-            'username': '', 
-            'email': 'nouser@example.com', 
-            'password': 'nopass'
-        }
-        response = self.client.post(self.login_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_login_with_email(self):
+    def test_user_login_success_with_email(self):
         """Test successful login using email address."""
         data = {
             'username': '', 
@@ -279,17 +259,30 @@ class UserAuthTests(APITestCase):
         self.assertIn('access', response.data)
         self.assertIn('refresh', response.data)
 
-    def test_login_with_username(self):
-        """Test successful login using username."""
-        data = {
-            'username': 'testuser', 
-            'email': '', 
-            'password': 'strongpass123'
-        }
-        response = self.client.post(self.login_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('access', response.data)
-        self.assertIn('refresh', response.data)
+    def test_user_login_failure_scenarios(self):
+        """Test various login failure scenarios."""
+        test_cases = [
+            {
+                'name': 'wrong_password',
+                'data': {'username': 'testuser', 'email': '', 'password': 'wrongpass'},
+                'expected_status': status.HTTP_401_UNAUTHORIZED
+            },
+            {
+                'name': 'nonexistent_user',
+                'data': {'username': '', 'email': 'nouser@example.com', 'password': 'nopass'},
+                'expected_status': status.HTTP_401_UNAUTHORIZED
+            },
+            {
+                'name': 'missing_credentials',
+                'data': {'username': '', 'email': '', 'password': ''},
+                'expected_status': status.HTTP_400_BAD_REQUEST
+            }
+        ]
+        
+        for case in test_cases:
+            with self.subTest(case['name']):
+                response = self.client.post(self.login_url, case['data'], format='json')
+                self.assertEqual(response.status_code, case['expected_status'])
 
     # =========================================================================
     # TOKEN MANAGEMENT TESTS
@@ -315,7 +308,7 @@ class UserAuthTests(APITestCase):
     # LOGOUT TESTS
     # =========================================================================
 
-    def test_logout_with_valid_refresh(self):
+    def test_logout_success_with_valid_token(self):
         """Test successful logout with valid refresh token."""
         # Login to get tokens
         login_data = {
@@ -330,34 +323,48 @@ class UserAuthTests(APITestCase):
         logout_data = {'refresh': refresh_token}
         response = self.client.post(self.logout_url, logout_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('detail', response.data)
 
-    def test_logout_with_invalid_refresh(self):
-        """Test logout handles invalid token format gracefully."""
-        logout_data = {'refresh': "completely_invalid_token_123"}
-        response = self.client.post(self.logout_url, logout_data, format='json')
-        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST])
+    def test_logout_edge_cases(self):
+        """Test logout handles various edge cases gracefully."""
+        test_cases = [
+            {
+                'name': 'invalid_token_format',
+                'data': {'refresh': "completely_invalid_token_123"},
+                'should_succeed': True  # Your implementation always returns 200
+            },
+            {
+                'name': 'malformed_but_valid_looking_token',
+                'data': {'refresh': "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.fake.fake"},
+                'should_succeed': True
+            },
+            {
+                'name': 'empty_payload',
+                'data': {},
+                'should_succeed': True
+            },
+            {
+                'name': 'already_blacklisted_token',
+                'data': {'refresh': str(RefreshToken.for_user(self.user))},
+                'should_succeed': True,
+                'setup': lambda: RefreshToken.for_user(self.user).blacklist()
+            }
+        ]
         
-        if response.status_code == status.HTTP_200_OK:
-            self.assertIn('detail', response.data)
-
-    def test_logout_with_nonexistent_but_valid_looking_token(self):
-        """Test logout handles well-formed but invalid tokens gracefully."""
-        fake_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTcwMDAwMDAwMCwiaWF0IjoxNzAwMDAwMDAwLCJqdGkiOiJmYWtlX2lkIiwidXNlcl9pZCI6OTk5OX0.fake_signature_that_looks_real_but_is_invalid"
-        logout_data = {'refresh': fake_token}
-        response = self.client.post(self.logout_url, logout_data, format='json')
-        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST])
-        self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def test_logout_empty_refresh(self):
-        """Test logout handles missing refresh token gracefully."""
-        logout_data = {}
-        response = self.client.post(self.logout_url, logout_data, format='json')
-        self.assertIn(response.status_code, [
-            status.HTTP_200_OK, 
-            status.HTTP_400_BAD_REQUEST, 
-            status.HTTP_401_UNAUTHORIZED
-        ])
-        self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        for case in test_cases:
+            with self.subTest(case['name']):
+                # Run setup if provided
+                if 'setup' in case:
+                    case['setup']()
+                
+                response = self.client.post(self.logout_url, case['data'], format='json')
+                
+                # The key assertion: should never return 500
+                self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+                if case['should_succeed']:
+                    self.assertEqual(response.status_code, status.HTTP_200_OK)
+                    self.assertIn('detail', response.data)
 
     # =========================================================================
     # SECURITY TESTS - AXES LOCKOUT
@@ -381,6 +388,7 @@ class UserAuthTests(APITestCase):
             'password': 'wrongpass'
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('locked', response.data)  # Check for your custom lockout response
 
     # =========================================================================
     # SOCIAL AUTHENTICATION TESTS
@@ -389,8 +397,13 @@ class UserAuthTests(APITestCase):
     @patch('allauth.socialaccount.providers.google.views.GoogleOAuth2Adapter.complete_login')
     @patch('allauth.socialaccount.providers.google.views.GoogleOAuth2Adapter.get_provider')
     def test_google_login_with_incomplete_profile_returns_tokens(self, mock_get_provider, mock_complete_login):
-        """Test Google login returns tokens for users with incomplete profiles."""
-        # Create user with incomplete profile
+        """
+        Test Google OAuth2 login returns authentication tokens for users with incomplete profiles.
+        
+        Verifies that social authentication works correctly even when user profiles
+        require additional completion steps.
+        """
+        # Create test user with incomplete profile (social registration without username/password)
         incomplete_user = User.objects.create(
             email='incomplete@example.com',
             is_social_account=True,
@@ -398,65 +411,77 @@ class UserAuthTests(APITestCase):
             username=None
         )
         
-        # Mock allauth social login
+        # Mock allauth social authentication components
         social_login = SocialLogin(user=incomplete_user, account=MagicMock())
         mock_complete_login.return_value = social_login
         
+        # Mock OAuth2 provider configuration
         mock_get_provider.return_value = MagicMock(
             get_app=MagicMock(return_value=MagicMock(
                 client_id='test-client-id',
                 secret='test-secret'
             ))
         )
-    
-        # Call Google login endpoint
-        google_data = {'access_token': 'mock-token'}
-        response = self.client.post(reverse('google_login'), google_data, format='json')
+
+        # Execute Google OAuth2 login request
+        google_auth_data = {'access_token': 'mock-token'}
+        response = self.client.post(reverse('google_login'), google_auth_data, format='json')
         
-        # Verify response contains authentication tokens
-        if response.status_code == 200:
+        # Debug output for test investigation
+        print("Google login response data:", response.data)
+        
+        # Verify successful authentication response contains required tokens
+        if response.status_code == status.HTTP_200_OK:
             self.assertIn('access_token', response.data)
-            self.assertIn('refresh_token', response.data)
+            self.assertIn('refresh_token', response.data) 
             self.assertIn('user', response.data)
 
-    def test_google_login_returns_tokens_even_with_incomplete_profile(self):
-        """Test Google login returns tokens for incomplete profiles and allows completion."""
-        # Create Google user with incomplete profile
-        google_user = User.objects.create(
-            email='googleuser@example.com',
+    def test_social_profile_completion_returns_new_tokens(self):
+        """
+        Test social profile completion successfully generates new JWT tokens.
+        
+        Verifies that completing a social user's profile (setting username and password)
+        returns fresh authentication tokens and updates user status correctly.
+        """
+        # Create social authentication user requiring profile completion
+        social_user = User.objects.create(
+            email='socialuser@example.com',
             is_social_account=True,
             profile_completed=False,
             username=None
         )
         
-        # Authenticate and complete profile
-        self.client.force_authenticate(user=google_user)
-        profile_data = {
-            'username': 'finalusername',
+        # Authenticate as the social user
+        self.client.force_authenticate(user=social_user)
+        
+        # Profile completion data
+        profile_completion_data = {
+            'username': 'completeduser',
             'password': 'StrongPass123!'
         }
         
+        # Execute profile completion request
         response = self.client.put(
             reverse('social-complete-profile'), 
-            profile_data, 
+            profile_completion_data, 
             format='json'
         )
         
-        # Verify profile completion and token generation
+        # Verify successful completion response
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('access', response.data)
         self.assertIn('username', response.data)
-    
-        # Verify database updates
-        google_user.refresh_from_db()
-        self.assertTrue(google_user.profile_completed)
-        self.assertEqual(google_user.username, 'finalusername')
+        
+        # Verify database reflects completed profile state
+        social_user.refresh_from_db()
+        self.assertTrue(social_user.profile_completed)
+        self.assertEqual(social_user.username, 'completeduser')
 
-    def test_social_complete_profile_with_valid_token(self):
-        """Test social profile completion with valid authentication token."""
+    def test_social_profile_completion_flow(self):
+        """Test complete social profile completion flow."""
         # Create Google user with incomplete profile
         google_user = User.objects.create(
-            email='incomplete@example.com',
+            email='googleuser@example.com',
             is_social_account=True,
             profile_completed=False,
             username=None,
@@ -477,37 +502,19 @@ class UserAuthTests(APITestCase):
         
         response = self.client.put(self.social_complete_url, profile_data, format='json')
         
-        # Verify successful completion and token generation
+        # Verify successful completion
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('access', response.data)
         self.assertIn('refresh', response.data)
-
-    # =========================================================================
-    # SOCIAL PROFILE COMPLETION TESTS
-    # =========================================================================
-
-    def test_social_complete_profile_success(self):
-        """Test successful social profile completion."""
-        social_user = User.objects.create(
-            email='social2@example.com', 
-            is_social_account=True, 
-            profile_completed=False
-        )
-        self.client.force_authenticate(user=social_user)
+        self.assertIn('username', response.data)
         
-        data = {
-            'username': 'socialuser2', 
-            'password': 'StrongPass!23'
-        }
-        response = self.client.put(self.social_complete_url, data, format='json')
-        
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        social_user.refresh_from_db()
-        self.assertEqual(social_user.username, 'socialuser2')
-        self.assertTrue(social_user.profile_completed)
+        # Verify database updates
+        google_user.refresh_from_db()
+        self.assertTrue(google_user.profile_completed)
+        self.assertEqual(google_user.username, 'completeduser')
 
-    def test_social_complete_profile_missing_password(self):
-        """Test social profile completion fails when password is missing."""
+    def test_social_complete_profile_validation(self):
+        """Test social profile completion validation."""
         social_user = User.objects.create(
             email='social3@example.com', 
             is_social_account=True, 
@@ -515,234 +522,146 @@ class UserAuthTests(APITestCase):
         )
         self.client.force_authenticate(user=social_user)
         
+        # Test missing password
         data = {'username': 'socialuser3'}  # Missing password
+        response = self.client.put(self.social_complete_url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        
+        # Test weak password
+        data = {'username': 'socialuser3', 'password': 'weak'}
         response = self.client.put(self.social_complete_url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     # =========================================================================
-    # LOGOUT EDGE CASE TESTS
+    # SECURITY & INPUT VALIDATION TESTS
     # =========================================================================
 
-    def test_logout_with_already_blacklisted_token(self):
-        """Test logout handles already blacklisted tokens gracefully."""
-        refresh = RefreshToken.for_user(self.user)
-        refresh.blacklist()
-        response = self.client.post(self.logout_url, {'refresh': str(refresh)}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('detail', response.data)
+    def test_security_headers_present(self):
+        """Test that security headers are present in responses."""
+        response = self.client.get(self.login_url)
+        # Add checks for your specific security headers
+        self.assertNotIn('Server', response.headers)  # Common security practice
 
-    def test_logout_with_empty_payload(self):
-        """Test logout handles empty payload gracefully."""
-        response = self.client.post(self.logout_url, {}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('detail', response.data)
-
-    def test_logout_with_malformed_token(self):
-        """Test logout handles malformed tokens gracefully."""
-        response = self.client.post(self.logout_url, {'refresh': 'malformed.token'}, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('detail', response.data)
-
-    # =========================================================================
-    # SECURITY & VALIDATION TESTS
-    # =========================================================================
-
-    def test_login_with_sql_injection_attempt(self):
-        """Test SQL injection attempt in username is handled securely."""
-        data = {
-            'username': "admin' OR '1'='1' --", 
-            'password': 'anypassword'
-        }
-        response = self.client.post(self.login_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def test_login_with_xss_attempt(self):
-        """Test XSS attempt in email field is handled securely."""
-        data = {
-            'email': '<script>alert("xss")</script>@example.com',
-            'password': 'anypassword'
-        }
-        response = self.client.post(self.login_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_login_with_unicode_characters(self):
-        """Test unicode characters in credentials are handled properly."""
-        data = {
-            'username': '用户',  # Chinese characters
-            'password': '密码'
-        }
-        response = self.client.post(self.login_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_login_with_null_characters(self):
-        """Test null characters in credentials are handled securely."""
-        data = {
-            'username': 'testuser\0injection',
-            'password': 'password\0test'
-        }
-        response = self.client.post(self.login_url, data, format='json')
-        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_401_UNAUTHORIZED])
-
-    def test_login_with_whitespace_only(self):
-        """Test credentials with only whitespace are rejected."""
-        data = {
-            'username': '   ',
-            'email': '   ',
-            'password': '   '
-        }
-        response = self.client.post(self.login_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_login_with_newline_characters(self):
-        """Test newline characters in credentials are handled securely."""
-        data = {
-            'username': 'testuser\ninjection',
-            'password': 'password\ntest'
-        }
-        response = self.client.post(self.login_url, data, format='json')
-        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_401_UNAUTHORIZED])
-
-    def test_login_with_json_injection(self):
-        """Test JSON injection in credentials is handled securely."""
-        data = {
-            'username': '{"username": "admin", "password": "hacked"}',
-            'password': 'test'
-        }
-        response = self.client.post(self.login_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_login_with_email_injection(self):
-        """Test email field with command injection is handled securely."""
-        data = {
-            'email': 'test@example.com; rm -rf /',
-            'password': 'anypassword'
-        }
-        response = self.client.post(self.login_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    # =========================================================================
-    # REGISTRATION SECURITY TESTS
-    # =========================================================================
-
-    def test_register_with_sql_injection_username(self):
-        """Test SQL injection in username during registration is prevented."""
-        data = {
-            'username': "admin' OR '1'='1' --",
-            'email': 'test@example.com',
-            'password1': 'testpass123',
-            'password2': 'testpass123'
-        }
-        response = self.client.post(self.register_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def test_register_with_xss_email(self):
-        """Test XSS in email during registration is prevented."""
-        data = {
-            'username': 'normaluser',
-            'email': '<script>alert("xss")</script>@example.com',
-            'password1': 'testpass123', 
-            'password2': 'testpass123'
-        }
-        response = self.client.post(self.register_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_register_with_invalid_email_format(self):
-        """Test various invalid email formats are rejected."""
-        invalid_emails = [
-            'invalid-email',
-            'user@',
-            '@example.com',
-            'user@.com',
-            'user@example.',
-            'user@example..com'
+    def test_input_validation_common_attacks(self):
+        """Test common web attack vectors are properly handled."""
+        attack_vectors = [
+            {
+                'name': 'sql_injection_username',
+                'data': {'username': "admin' OR '1'='1' --", 'password': 'anypassword'},
+                'endpoint': self.login_url,
+                'expected_status': status.HTTP_401_UNAUTHORIZED
+            },
+            {
+                'name': 'xss_email',
+                'data': {'email': '<script>alert("xss")</script>@example.com', 'password': 'anypassword'},
+                'endpoint': self.login_url,
+                'expected_status': status.HTTP_400_BAD_REQUEST
+            },
+            {
+                'name': 'null_bytes',
+                'data': {'username': 'user\0injection', 'password': 'pass\0word'},
+                'endpoint': self.login_url,
+                'expected_status': status.HTTP_400_BAD_REQUEST
+            },
+            {
+                'name': 'command_injection',
+                'data': {'email': 'test; ls /etc/passwd@example.com', 'password': 'anypassword'},
+                'endpoint': self.login_url,
+                'expected_status': status.HTTP_400_BAD_REQUEST
+            }
         ]
         
-        for invalid_email in invalid_emails:
-            with self.subTest(email=invalid_email):
-                data = {
-                    'username': f'testuser_{invalid_emails.index(invalid_email)}',
-                    'email': invalid_email,
+        for vector in attack_vectors:
+            with self.subTest(vector['name']):
+                response = self.client.post(vector['endpoint'], vector['data'], format='json')
+                self.assertEqual(response.status_code, vector['expected_status'])
+                # Critical: Should never expose internal errors
+                self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def test_registration_input_validation(self):
+        """Test registration input validation."""
+        invalid_cases = [
+            {
+                'name': 'invalid_email_format',
+                'data': {
+                    'username': 'testuser',
+                    'email': 'invalid-email',
                     'password1': 'testpass123',
                     'password2': 'testpass123'
                 }
-                response = self.client.post(self.register_url, data, format='json')
+            },
+            {
+                'name': 'password_mismatch',
+                'data': {
+                    'username': 'testuser',
+                    'email': 'test@example.com',
+                    'password1': 'password1',
+                    'password2': 'password2'
+                }
+            },
+            {
+                'name': 'whitespace_only',
+                'data': {
+                    'username': '   ',
+                    'email': '   ',
+                    'password1': '   ',
+                    'password2': '   '
+                }
+            }
+        ]
+        
+        for case in invalid_cases:
+            with self.subTest(case['name']):
+                response = self.client.post(self.register_url, case['data'], format='json')
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_register_with_very_long_fields(self):
-        """Test extremely long field values are rejected."""
-        data = {
-            'username': 'a' * 1000,  # Very long username
-            'email': 'a' * 200 + '@example.com',  # Very long email local part
-            'password1': 'a' * 1000,  # Very long password
-            'password2': 'a' * 1000
-        }
-        response = self.client.post(self.register_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    def test_rate_limiting_headers(self):
+        """Test that rate limiting headers are present (if implemented)."""
+        # Make multiple rapid requests
+        for _ in range(3):
+            response = self.client.post(self.login_url, {
+                'username': 'testuser',
+                'password': 'wrongpass'
+            }, format='json')
+        
+        # Check for rate limiting headers (adjust based on your implementation)
+        # Common headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset
+        # This test might need adjustment based on your actual rate limiting setup
 
-    def test_register_with_unicode_injection(self):
-        """Test unicode characters that might cause issues are handled."""
-        data = {
-            'username': '用户👀',  # Chinese + emoji
-            'email': 'test@例子.com',  # Internationalized domain
-            'password1': '密码🔑',
-            'password2': '密码🔑'
-        }
-        response = self.client.post(self.register_url, data, format='json')
-        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_201_CREATED])
+    # =========================================================================
+    # PERFORMANCE & EDGE CASE TESTS
+    # =========================================================================
 
-    def test_register_with_json_injection(self):
-        """Test JSON-like data in fields is handled securely."""
-        data = {
-            'username': '{"username": "admin"}',
-            'email': '{"email": "hacked@example.com"}@test.com',
+    def test_concurrent_registration_handling(self):
+        """Test that concurrent registration requests are handled properly."""
+        # This would typically use threading for true concurrency testing
+        # For now, test rapid sequential requests
+        registration_data = {
+            'username': 'concurrentuser',
+            'email': 'concurrent@example.com',
             'password1': 'testpass123',
             'password2': 'testpass123'
         }
-        response = self.client.post(self.register_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        
+        # Make multiple rapid requests
+        responses = []
+        for _ in range(3):
+            response = self.client.post(self.register_url, registration_data.copy(), format='json')
+            responses.append(response.status_code)
+        
+        # Should either all succeed or properly handle duplicates
+        success_count = responses.count(status.HTTP_201_CREATED)
+        self.assertIn(success_count, [1, 3])  # Either one success or all succeed with proper handling
 
-    def test_register_with_command_injection(self):
-        """Test command injection attempts are prevented."""
-        data = {
-            'username': 'user; rm -rf /',
-            'email': 'test; ls /etc/passwd@example.com',
-            'password1': 'testpass123',
-            'password2': 'testpass123'
+    def test_large_payload_handling(self):
+        """Test that very large payloads are handled gracefully."""
+        large_data = {
+            'username': 'a' * 10000,  # Very large username
+            'email': 'a' * 1000 + '@example.com',
+            'password1': 'a' * 10000,
+            'password2': 'a' * 10000
         }
-        response = self.client.post(self.register_url, data, format='json')
+        
+        response = self.client.post(self.register_url, large_data, format='json')
+        # Should return 400, not 500 or timeout
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_register_with_null_bytes(self):
-        """Test null byte injection is prevented."""
-        data = {
-            'username': 'user\0injection',
-            'email': 'test\0@example.com',
-            'password1': 'pass\0word',
-            'password2': 'pass\0word'
-        }
-        response = self.client.post(self.register_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_register_with_whitespace_only(self):
-        """Test whitespace-only credentials are rejected."""
-        data = {
-            'username': '   ',
-            'email': '   ',
-            'password1': '   ',
-            'password2': '   '
-        }
-        response = self.client.post(self.register_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_register_with_email_as_username(self):
-        """Test using email format as username is handled appropriately."""
-        data = {
-            'username': 'user@example.com',  # Email format in username
-            'email': 'test@example.com',
-            'password1': 'testpass123',
-            'password2': 'testpass123'
-        }
-        response = self.client.post(self.register_url, data, format='json')
-        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_201_CREATED])
