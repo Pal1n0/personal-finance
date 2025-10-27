@@ -12,7 +12,6 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
-from decouple import config
 from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -32,7 +31,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-    # Third-party
+    # Third-party apps
     'axes',
     'corsheaders',
     'rest_framework',
@@ -40,17 +39,18 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
 
-    # Auth + registration
+    # Authentication and registration
     'dj_rest_auth',
     'dj_rest_auth.registration',
     'allauth',
     'allauth.account',
-    'allauth.socialaccount',  #  Google login 
+    'allauth.socialaccount',  # For Google login
 
-    # My apps
+    # Project apps
     'users',
 ]
 
+# Django REST Framework configuration
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -60,12 +60,14 @@ REST_FRAMEWORK = {
     ),
 }
 
+# Authentication backends configuration
 AUTHENTICATION_BACKENDS = (
     'axes.backends.AxesBackend',
     'allauth.account.auth_backends.AuthenticationBackend',
     'django.contrib.auth.backends.ModelBackend',
 )
 
+# JWT settings for token-based authentication
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
@@ -73,9 +75,9 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
 }
 
-# Allauth
+# Allauth configuration
 SITE_ID = 1
-AUTH_USER_MODEL = 'users.CustomUser' 
+AUTH_USER_MODEL = 'users.CustomUser'
 ACCOUNT_USER_MODEL_USERNAME_FIELD = "username"
 ACCOUNT_USER_MODEL_EMAIL_FIELD = "email"
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
@@ -87,12 +89,12 @@ ACCOUNT_PRESERVE_USERNAME_CASING = False
 ACCOUNT_CONFIRM_EMAIL_ON_GET = True
 LOGIN_URL = 'account_login'
 LOGOUT_URL = 'account_logout'
-ACCOUNT_EMAIL_VERIFICATION = 'mandatory' 
+ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
 ACCOUNT_AUTHENTICATION_METHOD = 'username_email'
-ACCOUNT_EMAIL_SUBJECT_PREFIX = '[Personal Finance] ' 
+ACCOUNT_EMAIL_SUBJECT_PREFIX = '[Personal Finance] '
 ACCOUNT_EMAIL_CONFIRMATION_DONE_URL = '/email-verified/'
 
-# Rest Auth
+# REST Auth configuration
 REST_AUTH = {
     'USE_JWT': True,
     'JWT_AUTH_COOKIE': None,
@@ -107,13 +109,14 @@ REST_AUTH_SERIALIZERS = {
     'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
 }
 
+# Middleware configuration
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.locale.LocaleMiddleware',   # multi language middleware
+    'django.middleware.locale.LocaleMiddleware',  # Multi-language support
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
-    'axes.middleware.AxesMiddleware', 
+    'axes.middleware.AxesMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -121,10 +124,11 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware'
 ]
 
-# URLs & Templates
+# URLs and WSGI configuration
 ROOT_URLCONF = 'core.urls'
 WSGI_APPLICATION = 'core.wsgi.application'
 
+# Templates configuration
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -139,19 +143,6 @@ TEMPLATES = [
         },
     },
 ]
-
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('POSTGRES_DB'),
-        'USER': config('POSTGRES_USER'),
-        'PASSWORD': config('POSTGRES_PASSWORD'),
-        "HOST": config("DB_HOST"),
-        'PORT': '5432',
-    }
-}
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -170,9 +161,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
-
-LANGUAGE_CODE = 'en' # default
+LANGUAGE_CODE = 'en'  # Default language
 LANGUAGES = [
     ('en', 'English'),
     ('cz', 'Czech'),
@@ -182,13 +171,11 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_L10N = True
 USE_TZ = True
-LOCALE_PATHS = [BASE_DIR / "locale"]  # path to folder with translations
+LOCALE_PATHS = [BASE_DIR / "locale"]  # Path to folder with translations
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
-
+# Static files configuration
 STATIC_URL = 'static/'
-FRONTEND_DIST  = BASE_DIR.parent / 'frontend' / 'dist'
+FRONTEND_DIST = BASE_DIR.parent / 'frontend' / 'dist'
 if FRONTEND_DIST.exists():
     STATICFILES_DIRS = [FRONTEND_DIST]
 else:
@@ -196,19 +183,18 @@ else:
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Axes (security)
-AXES_FAILURE_LIMIT = 5            
-AXES_COOLOFF_TIME = timedelta(minutes=15) 
+# Axes security configuration (login attempt limiting)
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = timedelta(minutes=15)
 AXES_ONLY_USER_FAILURES = True
 AXES_HTTP_RESPONSE_CODE = 403
 AXES_ALLOWED_CORS_ORIGINS = "*"
 AXES_USERNAME_CALLABLE = 'users.utils.get_axes_username'
 AXES_LOCKOUT_CALLABLE = 'users.utils.custom_lockout_response'
 
-# Logging (basic - will be extended in environment files)
+# Logging configuration
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -246,16 +232,3 @@ LOGGING = {
         },
     },
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -1,20 +1,41 @@
+"""
+URL configuration for user authentication and management.
+
+This module defines all API endpoints related to user authentication,
+registration, social login, and account management.
+"""
+
 from django.urls import path, include, re_path
 from .views import GoogleLoginView, SocialCompleteProfileView, LogoutView, InactiveAccountView, CustomConfirmEmailView
 from rest_framework_simplejwt.views import TokenRefreshView
 
+# URL patterns for user authentication and management
 urlpatterns = [
+    # Custom email confirmation endpoint with key parameter
     re_path(
         r'^auth/registration/account-confirm-email/(?P<key>[-:\w]+)/$', 
         CustomConfirmEmailView.as_view(), 
-        name='account_confirm_email' # Použite rovnaký názov!
+        name='account_confirm_email'  # Maintain same name for allauth compatibility
     ),
-    path('auth/custom-logout/', LogoutView.as_view(), name='custom-logout'),  # tvoj custom logout
-    path('auth/registration/', include('dj_rest_auth.registration.urls')),  # register + email verification
-    path('auth/', include('dj_rest_auth.urls')),  # login, logout, token refresh
+    
+    # Custom logout endpoint with JWT token handling
+    path('auth/custom-logout/', LogoutView.as_view(), name='custom-logout'),
+    
+    # Registration endpoints (email verification, signup)
+    path('auth/registration/', include('dj_rest_auth.registration.urls')),
+    
+    # Standard authentication endpoints (login, password reset, user details)
+    path('auth/', include('dj_rest_auth.urls')),
+    
+    # Social authentication profile completion
     path('social-complete-profile/', SocialCompleteProfileView.as_view(), name='social-complete-profile'),
+    
+    # Google OAuth2 login endpoint
     path('auth/google/', GoogleLoginView.as_view(), name='google_login'),
-    #path('token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    
+    # JWT token refresh endpoint
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    #path('logout/', LogoutView.as_view(), name='logout'),
+    
+    # Inactive account handling endpoint
     path('inactive/', InactiveAccountView.as_view(), name='account_inactive'),
 ]

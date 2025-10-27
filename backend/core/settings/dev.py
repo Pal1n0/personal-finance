@@ -1,29 +1,39 @@
-from .base import *
-import os
+"""
+Development environment settings for Personal Finance application.
 
-# Environment
+This configuration extends base settings with development-specific values
+including local database, relaxed security, and verbose logging.
+"""
+
+from .base import *
+from .utils import load_environment_config
+
+# Load environment configuration
+config = load_environment_config('development')
+
+# Environment identification
 ENVIRONMENT = 'development'
 
-# Security
+# Security settings for development
 DEBUG = True
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-dev-key-change-in-production')
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
 
-# CORS
+# CORS settings for development
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
-CORS_ALLOW_ALL_ORIGINS = True  # Only for dev!
+CORS_ALLOW_ALL_ORIGINS = True  # Only for development!
 
-# Email
-EMAIL_BACKEND = 'jango.core.mail.backends.locmem.EmailBackend'
+# Email configuration for development
+EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
 DEFAULT_DOMAIN = "localhost:5173"
 DEFAULT_FROM_EMAIL = "dev@personal-finance.local"
 ACCOUNT_DEFAULT_HTTP_PROTOCOL = "http"
 ACCOUNT_CONFIRM_EMAIL_URL_REVERSE = None
 
-# Google OAuth (development credentials)
+# Google OAuth configuration (development credentials)
 GOOGLE_OAUTH_CLIENT_ID = config('GOOGLE_OAUTH_CLIENT_ID', default='')
 GOOGLE_OAUTH_CLIENT_SECRET = config('GOOGLE_OAUTH_CLIENT_SECRET', default='')
 
@@ -43,12 +53,20 @@ SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
 SOCIALACCOUNT_EMAIL_REQUIRED = True
 SOCIALACCOUNT_QUERY_EMAIL = True
 SOCIALACCOUNT_AUTO_SIGNUP = False
-# SOCIALACCOUNT_ADAPTER = 'users.adapters.CustomSocialAccountAdapter'  - not sure if needed, only for rests on dev it was, not even directly
 
-# Database (local development)
-DATABASES['default']['HOST'] = config('DB_HOST', default='localhost')
+# Database configuration for development
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('POSTGRES_DB'),
+        'USER': config('POSTGRES_USER'),
+        'PASSWORD': config('POSTGRES_PASSWORD'),
+        "HOST": config("DB_HOST"),
+        'PORT': '5432',
+    }
+}
 
-# Logging (verbose for development)
+# Enhanced logging for development
 LOGGING['handlers']['file'] = {
     'level': 'DEBUG',
     'class': 'logging.FileHandler',
@@ -59,4 +77,5 @@ for logger in LOGGING['loggers'].values():
     if 'handlers' in logger:
         logger['handlers'] = ['console', 'file']
 
+# Environment startup notification
 print(f"=== Running in {ENVIRONMENT} mode ===")
