@@ -5,37 +5,36 @@ This module defines all API endpoints related to user authentication,
 registration, social login, and account management.
 """
 
-from django.urls import path, include, re_path
-from .views import GoogleLoginView, SocialCompleteProfileView, LogoutView, InactiveAccountView, CustomConfirmEmailView
+from django.urls import include, path, re_path
 from rest_framework_simplejwt.views import TokenRefreshView
+
+from .views import (CustomConfirmEmailView, GoogleLoginView,
+                    InactiveAccountView, LogoutView, SocialCompleteProfileView)
 
 # URL patterns for user authentication and management
 urlpatterns = [
     # Custom email confirmation endpoint with key parameter
     re_path(
-        r'^auth/registration/account-confirm-email/(?P<key>[-:\w]+)/$', 
-        CustomConfirmEmailView.as_view(), 
-        name='account_confirm_email'  # Maintain same name for allauth compatibility
+        r"^auth/registration/account-confirm-email/(?P<key>[-:\w]+)/$",
+        CustomConfirmEmailView.as_view(),
+        name="account_confirm_email",  # Maintain same name for allauth compatibility
     ),
-    
     # Custom logout endpoint with JWT token handling
-    path('auth/custom-logout/', LogoutView.as_view(), name='custom-logout'),
-    
+    path("auth/custom-logout/", LogoutView.as_view(), name="custom-logout"),
     # Registration endpoints (email verification, signup)
-    path('auth/registration/', include('dj_rest_auth.registration.urls')),
-    
+    path("auth/registration/", include("dj_rest_auth.registration.urls")),
     # Standard authentication endpoints (login, password reset, user details)
-    path('auth/', include('dj_rest_auth.urls')),
-    
+    path("auth/", include("dj_rest_auth.urls")),
     # Social authentication profile completion
-    path('social-complete-profile/', SocialCompleteProfileView.as_view(), name='social-complete-profile'),
-    
+    path(
+        "social-complete-profile/",
+        SocialCompleteProfileView.as_view(),
+        name="social-complete-profile",
+    ),
     # Google OAuth2 login endpoint
-    path('auth/google/', GoogleLoginView.as_view(), name='google_login'),
-    
+    path("auth/google/", GoogleLoginView.as_view(), name="google_login"),
     # JWT token refresh endpoint
-    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    
+    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     # Inactive account handling endpoint
-    path('inactive/', InactiveAccountView.as_view(), name='account_inactive'),
+    path("inactive/", InactiveAccountView.as_view(), name="account_inactive"),
 ]

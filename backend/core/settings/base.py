@@ -10,9 +10,9 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
-from pathlib import Path
 import os
 from datetime import timedelta
+from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,123 +22,114 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Application definition
 INSTALLED_APPS = [
-    # Django core apps
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.sites',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-
-    # Third-party apps
-    'axes',
-    'corsheaders',
-    'rest_framework',
-    'rest_framework.authtoken',
-    'rest_framework_simplejwt',
-    'rest_framework_simplejwt.token_blacklist',
-
-    # Authentication and registration
-    'dj_rest_auth',
-    'dj_rest_auth.registration',
-    'allauth',
-    'allauth.account',
-    'allauth.socialaccount',  # For Google login
-
+    # Django core apps (alphabetical)
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.messages",
+    "django.contrib.sessions",
+    "django.contrib.sites",
+    "django.contrib.staticfiles",
+    # Third-party apps (alphabetical)
+    "axes",
+    "corsheaders",
+    "dj_rest_auth",
+    "dj_rest_auth.registration",
+    "rest_framework",
+    "rest_framework.authtoken",
+    "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
+    # Allauth apps
+    "allauth",
+    "allauth.account",
+    "allauth.socialaccount",
     # Project apps
-    'users',
+    "users",
 ]
 
 # Django REST Framework configuration
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
-    ),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
 }
 
 # Authentication backends configuration
 AUTHENTICATION_BACKENDS = (
-    'axes.backends.AxesBackend',
-    'allauth.account.auth_backends.AuthenticationBackend',
-    'django.contrib.auth.backends.ModelBackend',
+    "axes.backends.AxesBackend",
+    "allauth.account.auth_backends.AuthenticationBackend",
+    "django.contrib.auth.backends.ModelBackend",
 )
 
 # JWT settings for token-based authentication
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
 }
 
 # Allauth configuration
 SITE_ID = 1
-AUTH_USER_MODEL = 'users.CustomUser'
+AUTH_USER_MODEL = "users.CustomUser"
 ACCOUNT_USER_MODEL_USERNAME_FIELD = "username"
 ACCOUNT_USER_MODEL_EMAIL_FIELD = "email"
-ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
+ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_USERNAME_REQUIRED = True
 ACCOUNT_LOGIN_METHODS = ["username", "email"]
 ACCOUNT_PRESERVE_USERNAME_CASING = False
 ACCOUNT_CONFIRM_EMAIL_ON_GET = True
-LOGIN_URL = 'account_login'
-LOGOUT_URL = 'account_logout'
-ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
-ACCOUNT_AUTHENTICATION_METHOD = 'username_email'
-ACCOUNT_EMAIL_SUBJECT_PREFIX = '[Personal Finance] '
-ACCOUNT_EMAIL_CONFIRMATION_DONE_URL = '/email-verified/'
+LOGIN_URL = "account_login"
+LOGOUT_URL = "account_logout"
+ACCOUNT_EMAIL_VERIFICATION = "mandatory"
+ACCOUNT_AUTHENTICATION_METHOD = "username_email"
+ACCOUNT_EMAIL_SUBJECT_PREFIX = "[Personal Finance] "
+ACCOUNT_EMAIL_CONFIRMATION_DONE_URL = "/email-verified/"
 
 # REST Auth configuration
 REST_AUTH = {
-    'USE_JWT': True,
-    'JWT_AUTH_COOKIE': None,
-    'JWT_AUTH_REFRESH_COOKIE': None,
-    'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
-    'JWT_AUTH_HTTPONLY': False,
-    'TOKEN_MODEL': None,
-    'SESSION_LOGIN': False,
-}
-
-REST_AUTH_SERIALIZERS = {
-    'LOGIN_SERIALIZER': 'users.serializers.CustomLoginSerializer',
+    "USE_JWT": True,
+    "JWT_AUTH_COOKIE": None,
+    "JWT_AUTH_REFRESH_COOKIE": None,
+    "LOGIN_SERIALIZER": "users.serializers.CustomLoginSerializer",
+    "JWT_AUTH_HTTPONLY": False,
+    "TOKEN_MODEL": None,
+    "SESSION_LOGIN": False,
 }
 
 # Middleware configuration
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.locale.LocaleMiddleware',  # Multi-language support
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'axes.middleware.AxesMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'allauth.account.middleware.AccountMiddleware',
-    'corsheaders.middleware.CorsMiddleware'
+    "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",  # Move up for CORS processing
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.locale.LocaleMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "axes.middleware.AxesMiddleware",  # Move after auth middleware
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "allauth.account.middleware.AccountMiddleware",
 ]
 
 # URLs and WSGI configuration
-ROOT_URLCONF = 'core.urls'
-WSGI_APPLICATION = 'core.wsgi.application'
+ROOT_URLCONF = "core.urls"
+WSGI_APPLICATION = "core.wsgi.application"
 
 # Templates configuration
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
@@ -147,43 +138,43 @@ TEMPLATES = [
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
 # Internationalization
-LANGUAGE_CODE = 'en'  # Default language
+LANGUAGE_CODE = "en"  # Default language
 LANGUAGES = [
-    ('en', 'English'),
-    ('cz', 'Czech'),
-    ('sk', 'Slovak'),
+    ("en", "English"),
+    ("cz", "Czech"),
+    ("sk", "Slovak"),
 ]
-TIME_ZONE = 'UTC'
+TIME_ZONE = "UTC"
 USE_I18N = True
 USE_L10N = True
 USE_TZ = True
 LOCALE_PATHS = [BASE_DIR / "locale"]  # Path to folder with translations
 
 # Static files configuration
-STATIC_URL = 'static/'
-FRONTEND_DIST = BASE_DIR.parent / 'frontend' / 'dist'
+STATIC_URL = "static/"
+FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 if FRONTEND_DIST.exists():
     STATICFILES_DIRS = [FRONTEND_DIST]
 else:
     STATICFILES_DIRS = []
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 # Default primary key field type
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Axes security configuration (login attempt limiting)
 AXES_FAILURE_LIMIT = 5
@@ -191,44 +182,104 @@ AXES_COOLOFF_TIME = timedelta(minutes=15)
 AXES_ONLY_USER_FAILURES = True
 AXES_HTTP_RESPONSE_CODE = 403
 AXES_ALLOWED_CORS_ORIGINS = "*"
-AXES_USERNAME_CALLABLE = 'users.utils.get_axes_username'
-AXES_LOCKOUT_CALLABLE = 'users.utils.custom_lockout_response'
+AXES_USERNAME_CALLABLE = "users.utils.get_axes_username"
+AXES_LOCKOUT_CALLABLE = "users.utils.custom_lockout_response"
 
-# Logging configuration
+# Logging configuration - Production Ready Structured Logging
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'verbose': {
-            'format': '[{levelname}] {asctime} {module} - {message}',
-            'style': '{',
+    "version": 1,
+    "disable_existing_loggers": False,
+    # Structured JSON formatters for production systems
+    "formatters": {
+        "verbose": {
+            "format": "[{levelname}] {asctime} {module} - {message}",
+            "style": "{",
         },
-        'simple': {
-            'format': '[{levelname}] {message}',
-            'style': '{',
+        "simple": {
+            "format": "[{levelname}] {message}",
+            "style": "{",
         },
-        'detailed': {
-            'format': '[{levelname}] {asctime} {pathname}:{lineno} - {message}',
-            'style': '{',
+        "detailed": {
+            "format": "[{levelname}] {asctime} {pathname}:{lineno} - {message}",
+            "style": "{",
+        },
+        "json": {
+            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+            "format": """
+                asctime: %(asctime)s
+                levelname: %(levelname)s
+                name: %(name)s
+                module: %(module)s
+                funcName: %(funcName)s
+                lineno: %(lineno)s
+                message: %(message)s
+                extra: %(extra)s
+            """,
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+        "structured": {
+            "format": "{asctime} | {levelname:8} | {name:15} | {module:10} | {message}",
+            "style": "{",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
         },
     },
-    'handlers': {
-        'console': {
-            'level': 'DEBUG',
-            'class': 'logging.StreamHandler',
-            'formatter': 'detailed'
+    "handlers": {
+        "console": {
+            "level": "DEBUG",
+            "class": "logging.StreamHandler",
+            "formatter": "structured",  # Changed to structured for better readability
+            "stream": "ext://sys.stdout",
+        },
+        "null": {
+            "level": "DEBUG",
+            "class": "logging.NullHandler",
         },
     },
-    'loggers': {
-        'django': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
         },
-        'users': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
-            'propagate': False,
+        "django.request": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
         },
+        "django.security": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "django.db.backends": {
+            "handlers": ["console"],
+            "level": "INFO",  # Set to WARNING in production to reduce noise
+            "propagate": False,
+        },
+        "users": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "axes": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "allauth": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        # Root logger configuration
+        "": {
+            "handlers": ["console"],
+            "level": "INFO",
+        },
+    },
+    # Root configuration
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
     },
 }
