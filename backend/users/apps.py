@@ -21,3 +21,7 @@ class UsersConfig(AppConfig):
 
     # Application name (Python path)
     name = "users"
+
+    def ready(self):
+        # Tu načítame signály
+        import users.signals
