@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "allauth.socialaccount",
     # Project apps
     "users",
+    "finance",
 ]
 
 # Django REST Framework configuration
