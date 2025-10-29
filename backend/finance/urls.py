@@ -11,4 +11,6 @@ router.register(r'category-properties', views.CategoryPropertyViewSet, basename=
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('workspaces/<int:workspace_id>/categories/<str:category_type>/sync/', 
+         views.sync_categories_api, name='sync-categories'),
 ]
