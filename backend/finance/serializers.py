@@ -1,50 +1,115 @@
 from rest_framework import serializers
-from .models import Transaction, Category, CategoryProperty, ExchangeRate, UserSettings, CategoryVersion, CURRENCY_CHOICES, FISCAL_YEAR_START_CHOICES, DISPLAY_MODE_CHOICES
-
-class UserSettingsSerializer(serializers.ModelSerializer):
-    domestic_currency = serializers.ChoiceField(choices=CURRENCY_CHOICES)
-    fiscal_year_start = serializers.ChoiceField(choices=FISCAL_YEAR_START_CHOICES)
-    display_mode = serializers.ChoiceField(choices=DISPLAY_MODE_CHOICES)
-
-    class Meta:
-        model = UserSettings
-        fields = ['domestic_currency', 'fiscal_year_start', 'display_mode', 'accounting_mode']
-
-class CategoryVersionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CategoryVersion
-        fields = ['id', 'version', 'name', 'description', 'created_at', 'is_active']
-
-class CategorySerializer(serializers.ModelSerializer):
-    version = CategoryVersionSerializer(read_only=True)
-
-    class Meta:
-        model = Category
-        fields = ['id', 'name', 'description', 'level', 'parent', 'version', 'is_active']
-
-class TransactionSerializer(serializers.ModelSerializer):
-    category = serializers.PrimaryKeyRelatedField(
-    queryset=Category.objects.all(),
-    required=False,
-    allow_null=True
+from .models import (
+    Transaction, ExchangeRate, UserSettings, WorkspaceSettings,
+    ExpenseCategoryVersion, IncomeCategoryVersion, ExpenseCategory, IncomeCategory,
+    ExpenseCategoryProperty, IncomeCategoryProperty
 )
 
+# -------------------------------
+# User Settings
+# -------------------------------
+class UserSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserSettings
+        fields = ['id', 'user', 'language']
+        read_only_fields = ['id', 'user']
+
+# -------------------------------
+# Workspace Settings
+# -------------------------------
+class WorkspaceSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkspaceSettings
+        fields = [
+            'id', 'workspace', 'domestic_currency', 'fiscal_year_start', 
+            'display_mode', 'accounting_mode'
+        ]
+        read_only_fields = ['id', 'workspace']
+
+# -------------------------------
+# Category Serializers
+# -------------------------------
+class ExpenseCategoryVersionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExpenseCategoryVersion
+        fields = ['id', 'workspace', 'name', 'description', 'created_by', 'created_at', 'is_active']
+        read_only_fields = ['id', 'created_by', 'created_at']
+
+class IncomeCategoryVersionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = IncomeCategoryVersion
+        fields = ['id', 'workspace', 'name', 'description', 'created_by', 'created_at', 'is_active']
+        read_only_fields = ['id', 'created_by', 'created_at']
+
+class ExpenseCategorySerializer(serializers.ModelSerializer):
+    version = ExpenseCategoryVersionSerializer(read_only=True)
+    children = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    
+    class Meta:
+        model = ExpenseCategory
+        fields = [
+            'id', 'name', 'description', 'level', 'version', 'children', 'is_active'
+        ]
+
+class IncomeCategorySerializer(serializers.ModelSerializer):
+    version = IncomeCategoryVersionSerializer(read_only=True)
+    children = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    
+    class Meta:
+        model = IncomeCategory
+        fields = [
+            'id', 'name', 'description', 'level', 'version', 'children', 'is_active'
+        ]
+
+# -------------------------------
+# Transaction Serializer
+# -------------------------------
+class TransactionSerializer(serializers.ModelSerializer):
+    expense_category = serializers.PrimaryKeyRelatedField(
+        queryset=ExpenseCategory.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    income_category = serializers.PrimaryKeyRelatedField(
+        queryset=IncomeCategory.objects.all(),
+        required=False, 
+        allow_null=True
+    )
+    
     class Meta:
         model = Transaction
         fields = [
-            'id', 'type', 'category', 'original_amount', 'original_currency',
-            'amount_domestic', 'date', 'month', 'tags', 'note_manual', 'note_auto'
+            'id', 'user', 'workspace', 'type', 'expense_category', 'income_category',
+            'original_amount', 'original_currency', 'amount_domestic', 'date', 
+            'month', 'tags', 'note_manual', 'note_auto', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['amount_domestic', 'month']
+        read_only_fields = [
+            'id', 'user', 'workspace', 'amount_domestic', 'month', 
+            'created_at', 'updated_at'
+        ]
 
-class CategoryPropertySerializer(serializers.ModelSerializer):
-    category = CategorySerializer(read_only=True)
-
+# -------------------------------
+# Category Property Serializers
+# -------------------------------
+class ExpenseCategoryPropertySerializer(serializers.ModelSerializer):
+    category = ExpenseCategorySerializer(read_only=True)
+    
     class Meta:
-        model = CategoryProperty
+        model = ExpenseCategoryProperty
         fields = ['id', 'category', 'property_type']
 
+class IncomeCategoryPropertySerializer(serializers.ModelSerializer):
+    category = IncomeCategorySerializer(read_only=True)
+    
+    class Meta:
+        model = IncomeCategoryProperty
+        fields = ['id', 'category', 'property_type']
+
+# -------------------------------
+# Exchange Rate Serializer
+# -------------------------------
 class ExchangeRateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExchangeRate
         fields = ['id', 'currency', 'rate_to_eur', 'date']
+        

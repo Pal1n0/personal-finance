@@ -83,7 +83,7 @@ def recalculate_transactions_domestic_amount(transactions, user):
     if not transactions:
         return transactions
     
-    domestic_currency = user.settings.domestic_currency
+    domestic_currency = workspace.settings.domestic_currency
     transactions_to_recalculate = [t for t in transactions if t.original_currency != domestic_currency]
     
     if not transactions_to_recalculate:
