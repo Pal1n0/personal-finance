@@ -1,36 +1,33 @@
+# utils/currency_utils.py
 from decimal import Decimal, ROUND_HALF_UP
 from collections import defaultdict
-from datetime import date, timedelta  
-from django.db import transaction  
+from datetime import date
+from django.db import transaction
 from .models import ExchangeRate
 
 def get_exchange_rates_for_range(currencies, date_from, date_to):
     rates = defaultdict(dict)
-    qs = ExchangeRate.objects.filter(
-        currency__in=currencies,
-        date__gte=date_from,
-        date__lte=date_to
-    ).order_by('currency', 'date')
+    
+    # Odstráň duplikáty a EUR ak je v currencies
+    currencies = list(set(currencies))
+    
+    # Načítaj kurzy pre všetky meny OKREM EUR
+    non_eur_currencies = [c for c in currencies if c != 'EUR']
+    
+    if non_eur_currencies:
+        qs = ExchangeRate.objects.filter(
+            currency__in=non_eur_currencies,
+            date__gte=date_from,
+            date__lte=date_to
+        ).order_by('currency', 'date')
 
-    for r in qs:
-        rates[r.currency.upper()][r.date] = Decimal(r.rate_to_eur)
-    
-    # Pridáme EUR ako referenčnú menu - OPRAVA:
-    if 'EUR' not in rates:
-        rates['EUR'] = {}
-    
-    # Jednoduchšie riešenie pre EUR - nemusíme prechádzať všetky dátumy
-    if 'EUR' in currencies:
-        # Stačí pridať jeden kurz pre EUR - vždy 1.0
-        rates['EUR'] = {date_from: Decimal('1.0')}  # alebo použiť dnešný dátum
+        for r in qs:
+            rates[r.currency.upper()][r.date] = Decimal(r.rate_to_eur)
     
     return rates
 
-
 def find_closest_rate(rates, currency, tx_date):
-    """
-    Nájde kurz platný pre daný dátum (<= tx_date).
-    """
+    """Nájde kurz platný pre daný dátum (<= tx_date)."""
     if currency not in rates:
         return None
     
@@ -38,14 +35,12 @@ def find_closest_rate(rates, currency, tx_date):
     if not currency_rates:
         return None
     
-    # Nájdeme najbližší dátum <= tx_date
     possible_dates = [d for d in currency_rates.keys() if d <= tx_date]
     if not possible_dates:
         return None
     
     closest_date = max(possible_dates)
     return currency_rates[closest_date]
-
 
 def convert_amount_to_domestic(original_amount, original_currency, domestic_currency, tx_date, rates):
     if original_currency == domestic_currency:
@@ -58,7 +53,7 @@ def convert_amount_to_domestic(original_amount, original_currency, domestic_curr
         rate = find_closest_rate(rates, original_currency, tx_date)
         if rate:
             return (original_amount * rate).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
-        return None  # ⬅️ Explicitne vráť None ak nemáš kurz
+        return None
     
     # Ak je pôvodná EUR
     elif original_currency == 'EUR':
@@ -75,10 +70,9 @@ def convert_amount_to_domestic(original_amount, original_currency, domestic_curr
             return (original_amount * (rate_domestic / rate_orig)).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
         return None
 
-
-def recalculate_transactions_domestic_amount(transactions, user):
+def recalculate_transactions_domestic_amount(transactions, workspace):
     """
-    Prepočíta `amount_domestic` pre transakcie podľa aktuálnej domácej meny.
+    Prepočíta `amount_domestic` pre transakcie podľa workspace meny.
     """
     if not transactions:
         return transactions
@@ -110,6 +104,10 @@ def recalculate_transactions_domestic_amount(transactions, user):
             tx.date,
             rates
         )
-        tx.amount_domestic = domestic_amount
+        if domestic_amount is not None:
+            tx.amount_domestic = domestic_amount
+        else:
+            # Fallback - použij pôvodnú sumu
+            tx.amount_domestic = tx.original_amount
     
     return transactions
