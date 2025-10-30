@@ -1033,3 +1033,92 @@ class Transaction(models.Model):
         """
         domestic_currency = getattr(self.workspace.settings, 'domestic_currency', 'EUR')
         return f"{self.user} | {self.type} | {self.amount_domestic} {domestic_currency}"
+
+
+# -------------------------------------------------------------------
+# TRANSACTION DRAFTS
+# -------------------------------------------------------------------
+# Single transaction draft per workspace for UX work-in-progress
+
+class TransactionDraft(models.Model):
+    """
+    Single transaction draft per workspace for temporary work-in-progress.
+    
+    Allows users to save incomplete bulk transactions and continue later.
+    Automatically deleted on successful save or explicit discard.
+    """
+    
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    
+    # Draft data - similar to bulk transaction structure
+    transactions_data = models.JSONField(default=list)  # List of transaction objects
+    draft_type = models.CharField(
+        max_length=10, 
+        choices=[('income', 'Income'), ('expense', 'Expense')],
+        blank=True, 
+        null=True
+    )
+    
+    # Metadata
+    last_modified = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'workspace', 'draft_type'],
+                name='unique_draft_per_workspace_type'
+            )
+        ]
+        indexes = [
+            models.Index(fields=['user', 'workspace', 'draft_type']),
+            models.Index(fields=['last_modified']),
+        ]
+        ordering = ['-last_modified']
+        verbose_name_plural = "Transaction drafts"
+
+    def save(self, *args, **kwargs):
+        """
+        Save draft - automatically replaces any existing draft for this workspace/type.
+        """
+        # Delete any existing draft for this user/workspace/type
+        TransactionDraft.objects.filter(
+            user=self.user,
+            workspace=self.workspace, 
+            draft_type=self.draft_type
+        ).delete()
+        
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        """
+        Basic validation for draft data structure.
+        """
+        if not isinstance(self.transactions_data, list):
+            raise ValidationError("Transactions data must be a list")
+        
+        # Validate each transaction in the draft
+        for i, transaction in enumerate(self.transactions_data):
+            if not isinstance(transaction, dict):
+                raise ValidationError(f"Transaction at index {i} must be a dictionary")
+            
+            # Basic field validation
+            if 'type' in transaction and transaction['type'] not in ['income', 'expense']:
+                raise ValidationError(f"Invalid transaction type at index {i}")
+            
+            if 'original_amount' in transaction and transaction['original_amount'] <= 0:
+                raise ValidationError(f"Invalid amount at index {i}")
+
+    def get_transactions_count(self):
+        """
+        Get number of transactions in draft.
+        """
+        return len(self.transactions_data) if self.transactions_data else 0
+
+    def __str__(self):
+        """
+        String representation of TransactionDraft.
+        """
+        count = self.get_transactions_count()
+        return f"Draft: {self.user} | {self.draft_type or 'mixed'} | {count} transactions"

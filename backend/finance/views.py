@@ -19,12 +19,13 @@ from .models import (
     Transaction, UserSettings, Workspace, 
     WorkspaceSettings, WorkspaceMembership,
     ExpenseCategoryVersion, IncomeCategoryVersion, 
-    ExpenseCategory, IncomeCategory, ExchangeRate
+    ExpenseCategory, IncomeCategory, ExchangeRate,
+    TransactionDraft
 ) 
 from .serializers import (
     TransactionSerializer, UserSettingsSerializer, WorkspaceSettingsSerializer,
     ExchangeRateSerializer, ExpenseCategorySerializer, IncomeCategorySerializer,
-    WorkspaceMembershipSerializer, WorkspaceSerializer  
+    WorkspaceMembershipSerializer, WorkspaceSerializer, TransactionDraftSerializer 
 )
 from .services.transaction_service import TransactionService
 from .services.currency_service import CurrencyService
@@ -882,6 +883,27 @@ class TransactionViewSet(viewsets.ModelViewSet):
             if instance.date:
                 instance.month = instance.date.replace(day=1)
                 instance.save(update_fields=['month'])
+
+             # DELETE DRAFT: Remove draft for this transaction type after successful save
+            draft_type = instance.type  # 'income' or 'expense'
+            deleted_count, _ = TransactionDraft.objects.filter(
+                user=self.request.user,
+                workspace=workspace,
+                draft_type=draft_type
+            ).delete()
+            
+            if deleted_count > 0:
+                logger.info(
+                    "Transaction draft deleted after successful save",
+                    extra={
+                        "user_id": self.request.user.id,
+                        "workspace_id": workspace.id,
+                        "transaction_type": draft_type,
+                        "drafts_deleted": deleted_count,
+                        "action": "draft_cleaned_after_save",
+                        "component": "TransactionViewSet",
+                    },
+                )
                 
             logger.info(
                 "Transaction created successfully",
@@ -933,6 +955,27 @@ class TransactionViewSet(viewsets.ModelViewSet):
         if instance.date:
             instance.month = instance.date.replace(day=1)
             instance.save(update_fields=['month'])
+
+        # DELETE DRAFT: Remove draft for this transaction type after successful update
+        draft_type = instance.type  # 'income' or 'expense'
+        deleted_count, _ = TransactionDraft.objects.filter(
+            user=self.request.user,
+            workspace=instance.workspace,  # <-- TU: použij instance.workspace namiesto workspace
+            draft_type=draft_type
+        ).delete()
+        
+        if deleted_count > 0:
+            logger.info(
+                "Transaction draft deleted after successful update",
+                extra={
+                    "user_id": self.request.user.id,
+                    "workspace_id": instance.workspace.id,  # <-- TU tiež
+                    "transaction_type": draft_type,
+                    "drafts_deleted": deleted_count,
+                    "action": "draft_cleaned_after_update",
+                    "component": "TransactionViewSet",
+                },
+            )
             
         logger.info(
             "Transaction updated successfully",
@@ -1046,6 +1089,55 @@ def bulk_sync_transactions(request, workspace_id):
             workspace, 
             request.user
         )
+
+        # DELETE DRAFT: Remove draft if there were CREATE or UPDATE operations
+        # Check if any transactions were created or updated (not just deleted)
+        created_count = results.get('created', 0)
+        updated_count = results.get('updated', 0)
+        
+        if created_count > 0 or updated_count > 0:
+            # Determine types from ALL bulk data (both new and updated transactions)
+            transaction_types = set()
+            for transaction in transactions_data:
+                if (isinstance(transaction, dict) and 
+                    transaction.get('type') in ['income', 'expense']):
+                    transaction_types.add(transaction['type'])
+            
+            # Delete drafts for all types that had transactions created or updated
+            for draft_type in transaction_types:
+                deleted_count, _ = TransactionDraft.objects.filter(
+                    user=request.user,
+                    workspace=workspace,
+                    draft_type=draft_type
+                ).delete()
+                
+                if deleted_count > 0:
+                    logger.info(
+                        "Transaction draft deleted after bulk sync with creates/updates",
+                        extra={
+                            "user_id": request.user.id,
+                            "workspace_id": workspace_id,
+                            "transaction_type": draft_type,
+                            "drafts_deleted": deleted_count,
+                            "new_transactions_created": created_count,
+                            "transactions_updated": updated_count,
+                            "action": "draft_cleaned_after_bulk_sync",
+                            "component": "bulk_sync_transactions",
+                        },
+                    )
+        else:
+            logger.debug(
+                "No draft cleanup needed - only deletes in bulk sync",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace_id,
+                    "created": created_count,
+                    "updated": updated_count,
+                    "deleted": results.get('deleted', 0),
+                    "action": "draft_cleanup_skipped",
+                    "component": "bulk_sync_transactions",
+                },
+            )
         
         logger.info(
             "Bulk transaction sync completed successfully",
@@ -1282,3 +1374,115 @@ def sync_categories_api(request, workspace_id, category_type):
             {'error': str(e)}, 
             status=status.HTTP_400_BAD_REQUEST
         )
+    
+# -------------------------------------------------------------------
+# TRANSACTION DRAFTS MANAGEMENT  
+# -------------------------------------------------------------------
+# Single draft operations per workspace with atomic replacement
+
+class TransactionDraftViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing single transaction draft per workspace.
+    """
+    serializer_class = TransactionDraftSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """Get drafts for current user's workspaces."""
+        return TransactionDraft.objects.filter(
+            user=self.request.user,
+            workspace__members=self.request.user
+        )
+
+    def get_object(self):
+        """Get specific draft or 404."""
+        workspace_id = self.kwargs.get('workspace_pk')
+        draft_type = self.kwargs.get('draft_type')  # 'income' or 'expense'
+        
+        return get_object_or_404(
+            TransactionDraft,
+            user=self.request.user,
+            workspace_id=workspace_id,
+            workspace__members=self.request.user,
+            draft_type=draft_type
+        )
+
+    @action(detail=False, methods=['post'])
+    def save_draft(self, request, workspace_pk=None):
+        """
+        Save or replace draft for workspace.
+        
+        Expected payload:
+        {
+            "draft_type": "income|expense",
+            "transactions_data": [{...}, {...}]  # transaction objects
+        }
+        """
+        workspace = get_object_or_404(Workspace, id=workspace_pk, members=request.user)
+        
+        draft_type = request.data.get('draft_type')
+        transactions_data = request.data.get('transactions_data', [])
+        
+        # Create or replace draft
+        draft, created = TransactionDraft.objects.update_or_create(
+            user=request.user,
+            workspace=workspace,
+            draft_type=draft_type,
+            defaults={'transactions_data': transactions_data}
+        )
+        
+        action_type = "created" if created else "updated"
+        logger.info(
+            f"Transaction draft {action_type}",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace.id,
+                "draft_type": draft_type,
+                "transaction_count": len(transactions_data),
+                "action": f"draft_{action_type}",
+                "component": "TransactionDraftViewSet",
+            },
+        )
+        
+        return Response(TransactionDraftSerializer(draft).data)
+
+    @action(detail=True, methods=['delete'])
+    def discard(self, request, workspace_pk=None, draft_type=None):
+        """
+        Permanently delete draft.
+        """
+        draft = self.get_object()
+        draft_id = draft.id
+        
+        draft.delete()
+        
+        logger.info(
+            "Transaction draft discarded",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace_pk,
+                "draft_type": draft_type,
+                "draft_id": draft_id,
+                "action": "draft_discarded",
+                "component": "TransactionDraftViewSet",
+            },
+        )
+        
+        return Response({"message": "Draft discarded successfully"})
+
+    @action(detail=False, methods=['get'])
+    def get_workspace_draft(self, request, workspace_pk=None):
+        """
+        Get draft for specific workspace and type.
+        """
+        draft_type = request.query_params.get('type')  # 'income' or 'expense'
+        
+        try:
+            draft = TransactionDraft.objects.get(
+                user=request.user,
+                workspace_id=workspace_pk,
+                draft_type=draft_type
+            )
+            return Response(TransactionDraftSerializer(draft).data)
+        except TransactionDraft.DoesNotExist:
+            return Response({"transactions_data": []})  # Return empty draft
