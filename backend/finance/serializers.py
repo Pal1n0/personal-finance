@@ -13,6 +13,7 @@ from .models import (
     Transaction, ExchangeRate, UserSettings, WorkspaceSettings, 
     Workspace, WorkspaceMembership, ExpenseCategoryVersion, 
     IncomeCategoryVersion, ExpenseCategory, IncomeCategory,
+    TransactionDraft
 )
 
 # Get structured logger for this module
@@ -831,3 +832,26 @@ class ExchangeRateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Exchange rate must be positive")
         
         return value
+# -------------------------------------------------------------------
+# TRANSACTION DRAFT SERIALIZER
+# -------------------------------------------------------------------
+# Serializer for transaction draft data
+
+class TransactionDraftSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Transaction Draft model.
+    """
+    transactions_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TransactionDraft
+        fields = [
+            'id', 'user', 'workspace', 'draft_type', 
+            'transactions_data', 'transactions_count',
+            'last_modified', 'created_at'
+        ]
+        read_only_fields = ['id', 'user', 'workspace', 'last_modified', 'created_at']
+
+    def get_transactions_count(self, obj):
+        """Get number of transactions in draft."""
+        return obj.get_transactions_count()
