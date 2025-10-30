@@ -94,6 +94,47 @@ def sync_categories_tree(categories_data, version, category_model):
                         if item['parent_id']:
                             parent = category_model.objects.get(id=item['parent_id'], version=version)
                             parent.children.add(category)
+
+            # ✅ 6. ZOZNAM KATEGÓRIÍ, KTORÉ BOLI OVPLYVNENÉ
+            affected_category_ids = set()
+            
+            # Pridaj všetky nové kategórie
+            if categories_data.get('create'):
+                for item in categories_data['create']:
+                    if item.get('parent_temp_id'):
+                        parent_id = temp_id_map.get(item['parent_temp_id'])
+                        if parent_id:
+                            affected_category_ids.add(parent_id)
+            
+            # Pridaj všetky upravené kategórie a ich parentov
+            if categories_data.get('update'):
+                for item in categories_data['update']:
+                    affected_category_ids.add(item['id'])
+                    if 'parent_id' in item and item['parent_id']:
+                        affected_category_ids.add(item['parent_id'])
+            
+            # Pridaj parentov zmazaných kategórií
+            if categories_data.get('delete'):
+                deleted_categories = category_model.objects.filter(
+                    id__in=categories_data['delete'],
+                    version=version
+                ).prefetch_related('parents')
+                for category in deleted_categories:
+                    for parent in category.parents.all():
+                        affected_category_ids.add(parent.id)
+            
+            # ✅ 7. VALIDÁCIA LEN OVPLYVNENÝCH KATEGÓRIÍ
+            categories_to_validate = category_model.objects.filter(
+                id__in=affected_category_ids,
+                version=version
+            )
+            
+            for category in categories_to_validate:
+                # Level 2-5 musia mať aspoň 1 child
+                if category.level != 1 and not category.children.exists():
+                    raise ValidationError(
+                        f"Kategória {category.name} (level {category.level}) musí mať aspoň jedno child"
+                    )
             
             return results
             

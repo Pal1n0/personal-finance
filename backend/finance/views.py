@@ -1,10 +1,15 @@
 from rest_framework import viewsets, mixins
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, action  
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db.models import Q
+from django.db import transaction
 from datetime import date
 from django.shortcuts import get_object_or_404
+from .services.transaction_service import TransactionService  # ✅ Import služby
+from rest_framework import serializers
+
+
 
 from .models import (
     Transaction, UserSettings, Workspace, WorkspaceSettings,
@@ -74,7 +79,8 @@ class ExpenseCategoryViewSet(viewsets.ReadOnlyModelViewSet):
             workspace__members=self.request.user,
             is_active=True
         )
-        return ExpenseCategory.objects.filter(version__in=active_versions)
+        return ExpenseCategory.objects.filter(version__in=active_versions)\
+            .prefetch_related('property')  # Tu pridáme prefetch pre property
 
 # -------------------------------
 # Income Category
@@ -89,7 +95,8 @@ class IncomeCategoryViewSet(viewsets.ReadOnlyModelViewSet):
             workspace__members=self.request.user,
             is_active=True
         )
-        return IncomeCategory.objects.filter(version__in=active_versions)
+        return IncomeCategory.objects.filter(version__in=active_versions)\
+            .prefetch_related('property')  # Tu pridáme prefetch pre property
 
 # -------------------------------
 # Transaction
@@ -140,9 +147,18 @@ class TransactionViewSet(viewsets.ModelViewSet):
         return qs
     
     def perform_create(self, serializer):
-        # ✅ Pridané workspace validation
         workspace = serializer.validated_data.get('workspace')
         if workspace and workspace.members.filter(id=self.request.user.id).exists():
+            # ✅ Pridať workspace validation pre category
+            expense_category = serializer.validated_data.get('expense_category')
+            income_category = serializer.validated_data.get('income_category')
+            
+            if expense_category and expense_category.version.workspace != workspace:
+                raise serializers.ValidationError("Expense category does not belong to this workspace")
+                
+            if income_category and income_category.version.workspace != workspace:
+                raise serializers.ValidationError("Income category does not belong to this workspace")
+            
             instance = serializer.save(user=self.request.user)
             if instance.date:
                 instance.month = instance.date.replace(day=1)
@@ -155,6 +171,40 @@ class TransactionViewSet(viewsets.ModelViewSet):
         if instance.date:
             instance.month = instance.date.replace(day=1)
             instance.save(update_fields=['month'])
+
+    @action(detail=False, methods=['post'])
+    @transaction.atomic
+    def bulk_delete(self, request):
+        """Atomic bulk delete transakcií"""
+        transaction_ids = request.data.get('ids', [])
+        transactions = Transaction.objects.filter(
+            id__in=transaction_ids,
+            user=request.user
+        )
+        count, _ = transactions.delete()
+        return Response({'deleted': count})
+
+
+@api_view(['POST'])
+@transaction.atomic
+def bulk_sync_transactions(request, workspace_id):
+    """Univerzálny atomic bulk sync transakcií"""
+    try:
+        workspace = Workspace.objects.get(id=workspace_id, members=request.user)
+        transactions_data = request.data
+        
+        results = TransactionService.bulk_sync_transactions(
+            transactions_data, 
+            workspace, 
+            request.user
+        )
+        
+        return Response(results)
+        
+    except Workspace.DoesNotExist:
+        return Response({'error': 'Workspace not found'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=400)
 
 # -------------------------------
 # Exchange Rate

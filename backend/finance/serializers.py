@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from rest_framework.exceptions import ValidationError as DRFValidationError  # ✅ DRF ValidationError
+from django.core.exceptions import ValidationError as DjangoValidationError  # ✅ Django ValidationError
 from .models import (
     Transaction, ExchangeRate, UserSettings, WorkspaceSettings,
     ExpenseCategoryVersion, IncomeCategoryVersion, ExpenseCategory, IncomeCategory,
@@ -32,13 +34,13 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer):
 class ExpenseCategoryVersionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExpenseCategoryVersion
-        fields = ['id', 'workspace', 'name', 'description', 'created_by', 'created_at', 'is_active']
+        fields = ['id', 'workspace', 'name', 'property', 'description', 'created_by', 'created_at', 'is_active']
         read_only_fields = ['id', 'created_by', 'created_at']
 
 class IncomeCategoryVersionSerializer(serializers.ModelSerializer):
     class Meta:
         model = IncomeCategoryVersion
-        fields = ['id', 'workspace', 'name', 'description', 'created_by', 'created_at', 'is_active']
+        fields = ['id', 'workspace', 'name', 'property', 'description', 'created_by', 'created_at', 'is_active']
         read_only_fields = ['id', 'created_by', 'created_at']
 
 class ExpenseCategorySerializer(serializers.ModelSerializer):
@@ -88,22 +90,25 @@ class TransactionSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
 
-# -------------------------------
-# Category Property Serializers
-# -------------------------------
-class ExpenseCategoryPropertySerializer(serializers.ModelSerializer):
-    category = ExpenseCategorySerializer(read_only=True)
-    
-    class Meta:
-        model = ExpenseCategoryProperty
-        fields = ['id', 'category', 'property_type']
-
-class IncomeCategoryPropertySerializer(serializers.ModelSerializer):
-    category = IncomeCategorySerializer(read_only=True)
-    
-    class Meta:
-        model = IncomeCategoryProperty
-        fields = ['id', 'category', 'property_type']
+    def validate(self, data):
+        # ✅ Validácia category konzistencie
+        expense_category = data.get('expense_category')
+        income_category = data.get('income_category')
+        transaction_type = data.get('type')
+        
+        if expense_category and income_category:
+            raise DRFValidationError("Transaction can have only one category type")
+            
+        if not expense_category and not income_category:
+            raise DRFValidationError("Transaction must have one category")
+            
+        if transaction_type == 'expense' and income_category:
+            raise DRFValidationError("Expense transaction cannot have income category")
+            
+        if transaction_type == 'income' and expense_category:
+            raise DRFValidationError("Income transaction cannot have expense category")
+        
+        return data
 
 # -------------------------------
 # Exchange Rate Serializer

@@ -298,14 +298,12 @@ class Transaction(models.Model):
                 if transactions and transactions[0].amount_domestic is not None:
                     self.amount_domestic = transactions[0].amount_domestic
                 else:
-                    # Fallback - použij pôvodnú sumu
                     self.amount_domestic = self.original_amount
             except Exception:
-                # Ak prepočet zlyhá, použij pôvodnú sumu
                 self.amount_domestic = self.original_amount
         
         super().save(*args, **kwargs)
-
+        
     @property
     def category(self):
         return self.expense_category or self.income_category
