@@ -41,6 +41,8 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     # User management API endpoints
     path("api/users/", include("users.urls")),
+    # Core finance modlu API endpoints
+    path('api/v1/finance/', include('finance.urls')),
     # Email verification success endpoint
     path("email-verified/", DummySuccessView.as_view(), name="email-verified-success"),
 ]

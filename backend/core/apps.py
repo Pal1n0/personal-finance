@@ -20,8 +20,8 @@ class UsersConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
 
     # Application name (Python path)
-    name = "users"
+    name = "finance"
 
     def ready(self):
         # Tu načítame signály
-        import users.signals
+        import finance.signals
