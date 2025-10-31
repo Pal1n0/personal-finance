@@ -11,8 +11,6 @@ from collections import defaultdict
 from datetime import date
 from typing import List, Dict, Optional
 
-from .models import ExchangeRate, Transaction, Workspace
-
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
 
@@ -65,6 +63,7 @@ def get_exchange_rates_for_range(currencies: List[str], date_from: date, date_to
     # Load rates for all currencies EXCEPT EUR
     non_eur_currencies = [c for c in currencies if c != 'EUR']
     
+    from ..models import ExchangeRate
     if non_eur_currencies:
         qs = ExchangeRate.objects.filter(
             currency__in=non_eur_currencies,
@@ -347,7 +346,7 @@ def convert_amount_to_domestic(
         ) from e
 
 
-def recalculate_transactions_domestic_amount(transactions: List[Transaction], workspace: Workspace) -> List[Transaction]:
+def recalculate_transactions_domestic_amount(transactions: List, workspace) -> List:
     """
     Recalculate domestic amounts for transactions based on workspace currency.
     

@@ -9,7 +9,6 @@ import logging
 from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from .utils.currency_utils import recalculate_transactions_domestic_amount
 
 
 # Get structured logger for this module
@@ -899,6 +898,7 @@ class Transaction(models.Model):
             )
             
             try:
+                from .utils.currency_utils import recalculate_transactions_domestic_amount
                 transactions = recalculate_transactions_domestic_amount([self], self.workspace)
                 if transactions and transactions[0].amount_domestic is not None:
                     self.amount_domestic = transactions[0].amount_domestic

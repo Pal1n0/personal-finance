@@ -112,7 +112,7 @@ logger.debug(
         "custom_routes": [
             {
                 "pattern": pattern.pattern._route if hasattr(pattern.pattern, '_route') else str(pattern.pattern),
-                "name": pattern.name
+                "name": getattr(pattern, 'name', 'unnamed') 
             }
             for pattern in urlpatterns 
             if hasattr(pattern, 'pattern')

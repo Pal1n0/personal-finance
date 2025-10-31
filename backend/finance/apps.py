@@ -8,4 +8,5 @@ class FinanceConfig(AppConfig):
 
     def ready(self):
         # ✅ Načítanie signálov
-        import finance.signals
+        # import finance.signals
+        pass
