@@ -1,5 +1,6 @@
 # tests/conftest.py
 import pytest
+from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from finance.models import (
@@ -272,3 +273,88 @@ def complete_workspace_setup(
         'expense_transaction': expense_transaction,
         'income_transaction': income_transaction
     }
+
+# finance/tests/conftest.py
+
+@pytest.fixture
+def expense_child_category(db, expense_category_version, expense_root_category):
+    """Child expense kategória"""
+    child = ExpenseCategory.objects.create(
+        version=expense_category_version,
+        name='Ovocie a Zelenina',
+        level=2,
+        is_active=True
+    )
+    expense_root_category.children.add(child)
+    return child
+
+@pytest.fixture
+def income_child_category(db, income_category_version, income_root_category):
+    """Child income kategória"""
+    child = IncomeCategory.objects.create(
+        version=income_category_version,
+        name='Mzda',
+        level=2,
+        is_active=True
+    )
+    income_root_category.children.add(child)
+    return child
+
+# finance/tests/conftest.py
+
+@pytest.fixture
+def exchange_rate_eur(db):
+    """EUR exchange rate (bázová mena)"""
+    return ExchangeRate.objects.create(
+        currency='EUR',
+        rate_to_eur=Decimal('1.0'),
+        date=timezone.now().date()
+    )
+
+@pytest.fixture
+def exchange_rate_usd(db):
+    """USD exchange rate"""
+    return ExchangeRate.objects.create(
+        currency='USD',
+        rate_to_eur=Decimal('0.85'),
+        date=timezone.now().date()
+    )
+
+@pytest.fixture
+def exchange_rate_gbp(db):
+    """GBP exchange rate"""
+    return ExchangeRate.objects.create(
+        currency='GBP',
+        rate_to_eur=Decimal('0.75'),
+        date=timezone.now().date()
+    )
+
+@pytest.fixture
+def workspace_settings_other_currency(db, test_workspace):
+    """Workspace settings s inou menou"""
+    return WorkspaceSettings.objects.create(
+        workspace=test_workspace,
+        domestic_currency='USD',  # Iná mena ako EUR
+        fiscal_year_start=1,
+        display_mode='month',
+        accounting_mode=False
+    )
+
+@pytest.fixture
+def exchange_rate_gbp(db):
+    """GBP exchange rate"""
+    return ExchangeRate.objects.create(
+        currency='GBP',
+        rate_to_eur=Decimal('0.75'),
+        date=timezone.now().date()
+    )
+
+@pytest.fixture
+def income_root_category(db, income_category_version):
+    """Root income kategória"""
+    return IncomeCategory.objects.create(
+        version=income_category_version,
+        name='Príjmy',
+        level=1,
+        is_active=True
+    )
