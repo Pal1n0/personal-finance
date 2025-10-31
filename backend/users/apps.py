@@ -24,4 +24,5 @@ class UsersConfig(AppConfig):
 
     def ready(self):
         # Tu načítame signály
-        import users.signals
+        # import users.signals
+        pass
