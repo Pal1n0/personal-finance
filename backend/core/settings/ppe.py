@@ -95,7 +95,7 @@ LOGGING["handlers"]["ppe_errors"] = {
 }
 
 # Update loggers for PPE environment
-for logger_name in ["django", "users", "axes", "allauth"]:
+for logger_name in ["django", "users", "axes", "allauth", "finance"]:
     if logger_name in LOGGING["loggers"]:
         LOGGING["loggers"][logger_name]["handlers"] = [
             "console",

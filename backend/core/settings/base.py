@@ -264,6 +264,11 @@ LOGGING = {
             "level": "DEBUG",
             "propagate": False,
         },
+        "finance": {
+            "handlers": ["console"],
+            "level": "DEBUG", 
+            "propagate": False,
+        },
         "axes": {
             "handlers": ["console"],
             "level": "INFO",
