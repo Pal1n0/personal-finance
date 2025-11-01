@@ -159,6 +159,7 @@ class TransactionService:
                 expense_category=expense_category,
                 income_category=income_category,
                 tags=data.get('tags', []),
+                month=data['date'].replace(day=1),
                 note_manual=data.get('note_manual', ''),
                 note_auto=data.get('note_auto', ''),
                 amount_domestic=data.get('original_amount')  # Temporary value
@@ -346,11 +347,18 @@ class TransactionService:
                     # Validate update data
                     TransactionService._validate_transaction_data(data, workspace, is_update=True)
                     
-                    # Update fields
+                    # Update core transaction fields
                     transaction.type = data.get('type', transaction.type)
                     transaction.original_amount = data.get('original_amount', transaction.original_amount)
                     transaction.original_currency = data.get('original_currency', transaction.original_currency)
                     transaction.date = data.get('date', transaction.date)
+                    transaction.tags = data.get('tags', transaction.tags)
+                    transaction.note_manual = data.get('note_manual', transaction.note_manual)
+                    transaction.note_auto = data.get('note_auto', transaction.note_auto)
+                    
+                    # Update month if date changed
+                    if 'date' in data:
+                        transaction.month = data['date'].replace(day=1)
                     
                     # Update categories
                     if 'expense_category' in data:
@@ -394,9 +402,12 @@ class TransactionService:
                 try:
                     # Recalculate domestic amounts for updated transactions
                     updates = recalculate_transactions_domestic_amount(updates, workspace)
+                    
+                    # Update all modified fields including domestic amount
                     Transaction.objects.bulk_update(updates, [
                         'type', 'original_amount', 'original_currency', 'date',
-                        'expense_category', 'income_category', 'amount_domestic'
+                        'expense_category', 'income_category', 'amount_domestic',
+                        'tags', 'note_manual', 'note_auto', 'month'
                     ])
                     results['updated'] = [t.id for t in updates]
                 except CurrencyConversionError as e:
@@ -425,18 +436,6 @@ class TransactionService:
                     "component": "TransactionService",
                 },
             )
-        
-        logger.info(
-            "Bulk transaction sync completed",
-            extra={
-                "user_id": user.id,
-                "workspace_id": workspace.id,
-                "results": {k: v for k, v in results.items() if k != 'errors' or v},
-                "error_count": len(results['errors']),
-                "action": "bulk_sync_completed",
-                "component": "TransactionService",
-            },
-        )
         
         return results
     

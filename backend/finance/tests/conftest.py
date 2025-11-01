@@ -1,6 +1,7 @@
 # tests/conftest.py
 import pytest
 from decimal import Decimal
+from datetime import date
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from finance.models import (
@@ -301,16 +302,6 @@ def income_child_category(db, income_category_version, income_root_category):
     return child
 
 # finance/tests/conftest.py
-
-@pytest.fixture
-def exchange_rate_eur(db):
-    """EUR exchange rate (bázová mena)"""
-    return ExchangeRate.objects.create(
-        currency='EUR',
-        rate_to_eur=Decimal('1.0'),
-        date=timezone.now().date()
-    )
-
 @pytest.fixture
 def exchange_rate_usd(db):
     """USD exchange rate"""
@@ -357,4 +348,76 @@ def income_root_category(db, income_category_version):
         name='Príjmy',
         level=1,
         is_active=True
+    )
+
+@pytest.fixture
+def exchange_rate_usd():
+    """Exchange rate pre USD"""
+    from finance.models import ExchangeRate
+    return ExchangeRate.objects.create(
+        currency='USD',
+        rate_to_eur=Decimal('0.85'),
+        date=date(2025, 11, 1)
+    )
+
+@pytest.fixture
+def exchange_rate_gbp():
+    """Exchange rate pre GBP"""
+    from finance.models import ExchangeRate
+    return ExchangeRate.objects.create(
+        currency='GBP',
+        rate_to_eur=Decimal('0.75'),
+        date=date(2025, 11, 1)
+    )
+
+@pytest.fixture
+def exchange_rate_usd_2024():
+    """Exchange rate pre USD pre dátum 2024-01-15"""
+    from finance.models import ExchangeRate
+    return ExchangeRate.objects.create(
+        currency='USD',
+        rate_to_eur=Decimal('0.85'),
+        date=date(2024, 1, 15)
+    )
+
+@pytest.fixture
+def exchange_rate_gbp_2024():
+    """Exchange rate pre GBP pre dátum 2024-01-15"""
+    from finance.models import ExchangeRate
+    return ExchangeRate.objects.create(
+        currency='GBP',
+        rate_to_eur=Decimal('0.75'),
+        date=date(2024, 1, 15)
+    )
+
+@pytest.fixture
+def exchange_rate_usd_2024_20():
+    """Exchange rate pre USD pre dátum 2024-01-20"""
+    from finance.models import ExchangeRate
+    return ExchangeRate.objects.create(
+        currency='USD',
+        rate_to_eur=Decimal('0.85'),
+        date=date(2024, 1, 20)
+    )
+
+@pytest.fixture
+def exchange_rate_usd_jan15():
+    return ExchangeRate.objects.create(
+        currency='USD', rate_to_eur=Decimal('0.85'), date=date(2024, 1, 15)
+    )
+
+@pytest.fixture  
+def exchange_rate_usd_jan20():
+    return ExchangeRate.objects.create(
+        currency='USD', rate_to_eur=Decimal('0.90'), date=date(2024, 1, 20)  # Iný rate!
+    )
+
+@pytest.fixture
+def exchange_rate_usd_2024_jan20():
+    """Exchange rate pre USD pre dátum 2024-01-20"""
+    from finance.models import ExchangeRate
+    return ExchangeRate.objects.create(
+        currency='USD',
+        rate_to_eur=Decimal('0.86'),  # Iný rate ako pre 2024-01-15
+        date=date(2024, 1, 20)
     )

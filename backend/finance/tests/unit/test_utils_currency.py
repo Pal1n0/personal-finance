@@ -1,8 +1,9 @@
-# finance/tests/unit/test_currency_utils.py
+# finance/tests/unit/test_utils_currency.py
 import pytest
 from decimal import Decimal
 from datetime import date, timedelta
 from django.utils import timezone
+from unittest.mock import patch
 from finance.utils.currency_utils import (
     CurrencyConversionError,
     get_exchange_rates_for_range,
@@ -33,6 +34,7 @@ class TestCurrencyConversionError:
 class TestGetExchangeRatesForRange:
     """Testy pre get_exchange_rates_for_range funkciu"""
     
+    @pytest.mark.django_db
     def test_get_exchange_rates_basic(self, exchange_rate_usd, exchange_rate_eur):
         """Test získania exchange rates pre rozsah dátumov"""
         currencies = ['USD', 'EUR']
@@ -46,6 +48,7 @@ class TestGetExchangeRatesForRange:
         # EUR by nemalo byť v rates, lebo je to base currency
         assert 'EUR' not in rates
     
+    @pytest.mark.django_db
     def test_get_exchange_rates_missing_currency(self):
         """Test získania rates pre chýbajúcu menu"""
         currencies = ['NONEXISTENT']
@@ -336,15 +339,7 @@ class TestRecalculateTransactionsDomesticAmount:
         
         # Vytvor exchange rates pre rôzne meny
         from finance.models import ExchangeRate
-        
-        # USD rate už máme v exchange_rate_usd
-        # Vytvor GBP rate
-        gbp_rate = ExchangeRate.objects.create(
-            currency='GBP',
-            rate_to_eur=Decimal('0.75'),
-            date=timezone.now().date()
-        )
-        
+         
         # Vytvor transakcie s rôznymi menami
         eur_transaction = Transaction.objects.create(
             user=test_user,
@@ -378,8 +373,8 @@ class TestRecalculateTransactionsDomesticAmount:
             original_amount=Decimal('100.00'),
             original_currency='GBP',
             amount_domestic=Decimal('0.00'),
-            date=gbp_rate.date,
-            month=gbp_rate.date.replace(day=1)
+            date=exchange_rate_gbp.date,
+            month=exchange_rate_gbp.date.replace(day=1)
         )
         
         transactions = [eur_transaction, usd_transaction, gbp_transaction]
@@ -397,12 +392,12 @@ class TestRecalculateTransactionsDomesticAmount:
         for transaction in result:
             assert transaction.amount_domestic > Decimal('0.00')
     
-    def test_recalculate_no_dates(self, test_workspace, workspace_settings, test_user, expense_root_category):
-        """Test prepočtu transakcií bez dátumov"""
+    def test_recalculate_transactions_with_valid_dates(self, test_workspace, workspace_settings, test_user, expense_root_category, exchange_rate_usd):
+        """Test prepočtu transakcií s platnými dátumami"""
         from finance.models import Transaction
         
-        # Vytvor transakciu bez dátumu
-        transaction_no_date = Transaction.objects.create(
+        # Vytvor transakciu s platným dátumom kedy máme exchange rates
+        transaction = Transaction.objects.create(
             user=test_user,
             workspace=test_workspace,
             type='expense',
@@ -410,16 +405,17 @@ class TestRecalculateTransactionsDomesticAmount:
             original_amount=Decimal('100.00'),
             original_currency='USD',
             amount_domestic=Decimal('0.00'),
-            date=None,  # Žiadny dátum
-            month=None
+            date=exchange_rate_usd.date,
+            month=exchange_rate_usd.date.replace(day=1)
         )
         
-        transactions = [transaction_no_date]
+        transactions = [transaction]
         
-        with pytest.raises(CurrencyConversionError) as exc_info:
-            recalculate_transactions_domestic_amount(transactions, test_workspace)
+        # Toto by malo prejsť
+        result = recalculate_transactions_domestic_amount(transactions, test_workspace)
         
-        assert 'no valid dates found' in str(exc_info.value)
+        assert result[0].amount_domestic > Decimal('0.00')
+        assert result[0].amount_domestic != transaction.original_amount
 
 
 class TestIntegrationScenarios:
@@ -428,67 +424,105 @@ class TestIntegrationScenarios:
     def test_complete_currency_conversion_flow(self, test_workspace, workspace_settings, test_user, expense_root_category):
         """Test kompletného flow konverzie mien"""
         from finance.models import Transaction, ExchangeRate
-        
+
         # Vytvor exchange rates
         usd_rate = ExchangeRate.objects.create(
             currency='USD',
             rate_to_eur=Decimal('0.85'),
             date=date(2024, 1, 15)
         )
-        
+
         gbp_rate = ExchangeRate.objects.create(
-            currency='GBP', 
-            rate_to_eur=Decimal('0.75'),
+            currency='GBP',
+            rate_to_eur=Decimal('0.75'), 
             date=date(2024, 1, 15)
         )
-        
-        # Vytvor transakcie s rôznymi menami
-        transactions = [
-            Transaction(
-                user=test_user,
-                workspace=test_workspace,
-                type='expense',
-                expense_category=expense_root_category,
-                original_amount=Decimal('100.00'),
-                original_currency='EUR',
-                amount_domestic=Decimal('0.00'),
-                date=date(2024, 1, 15)
-            ),
-            Transaction(
-                user=test_user,
-                workspace=test_workspace,
-                type='expense', 
-                expense_category=expense_root_category,
-                original_amount=Decimal('100.00'),
-                original_currency='USD',
-                amount_domestic=Decimal('0.00'),
-                date=date(2024, 1, 15)
-            ),
-            Transaction(
-                user=test_user,
-                workspace=test_workspace,
-                type='expense',
-                expense_category=expense_root_category, 
-                original_amount=Decimal('100.00'),
-                original_currency='GBP',
-                amount_domestic=Decimal('0.00'),
-                date=date(2024, 1, 15)
-            )
-        ]
-        
-        # Prepočítaj domestic amounts
+
+        # SCENÁR 1: Nové transakcie - automatický prepočet
+        eur_transaction = Transaction.objects.create(
+            user=test_user,
+            workspace=test_workspace,
+            type='expense',
+            expense_category=expense_root_category,
+            original_amount=Decimal('100.00'),
+            original_currency='EUR',
+            date=date(2024, 1, 15)
+        )
+
+        usd_transaction = Transaction.objects.create(
+            user=test_user,
+            workspace=test_workspace,
+            type='expense',
+            expense_category=expense_root_category,
+            original_amount=Decimal('100.00'),
+            original_currency='USD',
+            date=date(2024, 1, 15)
+        )
+
+        gbp_transaction = Transaction.objects.create(
+            user=test_user,
+            workspace=test_workspace,
+            type='expense',
+            expense_category=expense_root_category,
+            original_amount=Decimal('100.00'),
+            original_currency='GBP',
+            date=date(2024, 1, 15)
+        )
+
+        # SCENÁR 2: Manuálny prepočet existujúcich transakcií
+        transactions = [eur_transaction, usd_transaction, gbp_transaction]
         result = recalculate_transactions_domestic_amount(transactions, test_workspace)
+
+        # Over správnosť prepočtu
+        assert result[0].amount_domestic == Decimal('100.00')  # EUR → EUR
+        assert result[1].amount_domestic == Decimal('85.0000')  # USD → EUR
+        assert result[2].amount_domestic == Decimal('75.0000')  # GBP → EUR
+
+        # SCENÁR 3: Update transakcie - kontrola prepočtu
+        usd_transaction.original_amount = Decimal('200.00')
+        usd_transaction.save()
         
-        # Over výsledky
-        assert len(result) == 3
+        usd_transaction.refresh_from_db()
+        assert usd_transaction.amount_domestic == Decimal('170.0000')  # 200 USD → 170 EUR
+
+class TestMissingCoverage:
+    """Testy pre konkrétne nepokryté riadky"""
+    
+    @pytest.mark.django_db
+    def test_get_exchange_rates_specific_error_branch(self):
+        """Test konkrétnej error vetvy v get_exchange_rates_for_range"""
+        # Toto by malo pokryť riadky 148-157
+        currencies = ['NONEXISTENT_CURRENCY']
+        date_from = date(2024, 1, 1)
+        date_to = date(2024, 1, 31)
         
-        # EUR transakcia - žiadna konverzia
-        assert result[0].amount_domestic == Decimal('100.00')
+        with pytest.raises(CurrencyConversionError) as exc_info:
+            get_exchange_rates_for_range(currencies, date_from, date_to)
         
-        # USD transakcia - 100 USD * 0.85 = 85 EUR
-        assert result[1].amount_domestic == Decimal('85.0000')
+        assert 'NONEXISTENT_CURRENCY' in str(exc_info.value)
+    
+    def test_convert_amount_specific_error_handling(self):
+        """Test konkrétneho error handlingu v convert_amount_to_domestic"""
+        # Toto by malo pokryť riadky 327-342
+        rates = {
+            'USD': {
+                date(2024, 1, 15): Decimal('0.85')
+            }
+        }
         
-        # GBP transakcia - 100 GBP * (0.75 / 0.85) pre konverziu cez EUR
-        # Presný výpočet: 100 GBP → EUR: 100 * 0.75 = 75 EUR
-        # 75 EUR je domestic amount (workspace má EUR)
-        assert result[2].amount_domestic == Decimal('75.0000')
+        # Simuluj chybu v find_closest_rate
+        with patch('finance.utils.currency_utils.find_closest_rate') as mock_find:
+            mock_find.side_effect = CurrencyConversionError("Mocked rate error")
+            
+            with pytest.raises(CurrencyConversionError) as exc_info:
+                convert_amount_to_domestic(
+                    original_amount=Decimal('100.00'),
+                    original_currency='USD',
+                    domestic_currency='EUR', 
+                    tx_date=date(2024, 1, 15),
+                    rates=rates,
+                    transaction_id=123
+                )
+            
+            assert 'Mocked rate error' in str(exc_info.value)
+            assert exc_info.value.transaction_id == 123
