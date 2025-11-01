@@ -27,6 +27,169 @@ class CategorySyncError(Exception):
         self.category_name = category_name
         super().__init__(self.message)
 
+
+def _get_children_count(category):
+    """
+    Universal method to get children count for both Django models and mock objects.
+    
+    Args:
+        category: Category object (Django model or mock)
+        
+    Returns:
+        int: Number of children
+    """
+    if hasattr(category.children, 'exists'):
+        # Django model - use count() for efficiency
+        return category.children.count()
+    elif hasattr(category.children, '__len__'):
+        # Mock object - use len()
+        return len(category.children)
+    return 0
+
+
+def _get_children_list(category):
+    """
+    Universal method to get children list for both Django models and mock objects.
+    
+    Args:
+        category: Category object (Django model or mock)
+        
+    Returns:
+        list: List of child categories
+    """
+    if hasattr(category.children, 'all'):
+        # Django model - use all()
+        return list(category.children.all())
+    elif hasattr(category.children, '__iter__'):
+        # Mock object - direct iteration
+        return list(category.children)
+    return []
+
+
+def _get_parents_list(category):
+    """
+    Universal method to get parents list for both Django models and mock objects.
+    
+    Args:
+        category: Category object (Django model or mock)
+        
+    Returns:
+        list: List of parent categories
+    """
+    if hasattr(category.parents, 'all'):
+        # Django model - use all()
+        return list(category.parents.all())
+    elif hasattr(category.parents, '__iter__'):
+        # Mock object - direct iteration
+        return list(category.parents)
+    return []
+
+
+def _validate_single_category(category):
+    """
+    Validate individual category constraints - universal for Django models and mock objects.
+    
+    Args:
+        category: Category to validate (Django model or mock object)
+        
+    Raises:
+        ValidationError: If category constraints are violated
+    """
+    # Leaf categories (level 5) must have no children
+    if category.level == 5:
+        children_count = _get_children_count(category)
+        if children_count > 0:
+            raise ValidationError(
+                f"Leaf category '{category.name}' (level 5) should not have children"
+            )
+    
+    # Non-leaf categories (level 1-4) should have children, but it's not required
+    # They can exist without children (partial tree scenario)
+    
+    # Validate parent-child level relationships if parents exist
+    parents = _get_parents_list(category)
+    for parent in parents:
+        if parent.level != category.level - 1:
+            raise ValidationError(
+                f"Invalid parent level: '{category.name}' (L{category.level}) cannot have "
+                f"parent '{parent.name}' (L{parent.level}). Expected parent level {category.level - 1}"
+            )
+
+
+def _validate_branch_flexible(root_category, category_map, visited=None):
+    """
+    Validate branch structure flexibly - universal for Django models and mock objects.
+    
+    Args:
+        root_category: Starting category for the branch
+        category_map: Dictionary of all categories
+        visited: Set of visited categories
+        
+    Returns:
+        set: All categories in this branch
+        
+    Raises:
+        ValidationError: If branch structure is invalid
+    """
+    if visited is None:
+        visited = set()
+    
+    if root_category in visited:
+        return visited
+    
+    visited.add(root_category)
+    
+    # Validate this category
+    _validate_single_category(root_category)
+    
+    # Recursively validate children
+    children = _get_children_list(root_category)
+    for child in children:
+        # Validate level progression
+        if child.level != root_category.level + 1:
+            raise ValidationError(
+                f"Invalid level progression: '{root_category.name}' (L{root_category.level}) -> "
+                f"'{child.name}' (L{child.level}). Expected L{root_category.level + 1}"
+            )
+        
+        _validate_branch_flexible(child, category_map, visited)
+    
+    return visited
+
+
+def _check_circular_reference(category, visited, path=None):
+    """
+    Check for circular references in the category structure - universal for Django models and mock objects.
+    
+    Args:
+        category: Current category to check
+        visited: Set of visited category IDs
+        path: Current path for cycle detection
+        
+    Raises:
+        ValidationError: If circular reference detected
+    """
+    if path is None:
+        path = []
+    
+    if category.id in visited:
+        if category.id in path:
+            cycle_path = path[path.index(category.id):] + [category.id]
+            raise ValidationError(
+                f"Circular reference detected: {' -> '.join(str(id) for id in cycle_path)}"
+            )
+        return
+    
+    visited.add(category.id)
+    path.append(category.id)
+    
+    children = _get_children_list(category)
+    for child in children:
+        _check_circular_reference(child, visited, path)
+    
+    path.pop()
+
+
 def validate_category_hierarchy(categories_data: dict, version, category_model) -> None:
     """
     Validate category hierarchy structure - supports both tree and flat structures.
@@ -39,7 +202,7 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
     
     Rules:
     - Leaf categories (level 5) must have no children
-    - Non-leaf categories (level 1-4) must have children
+    - Non-leaf categories (level 1-4) should have children, but it's not required
     - Level progression must be consistent (+1 only)
     - No circular references
     - All categories must be properly connected
@@ -115,8 +278,9 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
     # Add/update categories from the sync data
     temp_id_map = {}
     
-    # Process new categories
+    # Process new categories - create mock objects with proper structure
     for item in categories_data.get('create', []):
+        # Create a proper mock object that mimics Django model behavior
         mock_category = type('MockCategory', (), {
             'id': f"temp_{item['temp_id']}",
             'name': item['name'],
@@ -127,12 +291,6 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
         })()
         temp_id_map[item['temp_id']] = mock_category
         category_map[mock_category.id] = mock_category
-    
-    # Process updated categories
-    for item in categories_data.get('update', []):
-        if item['id'] in category_map:
-            category_map[item['id']].name = item['name']
-            category_map[item['id']].level = item['level']
     
     # 3. BUILD RELATIONSHIPS IN SIMULATED STRUCTURE
     logger.debug(
@@ -158,13 +316,37 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
             child = category_map.get(item['id'])
             parent = category_map.get(item['parent_id'])
             if child and parent:
-                # Clear existing relationships
-                for old_parent in list(child.parents):
-                    old_parent.children.discard(child)
-                child.parents.clear()
-                # Add new relationship
-                parent.children.add(child)
-                child.parents.add(parent)
+                # UNIVERSAL APPROACH - use our helper functions
+                old_parents = _get_parents_list(child)
+                
+                # Remove from old parents - UNIVERSAL
+                for old_parent in old_parents:
+                    if hasattr(old_parent.children, 'discard'):
+                        # Mock object
+                        old_parent.children.discard(child)
+                    elif hasattr(old_parent.children, 'remove'):
+                        # Django model - but we can't modify actual DB relationships
+                        # Just track for validation
+                        pass
+                
+                # Clear existing parents - UNIVERSAL  
+                if hasattr(child.parents, 'clear'):
+                    # Mock object
+                    child.parents.clear()
+                # For Django models, we track intended relationships
+                
+                # Add new relationship - UNIVERSAL
+                if hasattr(parent.children, 'add'):
+                    # Mock object
+                    parent.children.add(child)
+                    child.parents.add(parent)
+                elif hasattr(child, '_temp_parents'):
+                    # Django model - track intended relationship
+                    child._temp_parents = {parent}
+                else:
+                    # Create temp attribute for Django model
+                    child._temp_parents = {parent}
+                    parent._temp_children = {child}
     
     # 4. VALIDATE CATEGORY CONSTRAINTS
     logger.debug(
@@ -190,7 +372,7 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
             validation_errors.append(str(e))
     
     # Rule 2: Validate hierarchical relationships (only if hierarchy exists)
-    root_categories = [cat for cat in category_map.values() if not cat.parents]
+    root_categories = [cat for cat in category_map.values() if len(_get_parents_list(cat)) == 0]
     
     if root_categories:
         # We have some hierarchy - validate branches
@@ -224,8 +406,8 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
         raise ValidationError("; ".join(validation_errors))
     
     # Log successful validation scenarios
-    flat_categories = [cat for cat in category_map.values() if cat.level == 5 and not cat.parents]
-    hierarchical_categories = [cat for cat in category_map.values() if cat.parents or cat.children]
+    flat_categories = [cat for cat in category_map.values() if cat.level == 5 and len(_get_parents_list(cat)) == 0]
+    hierarchical_categories = [cat for cat in category_map.values() if len(_get_parents_list(cat)) > 0 or len(_get_children_list(cat)) > 0]
     
     logger.debug(
         "Flexible category hierarchy validation completed successfully",
@@ -239,107 +421,6 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
             "component": "validate_category_hierarchy",
         },
     )
-
-
-def _validate_single_category(category):
-    """
-    Validate individual category constraints.
-    
-    Args:
-        category: Category to validate
-        
-    Raises:
-        ValidationError: If category constraints are violated
-    """
-    # Leaf categories (level 5) must have no children
-    if category.level == 5 and category.children:
-        raise ValidationError(
-            f"Leaf category '{category.name}' (level 5) should not have children"
-        )
-    
-    # Non-leaf categories (level 1-4) should have children, but it's not required
-    # They can exist without children (partial tree scenario)
-    
-    # Validate parent-child level relationships if parents exist
-    for parent in category.parents:
-        if parent.level != category.level - 1:
-            raise ValidationError(
-                f"Invalid parent level: '{category.name}' (L{category.level}) cannot have "
-                f"parent '{parent.name}' (L{parent.level}). Expected parent level {category.level - 1}"
-            )
-
-
-def _validate_branch_flexible(root_category, category_map, visited=None):
-    """
-    Validate branch structure flexibly - doesn't require full depth to level 5.
-    
-    Args:
-        root_category: Starting category for the branch
-        category_map: Dictionary of all categories
-        visited: Set of visited categories
-        
-    Returns:
-        set: All categories in this branch
-        
-    Raises:
-        ValidationError: If branch structure is invalid
-    """
-    if visited is None:
-        visited = set()
-    
-    if root_category in visited:
-        return visited
-    
-    visited.add(root_category)
-    
-    # Validate this category
-    _validate_single_category(root_category)
-    
-    # Recursively validate children
-    for child in root_category.children:
-        # Validate level progression
-        if child.level != root_category.level + 1:
-            raise ValidationError(
-                f"Invalid level progression: '{root_category.name}' (L{root_category.level}) -> "
-                f"'{child.name}' (L{child.level}). Expected L{root_category.level + 1}"
-            )
-        
-        _validate_branch_flexible(child, category_map, visited)
-    
-    return visited
-
-
-def _check_circular_reference(category, visited, path=None):
-    """
-    Check for circular references in the category structure.
-    
-    Args:
-        category: Current category to check
-        visited: Set of visited category IDs
-        path: Current path for cycle detection
-        
-    Raises:
-        ValidationError: If circular reference detected
-    """
-    if path is None:
-        path = []
-    
-    if category.id in visited:
-        if category.id in path:
-            cycle_path = path[path.index(category.id):] + [category.id]
-            raise ValidationError(
-                f"Circular reference detected: {' -> '.join(str(id) for id in cycle_path)}"
-            )
-        return
-    
-    visited.add(category.id)
-    path.append(category.id)
-    
-    for child in category.children:
-        _check_circular_reference(child, visited, path)
-    
-    path.pop()
-
 
 
 def sync_categories_tree(categories_data: dict, version, category_model) -> dict:
@@ -392,9 +473,9 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
     
     try:
         # Pre-validation before transaction
-        validate_category_hierarchy(categories_data)
+        validate_category_hierarchy(categories_data, version, category_model)
         
-        with transaction.atomic():  # ✅ All or nothing transaction
+        with transaction.atomic():  # All or nothing transaction
             temp_id_map = {}  # Maps temporary frontend IDs to database IDs
             
             # 1. DELETE OPERATIONS

@@ -2,6 +2,7 @@
 import pytest
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from decimal import Decimal
 from finance.models import (
     UserSettings, Workspace, WorkspaceMembership, WorkspaceSettings,
     ExpenseCategoryVersion, ExpenseCategory, IncomeCategoryVersion, IncomeCategory,
@@ -329,11 +330,11 @@ class TestIncomeCategoryProperty:
 
 class TestExchangeRate:
     """Testy pre ExchangeRate model"""
-    
+    @pytest.mark.django_db
     def test_exchange_rate_creation(self, exchange_rate_usd):
         """Test vytvorenia výmenného kurzu"""
         assert exchange_rate_usd.currency == 'USD'
-        assert exchange_rate_usd.rate_to_eur == 0.85
+        assert exchange_rate_usd.rate_to_eur == Decimal('0.85')
         assert str(exchange_rate_usd) == f"USD - 0.85 ({exchange_rate_usd.date})"
     
     @pytest.mark.django_db
@@ -369,7 +370,8 @@ class TestExchangeRate:
             rate.full_clean()
         
         assert 'Currency code must be 3 characters long' in str(exc_info.value)
-    
+        
+    @pytest.mark.django_db
     def test_exchange_rate_unique_constraint(self, exchange_rate_usd):
         """Test unikátnosti kurzu pre dátum a menu"""
         with pytest.raises(Exception):  # Môže byť IntegrityError alebo ValidationError

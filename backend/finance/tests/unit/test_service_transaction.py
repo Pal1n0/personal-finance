@@ -1,6 +1,7 @@
-# finance/tests/unit/test_transaction_service.py
+# finance/tests/unit/test_service_transaction.py
 import pytest
 from decimal import Decimal
+from unittest.mock import Mock, patch
 from datetime import date
 from django.core.exceptions import ValidationError
 from finance.services.transaction_service import TransactionService
@@ -9,7 +10,7 @@ from finance.services.transaction_service import TransactionService
 class TestTransactionService:
     """Testy pre TransactionService"""
     
-    def test_bulk_create_transactions_success(self, test_user, test_workspace, expense_root_category):
+    def test_bulk_create_transactions_success(self, test_user, test_workspace, expense_root_category, workspace_settings):
         """Test úspešného bulk vytvorenia transakcií"""
         transactions_data = [
             {
@@ -101,7 +102,7 @@ class TestTransactionService:
         
         assert 'cannot have both' in str(exc_info.value)
     
-    def test_bulk_sync_transactions_complete_flow(self, test_user, test_workspace, expense_root_category):
+    def test_bulk_sync_transactions_complete_flow(self, test_user, test_workspace, expense_root_category, workspace_settings):
         """Test kompletného bulk sync flow"""
         from finance.models import Transaction
         
@@ -174,7 +175,7 @@ class TestTransactionService:
         )
         assert new_transactions.exists()
     
-    def test_bulk_sync_transactions_atomic_rollback(self, test_user, test_workspace, expense_root_category):
+    def test_bulk_sync_transactions_atomic_rollback(self, test_user, test_workspace, expense_root_category, workspace_settings):
         """Test atomic rollback pri chybe v bulk sync"""
         from finance.models import Transaction
         
@@ -218,7 +219,7 @@ class TestTransactionService:
         original_transaction.refresh_from_db()
         assert original_transaction.original_amount == original_amount
     
-    def test_recalculate_all_transactions_for_workspace(self, test_user, test_workspace, expense_root_category, exchange_rate_usd):
+    def test_recalculate_all_transactions_for_workspace(self, test_user, test_workspace, expense_root_category, exchange_rate_usd, workspace_settings):
         """Test prepočtu všetkých transakcií pre workspace"""
         from finance.models import Transaction
         
@@ -254,7 +255,7 @@ class TestTransactionService:
             assert tx.amount_domestic is not None
             assert tx.amount_domestic > Decimal('0')
     
-    def test_recalculate_empty_workspace(self, test_workspace):
+    def test_recalculate_empty_workspace(self, test_workspace, workspace_settings):
         """Test prepočtu prázdneho workspace"""
         updated_count = TransactionService.recalculate_all_transactions_for_workspace(test_workspace)
         
@@ -336,7 +337,7 @@ class TestTransactionServiceValidation:
 class TestTransactionServiceIntegration:
     """Integračné testy pre TransactionService"""
     
-    def test_complete_bulk_operations_flow(self, test_user, test_workspace, expense_root_category, income_root_category, exchange_rate_usd, exchange_rate_gbp):
+    def test_complete_bulk_operations_flow(self, test_user, test_workspace, expense_root_category, income_root_category, exchange_rate_usd, exchange_rate_gbp, workspace_settings):
         """Test kompletného flow bulk operácií"""
         from finance.models import Transaction
         
@@ -424,3 +425,41 @@ class TestTransactionServiceIntegration:
             assert tx.amount_domestic > Decimal('0')
             assert tx.user == test_user
             assert tx.workspace == test_workspace
+
+class TestTransactionServiceMissingCoverage:
+    """Minimalistické testy pre nepokryté riadky v transaction_service.py"""
+
+    @pytest.mark.django_db
+    def test_bulk_create_validation_error_logging(self):
+        """Test riadky 112-113: Logovanie validačnej chyby"""
+        with patch('finance.services.transaction_service.logger') as mock_logger:
+            with pytest.raises(ValidationError):
+                TransactionService.bulk_create_transactions(
+                    [{'invalid': 'data'}],  # Neplatné dáta
+                    Mock(), Mock()
+                )
+            
+            # Over že sa volal error logger
+            mock_logger.error.assert_called_once()
+
+    @pytest.mark.django_db
+    def test_bulk_sync_create_failure(self):
+        """Test riadky 311-323: Zlyhanie create operácie v sync"""
+        with patch('finance.services.transaction_service.logger') as mock_logger:
+            with patch('finance.services.transaction_service.TransactionService.bulk_create_transactions',
+                      side_effect=ValidationError("Create failed")):
+                
+                result = TransactionService.bulk_sync_transactions(
+                    {
+                        'create': [{'invalid': 'data'}]
+                    },
+                    Mock(), Mock()
+                )
+                
+                # Over error v results
+                assert len(result['errors']) > 0
+                assert 'Create failed' in result['errors'][0]
+                
+                # Over error logging
+                mock_logger.error.assert_called_once()
+

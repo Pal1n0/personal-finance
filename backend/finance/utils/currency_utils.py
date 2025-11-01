@@ -307,7 +307,8 @@ def convert_amount_to_domestic(
             rate_domestic = find_closest_rate(rates, domestic_currency, tx_date)
             
             # Convert: original → EUR → domestic
-            converted_amount = (original_amount_decimal * (rate_domestic / rate_orig)).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
+            amount_in_eur = original_amount_decimal * rate_orig
+            converted_amount = (amount_in_eur / rate_domestic).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
             
             logger.debug(
                 "Cross-currency conversion completed",
@@ -352,7 +353,10 @@ def recalculate_transactions_domestic_amount(transactions: List, workspace) -> L
     
     Processes a list of transactions and updates their domestic_amount fields
     based on current exchange rates and workspace domestic currency settings.
-    Transactions already in domestic currency are skipped.
+    
+    For transactions where original currency matches domestic currency,
+    domestic_amount is set directly to original_amount. For other transactions,
+    currency conversion is performed using exchange rates.
     
     Args:
         transactions: List of Transaction instances to recalculate
@@ -391,109 +395,122 @@ def recalculate_transactions_domestic_amount(transactions: List, workspace) -> L
         },
     )
     
-    # Filter transactions that need recalculation
-    transactions_to_recalculate = [t for t in transactions if t.original_currency != domestic_currency]
+    # Separate transactions into two groups
+    same_currency_transactions = []
+    different_currency_transactions = []
     
-    if not transactions_to_recalculate:
+    for transaction in transactions:
+        if transaction.original_currency == domestic_currency:
+            same_currency_transactions.append(transaction)
+        else:
+            different_currency_transactions.append(transaction)
+    
+    # Process same currency transactions - set domestic_amount = original_amount
+    for transaction in same_currency_transactions:
+        transaction.amount_domestic = transaction.original_amount
         logger.debug(
-            "No transactions need recalculation - all already in domestic currency",
+            "Transaction domestic amount set to original amount (same currency)",
             extra={
-                "workspace_id": workspace.id,
-                "domestic_currency": domestic_currency,
-                "action": "recalculation_skip_same_currency",
+                "transaction_id": transaction.id,
+                "original_amount": float(transaction.original_amount),
+                "domestic_amount": float(transaction.amount_domestic),
+                "currency": domestic_currency,
+                "action": "domestic_amount_same_currency",
                 "component": "recalculate_transactions_domestic_amount",
             },
         )
-        return transactions
     
-    # Determine date range and currency list
-    all_dates = [t.date for t in transactions_to_recalculate if t.date]
-    if not all_dates:
-        logger.error(
-            "No valid dates in transactions - cannot recalculate",
+    # Process different currency transactions - perform conversion
+    if different_currency_transactions:
+        # Determine date range and currency list
+        all_dates = [t.date for t in different_currency_transactions if t.date]
+        if not all_dates:
+            logger.error(
+                "No valid dates in transactions - cannot recalculate",
+                extra={
+                    "workspace_id": workspace.id,
+                    "transaction_count": len(different_currency_transactions),
+                    "action": "recalculation_failed_no_dates",
+                    "component": "recalculate_transactions_domestic_amount",
+                    "severity": "high",
+                },
+            )
+            raise CurrencyConversionError(
+                "Cannot recalculate transactions: no valid dates found in transactions"
+            )
+            
+        date_from, date_to = min(all_dates), max(all_dates)
+        currencies = list({t.original_currency for t in different_currency_transactions})
+        currencies.append(domestic_currency)
+        
+        logger.debug(
+            "Recalculation parameters determined",
             extra={
                 "workspace_id": workspace.id,
-                "transaction_count": len(transactions_to_recalculate),
-                "action": "recalculation_failed_no_dates",
+                "transactions_to_recalculate": len(different_currency_transactions),
+                "date_range": f"{date_from.isoformat()} to {date_to.isoformat()}",
+                "currencies_involved": currencies,
+                "action": "recalculation_parameters_determined",
                 "component": "recalculate_transactions_domestic_amount",
-                "severity": "high",
             },
-        )
-        raise CurrencyConversionError(
-            "Cannot recalculate transactions: no valid dates found in transactions"
         )
         
-    date_from, date_to = min(all_dates), max(all_dates)
-    currencies = list({t.original_currency for t in transactions_to_recalculate})
-    currencies.append(domestic_currency)
+        try:
+            # Load exchange rates - this will fail if rates are missing
+            rates = get_exchange_rates_for_range(currencies, date_from, date_to)
+            
+            # Recalculate amounts - any failure will raise CurrencyConversionError
+            for transaction in different_currency_transactions:
+                domestic_amount = convert_amount_to_domestic(
+                    transaction.original_amount,
+                    transaction.original_currency,
+                    domestic_currency,
+                    transaction.date,
+                    rates,
+                    transaction_id=transaction.id
+                )
+                transaction.amount_domestic = domestic_amount
+                
+                logger.debug(
+                    "Transaction domestic amount converted successfully",
+                    extra={
+                        "transaction_id": transaction.id,
+                        "original_amount": float(transaction.original_amount),
+                        "original_currency": transaction.original_currency,
+                        "domestic_amount": float(domestic_amount),
+                        "domestic_currency": domestic_currency,
+                        "action": "transaction_domestic_amount_converted",
+                        "component": "recalculate_transactions_domestic_amount",
+                    },
+                )
+                
+        except CurrencyConversionError as e:
+            logger.error(
+                "Transaction domestic amount recalculation failed",
+                extra={
+                    "workspace_id": workspace.id,
+                    "failed_transaction_id": e.transaction_id,
+                    "error_message": e.message,
+                    "affected_currency": e.currency,
+                    "transaction_date": e.tx_date.isoformat() if e.tx_date else None,
+                    "action": "recalculation_failed",
+                    "component": "recalculate_transactions_domestic_amount",
+                    "severity": "critical",
+                },
+            )
+            # Re-raise to ensure atomic rollback in calling code
+            raise
     
-    logger.debug(
-        "Recalculation parameters determined",
+    logger.info(
+        "Transaction domestic amount recalculation completed successfully",
         extra={
             "workspace_id": workspace.id,
-            "transactions_to_recalculate": len(transactions_to_recalculate),
-            "date_range": f"{date_from.isoformat()} to {date_to.isoformat()}",
-            "currencies_involved": currencies,
-            "action": "recalculation_parameters_determined",
+            "same_currency_processed": len(same_currency_transactions),
+            "different_currency_processed": len(different_currency_transactions),
+            "total_processed": len(transactions),
+            "action": "recalculation_completed_success",
             "component": "recalculate_transactions_domestic_amount",
         },
     )
     
-    try:
-        # Load exchange rates - this will fail if rates are missing
-        rates = get_exchange_rates_for_range(currencies, date_from, date_to)
-        
-        # Recalculate amounts - any failure will raise CurrencyConversionError
-        for transaction in transactions_to_recalculate:
-            domestic_amount = convert_amount_to_domestic(
-                transaction.original_amount,
-                transaction.original_currency,
-                domestic_currency,
-                transaction.date,
-                rates,
-                transaction_id=transaction.id
-            )
-            transaction.amount_domestic = domestic_amount
-            
-            logger.debug(
-                "Transaction domestic amount updated successfully",
-                extra={
-                    "transaction_id": transaction.id,
-                    "original_amount": float(transaction.original_amount),
-                    "original_currency": transaction.original_currency,
-                    "domestic_amount": float(domestic_amount),
-                    "domestic_currency": domestic_currency,
-                    "action": "transaction_domestic_amount_updated",
-                    "component": "recalculate_transactions_domestic_amount",
-                },
-            )
-        
-        logger.info(
-            "Transaction domestic amount recalculation completed successfully",
-            extra={
-                "workspace_id": workspace.id,
-                "total_processed": len(transactions_to_recalculate),
-                "success_rate": "100%",
-                "action": "recalculation_completed_success",
-                "component": "recalculate_transactions_domestic_amount",
-            },
-        )
-        
-        return transactions
-        
-    except CurrencyConversionError as e:
-        logger.error(
-            "Transaction domestic amount recalculation failed",
-            extra={
-                "workspace_id": workspace.id,
-                "failed_transaction_id": e.transaction_id,
-                "error_message": e.message,
-                "affected_currency": e.currency,
-                "transaction_date": e.tx_date.isoformat() if e.tx_date else None,
-                "action": "recalculation_failed",
-                "component": "recalculate_transactions_domestic_amount",
-                "severity": "critical",
-            },
-        )
-        # Re-raise to ensure atomic rollback in calling code
-        raise
+    return transactions

@@ -1,4 +1,4 @@
-# finance/tests/unit/test_category_utils.py
+# finance/tests/unit/test_utils_category.py
 import pytest
 from django.core.exceptions import ValidationError
 from finance.utils.category_utils import (
