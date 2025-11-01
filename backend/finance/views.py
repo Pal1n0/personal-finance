@@ -44,8 +44,15 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing workspaces and workspace memberships.
     
-    Provides CRUD operations for workspaces and membership management
-    with proper authorization checks.
+    Provides CRUD operations for workspaces with two-level deletion:
+    - Soft delete (inactive): Temporary deactivation (admin/owner only)
+    - Hard delete: Permanent removal (owner only)
+    
+    Security rules:
+    - Viewers/editors can only see active workspaces
+    - Only admins/owners can see inactive workspaces
+    - Only admins/owners can perform soft delete
+    - Only owners can perform hard delete
     """
     
     serializer_class = WorkspaceSerializer
@@ -53,82 +60,173 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        Get workspaces where current user is a member.
+        Get workspaces based on user role:
+        - Viewers/editors: only active workspaces
+        - Admins/owners: all workspaces (active + inactive)
         """
         logger.debug(
-            "Retrieving workspaces queryset",
+            "Retrieving workspaces queryset with role-based filtering",
             extra={
                 "user_id": self.request.user.id,
-                "action": "workspaces_queryset_retrieval",
+                "action": "role_based_workspaces_retrieval",
                 "component": "WorkspaceViewSet",
             },
         )
+
+        if not self.request.user.is_authenticated:
+            return Workspace.objects.none()
         
-        # Return workspaces where user is a member
-        workspaces = Workspace.objects.filter(
-            members=self.request.user,
-            is_active=True
-        ).select_related('owner').prefetch_related('members')
+        # Get all memberships for the current user
+        user_memberships = WorkspaceMembership.objects.filter(
+            user=self.request.user
+        ).select_related('workspace')
         
-        logger.debug(
-            "Workspaces queryset prepared",
-            extra={
-                "user_id": self.request.user.id,
-                "workspaces_count": workspaces.count(),
-                "action": "workspaces_queryset_prepared",
-                "component": "WorkspaceViewSet",
-            },
-        )
+        # Check if user has any admin/owner role in any workspace
+        has_admin_owner_role = user_memberships.filter(
+            role__in=['admin', 'owner']
+        ).exists()
+        
+        if has_admin_owner_role:
+            # Admin/owner can see ALL workspaces (active + inactive)
+            workspaces = Workspace.objects.filter(
+                members=self.request.user
+            ).select_related('owner').prefetch_related('members')
+            
+            logger.debug(
+                "Admin/owner workspace access - all workspaces",
+                extra={
+                    "user_id": self.request.user.id,
+                    "total_workspaces_count": workspaces.count(),
+                    "active_workspaces_count": workspaces.filter(is_active=True).count(),
+                    "inactive_workspaces_count": workspaces.filter(is_active=False).count(),
+                    "action": "admin_owner_workspaces_accessed",
+                    "component": "WorkspaceViewSet",
+                },
+            )
+        else:
+            # Viewer/editor can only see ACTIVE workspaces
+            workspaces = Workspace.objects.filter(
+                members=self.request.user,
+                is_active=True  # Only active workspaces for viewers/editors
+            ).select_related('owner').prefetch_related('members')
+            
+            logger.debug(
+                "Viewer/editor workspace access - active workspaces only",
+                extra={
+                    "user_id": self.request.user.id,
+                    "active_workspaces_count": workspaces.count(),
+                    "action": "viewer_editor_workspaces_accessed",
+                    "component": "WorkspaceViewSet",
+                },
+            )
         
         return workspaces
 
-    def perform_create(self, serializer):
+    def get_serializer_context(self):
         """
-        Create workspace and automatically add creator as admin member.
+        Add additional context to serializer for frontend needs.
         """
-        logger.info(
-            "Workspace creation initiated",
-            extra={
-                "user_id": self.request.user.id,
-                "workspace_name": serializer.validated_data.get('name'),
-                "action": "workspace_creation_start",
-                "component": "WorkspaceViewSet",
-            },
-        )
+        context = super().get_serializer_context()
         
-        workspace = serializer.save(owner=self.request.user)
+        # Add user's membership info for all workspaces
+        if self.request.user.is_authenticated:
+            user_memberships = WorkspaceMembership.objects.filter(
+                user=self.request.user
+            ).select_related('workspace')
+            
+            context['user_memberships'] = {
+                membership.workspace_id: membership 
+                for membership in user_memberships
+            }
         
-        logger.info(
-            "Workspace created successfully",
-            extra={
-                "user_id": self.request.user.id,
-                "workspace_id": workspace.id,
-                "workspace_name": workspace.name,
-                "action": "workspace_creation_success",
-                "component": "WorkspaceViewSet",
-            },
-        )
-        
-        return workspace
+        return context
 
-    def perform_update(self, serializer):
+    def list(self, request, *args, **kwargs):
         """
-        Update workspace with authorization check.
+        Custom list method to provide additional metadata about workspaces.
         """
-        instance = serializer.instance
+        response = super().list(request, *args, **kwargs)
         
+        # Add summary information for frontend
+        workspaces = self.get_queryset()
+        active_count = workspaces.filter(is_active=True).count()
+        inactive_count = workspaces.filter(is_active=False).count()
+        
+        # Get user's roles across all workspaces
+        user_memberships = WorkspaceMembership.objects.filter(
+            user=request.user
+        )
+        role_counts = {}
+        for membership in user_memberships:
+            role_counts[membership.role] = role_counts.get(membership.role, 0) + 1
+        
+        # Determine user's overall access level
+        has_admin_owner_access = user_memberships.filter(
+            role__in=['admin', 'owner']
+        ).exists()
+        
+        response.data = {
+            'workspaces': response.data,
+            'summary': {
+                'total_workspaces': workspaces.count(),
+                'active_workspaces': active_count,
+                'inactive_workspaces': inactive_count if has_admin_owner_access else 0,
+                'role_distribution': role_counts,
+                'access_level': 'admin_owner' if has_admin_owner_access else 'viewer_editor'
+            }
+        }
+        
+        return response
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Retrieve single workspace with additional security checks.
+        """
+        instance = self.get_object()
+        
+        # Additional security check for viewers/editors - can't access inactive workspaces
+        user_membership = WorkspaceMembership.objects.get(
+            workspace=instance, 
+            user=request.user
+        )
+        
+        if not instance.is_active and user_membership.role in ['viewer', 'editor']:
+            logger.warning(
+                "Viewer/editor attempted to access inactive workspace",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": instance.id,
+                    "user_role": user_membership.role,
+                    "action": "inactive_workspace_access_denied",
+                    "component": "WorkspaceViewSet",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {"error": "You don't have permission to access this workspace."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    def perform_destroy(self, instance):
+        """
+        SOFT DELETE - set workspace as inactive (admin/owner only).
+        """
         logger.info(
-            "Workspace update initiated",
+            "Workspace soft deletion initiated",
             extra={
                 "user_id": self.request.user.id,
                 "workspace_id": instance.id,
                 "workspace_name": instance.name,
-                "action": "workspace_update_start",
+                "current_status": "active" if instance.is_active else "inactive",
+                "action": "workspace_soft_deletion_start",
                 "component": "WorkspaceViewSet",
             },
         )
         
-        # Check if user has permission to update (owner or admin)
+        # Check if user has permission to soft delete (admin/owner only)
         membership = WorkspaceMembership.objects.get(
             workspace=instance, 
             user=self.request.user
@@ -136,62 +234,34 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         
         if membership.role not in ['admin', 'owner']:
             logger.warning(
-                "Workspace update permission denied",
+                "Workspace soft deletion permission denied - insufficient role",
                 extra={
                     "user_id": self.request.user.id,
                     "workspace_id": instance.id,
                     "user_role": membership.role,
                     "required_roles": ['admin', 'owner'],
-                    "action": "workspace_update_permission_denied",
+                    "action": "workspace_soft_deletion_permission_denied",
                     "component": "WorkspaceViewSet",
                     "severity": "medium",
                 },
             )
-            raise serializers.ValidationError("You don't have permission to update this workspace.")
+            raise serializers.ValidationError("Only workspace owners and admins can deactivate workspaces.")
         
-        workspace = serializer.save()
-        
-        logger.info(
-            "Workspace updated successfully",
-            extra={
-                "user_id": self.request.user.id,
-                "workspace_id": workspace.id,
-                "action": "workspace_update_success",
-                "component": "WorkspaceViewSet",
-            },
-        )
-
-    def perform_destroy(self, instance):
-        """
-        Soft delete workspace (set is_active=False).
-        """
-        logger.info(
-            "Workspace deletion initiated",
-            extra={
-                "user_id": self.request.user.id,
-                "workspace_id": instance.id,
-                "workspace_name": instance.name,
-                "action": "workspace_deletion_start",
-                "component": "WorkspaceViewSet",
-            },
-        )
-        
-        # Check if user is the owner
-        if instance.owner != self.request.user:
+        # Additional check: workspace must be active to be deactivated
+        if not instance.is_active:
             logger.warning(
-                "Workspace deletion permission denied - not owner",
+                "Attempt to deactivate already inactive workspace",
                 extra={
                     "user_id": self.request.user.id,
                     "workspace_id": instance.id,
-                    "workspace_owner_id": instance.owner.id,
-                    "action": "workspace_deletion_permission_denied",
+                    "action": "workspace_already_inactive",
                     "component": "WorkspaceViewSet",
-                    "severity": "high",
+                    "severity": "low",
                 },
             )
-            raise serializers.ValidationError("Only workspace owner can delete the workspace.")
+            raise serializers.ValidationError("Workspace is already inactive.")
         
-        # Soft delete
+        # Soft delete - set to inactive
         instance.is_active = False
         instance.save()
         
@@ -200,15 +270,272 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
             extra={
                 "user_id": self.request.user.id,
                 "workspace_id": instance.id,
-                "action": "workspace_deletion_success",
+                "previous_status": "active",
+                "new_status": "inactive",
+                "action": "workspace_soft_deletion_success",
                 "component": "WorkspaceViewSet",
             },
         )
 
+    @action(detail=True, methods=['delete'])
+    def hard_delete(self, request, pk=None):
+        """
+        HARD DELETE - permanently remove workspace and all related data.
+        Only workspace owner can perform hard delete.
+        """
+        workspace = self.get_object()
+        
+        logger.warning(
+            "Workspace hard deletion initiated",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace.id,
+                "workspace_name": workspace.name,
+                "workspace_owner_id": workspace.owner.id,
+                "action": "workspace_hard_deletion_start",
+                "component": "WorkspaceViewSet",
+                "severity": "high",
+            },
+        )
+        
+        # Check if user is the owner
+        if workspace.owner != request.user:
+            logger.error(
+                "Workspace hard deletion permission denied - not owner",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "workspace_owner_id": workspace.owner.id,
+                    "action": "workspace_hard_deletion_permission_denied",
+                    "component": "WorkspaceViewSet",
+                    "severity": "high",
+                },
+            )
+            return Response(
+                {"error": "Only workspace owner can permanently delete the workspace."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Confirm hard deletion with additional check
+        confirmation = request.data.get('confirmation')
+        workspace_name_confirmation = request.data.get('workspace_name')
+        
+        if not confirmation or confirmation != 'I understand this action is irreversible':
+            return Response(
+                {"error": "Confirmation required. Please confirm you understand this action is irreversible."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if workspace_name_confirmation != workspace.name:
+            return Response(
+                {"error": "Workspace name confirmation does not match."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Store workspace info for logging before deletion
+        workspace_id = workspace.id
+        workspace_name = workspace.name
+        member_count = workspace.members.count()
+        
+        # Perform hard delete
+        workspace.delete()
+        
+        logger.critical(
+            "Workspace hard deleted permanently",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace_id,
+                "workspace_name": workspace_name,
+                "member_count": member_count,
+                "action": "workspace_hard_deletion_success",
+                "component": "WorkspaceViewSet",
+                "severity": "critical",
+            },
+        )
+        
+        return Response(
+            {"message": "Workspace permanently deleted."},
+            status=status.HTTP_200_OK
+        )
+
+    @action(detail=True, methods=['post'])
+    def activate(self, request, pk=None):
+        """
+        Activate an inactive workspace (admin/owner only).
+        """
+        workspace = self.get_object()
+        
+        logger.info(
+            "Workspace activation initiated",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace.id,
+                "workspace_name": workspace.name,
+                "current_status": "active" if workspace.is_active else "inactive",
+                "action": "workspace_activation_start",
+                "component": "WorkspaceViewSet",
+            },
+        )
+        
+        # Check if user has permission to activate (owner or admin only)
+        membership = WorkspaceMembership.objects.get(
+            workspace=workspace, 
+            user=request.user
+        )
+        
+        if membership.role not in ['admin', 'owner']:
+            logger.warning(
+                "Workspace activation permission denied",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "user_role": membership.role,
+                    "required_roles": ['admin', 'owner'],
+                    "action": "workspace_activation_permission_denied",
+                    "component": "WorkspaceViewSet",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {"error": "You don't have permission to activate this workspace."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Additional check: workspace must be inactive to be activated
+        if workspace.is_active:
+            logger.warning(
+                "Attempt to activate already active workspace",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "action": "workspace_already_active",
+                    "component": "WorkspaceViewSet",
+                    "severity": "low",
+                },
+            )
+            return Response(
+                {"error": "Workspace is already active."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Activate workspace
+        workspace.is_active = True
+        workspace.save()
+        
+        logger.info(
+            "Workspace activated successfully",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace.id,
+                "previous_status": "inactive",
+                "new_status": "active",
+                "action": "workspace_activation_success",
+                "component": "WorkspaceViewSet",
+            },
+        )
+        
+        return Response(
+            {"message": "Workspace activated successfully.", "is_active": True},
+            status=status.HTTP_200_OK
+        )
+
+    @action(detail=True, methods=['get'])
+    def membership_info(self, request, pk=None):
+        """
+        Get detailed membership information for current user in this workspace.
+        """
+        workspace = self.get_object()
+        
+        logger.debug(
+            "Retrieving detailed membership info",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace.id,
+                "action": "membership_info_retrieval",
+                "component": "WorkspaceViewSet",
+            },
+        )
+        
+        try:
+            membership = WorkspaceMembership.objects.get(
+                workspace=workspace,
+                user=request.user
+            )
+            
+            # Security check: viewers/editors can't access membership info for inactive workspaces
+            if not workspace.is_active and membership.role in ['viewer', 'editor']:
+                logger.warning(
+                    "Viewer/editor attempted to access membership info for inactive workspace",
+                    extra={
+                        "user_id": request.user.id,
+                        "workspace_id": workspace.id,
+                        "user_role": membership.role,
+                        "action": "inactive_workspace_membership_access_denied",
+                        "component": "WorkspaceViewSet",
+                        "severity": "medium",
+                    },
+                )
+                return Response(
+                    {"error": "You don't have permission to access this workspace."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            serializer = WorkspaceMembershipSerializer(
+                membership, 
+                context={'request': request}
+            )
+            
+            response_data = {
+                **serializer.data,
+                'permissions': {
+                    'can_activate': membership.role in ['admin', 'owner'] and not workspace.is_active,
+                    'can_deactivate': membership.role in ['admin', 'owner'] and workspace.is_active,
+                    'can_hard_delete': workspace.owner == request.user,
+                    'can_invite': membership.role in ['admin', 'owner'] and workspace.is_active,
+                    'can_manage_members': membership.role in ['admin', 'owner'] and workspace.is_active,
+                    'can_view': workspace.is_active or membership.role in ['admin', 'owner'],
+                    'can_edit': membership.role in ['admin', 'owner'] and workspace.is_active,
+                    'can_see_inactive': membership.role in ['admin', 'owner'],
+                }
+            }
+            
+            logger.debug(
+                "Membership info retrieved successfully",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "user_role": membership.role,
+                    "is_owner": workspace.owner == request.user,
+                    "workspace_active": workspace.is_active,
+                    "action": "membership_info_retrieved",
+                    "component": "WorkspaceViewSet",
+                },
+            )
+            
+            return Response(response_data)
+            
+        except WorkspaceMembership.DoesNotExist:
+            logger.warning(
+                "Membership not found for user in workspace",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "action": "membership_not_found",
+                    "component": "WorkspaceViewSet",
+                    "severity": "low",
+                },
+            )
+            return Response(
+                {"error": "You are not a member of this workspace."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
     @action(detail=True, methods=['get'])
     def members(self, request, pk=None):
         """
-        Get workspace members with their roles.
+        Get all members of this workspace with their roles.
+        
+        Returns serialized list of workspace members with membership details.
         """
         workspace = self.get_object()
         
@@ -222,95 +549,78 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
             },
         )
         
+        # Check if user has permission to view members
+        try:
+            user_membership = WorkspaceMembership.objects.get(
+                workspace=workspace,
+                user=request.user
+            )
+            
+            # Security check: viewers/editors can't access members for inactive workspaces
+            if not workspace.is_active and user_membership.role in ['viewer', 'editor']:
+                logger.warning(
+                    "Viewer/editor attempted to access members of inactive workspace",
+                    extra={
+                        "user_id": request.user.id,
+                        "workspace_id": workspace.id,
+                        "user_role": user_membership.role,
+                        "action": "inactive_workspace_members_access_denied",
+                        "component": "WorkspaceViewSet",
+                        "severity": "medium",
+                    },
+                )
+                return Response(
+                    {"error": "You don't have permission to access this workspace."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+        except WorkspaceMembership.DoesNotExist:
+            return Response(
+                {"error": "You are not a member of this workspace."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get all memberships for this workspace
         memberships = WorkspaceMembership.objects.filter(
             workspace=workspace
         ).select_related('user')
         
-        serializer = WorkspaceMembershipSerializer(
-            memberships, 
-            many=True,
-            context={'request': request}
-        )
+        # Serialize the data
+        members_data = []
+        for membership in memberships:
+            members_data.append({
+                'user_id': membership.user.id,
+                'username': membership.user.username,
+                'email': membership.user.email,
+                'role': membership.role,
+                'joined_at': membership.joined_at,
+                'is_owner': workspace.owner == membership.user
+            })
         
         logger.debug(
             "Workspace members retrieved successfully",
             extra={
                 "user_id": request.user.id,
                 "workspace_id": workspace.id,
-                "members_count": len(serializer.data),
+                "member_count": len(members_data),
                 "action": "workspace_members_retrieved",
                 "component": "WorkspaceViewSet",
             },
         )
         
-        return Response(serializer.data)
-
-    @action(detail=True, methods=['post'])
-    def invite_member(self, request, pk=None):
-        """
-        Invite a new member to the workspace.
-        """
-        workspace = self.get_object()
-        
-        logger.info(
-            "Workspace member invitation initiated",
-            extra={
-                "user_id": request.user.id,
-                "workspace_id": workspace.id,
-                "invited_user_email": request.data.get('email'),
-                "assigned_role": request.data.get('role', 'viewer'),
-                "action": "workspace_member_invitation_start",
-                "component": "WorkspaceViewSet",
-            },
-        )
-        
-        # Check if user has permission to invite members
-        current_membership = WorkspaceMembership.objects.get(
-            workspace=workspace, 
-            user=request.user
-        )
-        
-        if current_membership.role not in ['admin', 'owner']:
-            logger.warning(
-                "Workspace member invitation permission denied",
-                extra={
-                    "user_id": request.user.id,
-                    "workspace_id": workspace.id,
-                    "user_role": current_membership.role,
-                    "required_roles": ['admin', 'owner'],
-                    "action": "workspace_member_invitation_permission_denied",
-                    "component": "WorkspaceViewSet",
-                    "severity": "medium",
-                },
-            )
-            return Response(
-                {"error": "You don't have permission to invite members."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        # TODO: Implement actual invitation logic
-        # This would typically send an email invitation
-        # For now, just return success message
-        
-        logger.info(
-            "Workspace member invitation processed",
-            extra={
-                "user_id": request.user.id,
-                "workspace_id": workspace.id,
-                "action": "workspace_member_invitation_processed",
-                "component": "WorkspaceViewSet",
-            },
-        )
-        
-        return Response(
-            {"message": "Invitation sent successfully."},
-            status=status.HTTP_200_OK
-        )
-
+        return Response({
+            'workspace_id': workspace.id,
+            'workspace_name': workspace.name,
+            'members': members_data,
+            'total_members': len(members_data)
+        })
+    
     @action(detail=True, methods=['get'])
     def settings(self, request, pk=None):
         """
         Get workspace settings.
+        
+        Returns workspace settings with additional context.
         """
         workspace = self.get_object()
         
@@ -324,40 +634,89 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
             },
         )
         
+        # Check if user is member of this workspace
         try:
-            settings = workspace.settings
-            serializer = WorkspaceSettingsSerializer(
-                settings, 
-                context={'request': request}
+            user_membership = WorkspaceMembership.objects.get(
+                workspace=workspace,
+                user=request.user
             )
             
-            logger.debug(
-                "Workspace settings retrieved successfully",
-                extra={
-                    "user_id": request.user.id,
-                    "workspace_id": workspace.id,
-                    "action": "workspace_settings_retrieved",
-                    "component": "WorkspaceViewSet",
-                },
-            )
+            # Security check: viewers/editors can't access settings for inactive workspaces
+            if not workspace.is_active and user_membership.role in ['viewer', 'editor']:
+                logger.warning(
+                    "Viewer/editor attempted to access settings of inactive workspace",
+                    extra={
+                        "user_id": request.user.id,
+                        "workspace_id": workspace.id,
+                        "user_role": user_membership.role,
+                        "action": "inactive_workspace_settings_access_denied",
+                        "component": "WorkspaceViewSet",
+                        "severity": "medium",
+                    },
+                )
+                return Response(
+                    {"error": "You don't have permission to access this workspace."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
             
-            return Response(serializer.data)
-            
-        except WorkspaceSettings.DoesNotExist:
-            logger.warning(
-                "Workspace settings not found",
-                extra={
-                    "user_id": request.user.id,
-                    "workspace_id": workspace.id,
-                    "action": "workspace_settings_not_found",
-                    "component": "WorkspaceViewSet",
-                    "severity": "low",
-                },
-            )
+        except WorkspaceMembership.DoesNotExist:
             return Response(
-                {"error": "Workspace settings not found."},
-                status=status.HTTP_404_NOT_FOUND
+                {"error": "You are not a member of this workspace."},
+                status=status.HTTP_403_FORBIDDEN
             )
+        
+        # Get or create workspace settings
+        settings, created = WorkspaceSettings.objects.get_or_create(
+            workspace=workspace,
+            defaults={
+                'domestic_currency': 'EUR',
+                'fiscal_year_start': 1,
+                'display_mode': 'month',
+                'accounting_mode': False
+            }
+        )
+        
+        if created:
+            logger.info(
+                "Default workspace settings created",
+                extra={
+                    "workspace_id": workspace.id,
+                    "action": "default_workspace_settings_created",
+                    "component": "WorkspaceViewSet",
+                },
+            )
+        
+        # Serialize settings data
+        settings_data = {
+            'workspace_id': workspace.id,
+            'domestic_currency': settings.domestic_currency,
+            'fiscal_year_start': settings.fiscal_year_start,
+            'display_mode': settings.display_mode,
+            'accounting_mode': settings.accounting_mode,
+            'available_currencies': ['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'CZK'],
+            'fiscal_year_start_options': [
+                {'value': 1, 'label': 'January'},
+                {'value': 2, 'label': 'February'},
+                # ... ostatné mesiace
+            ],
+            'display_mode_options': [
+                {'value': 'month', 'label': 'Month only'},
+                {'value': 'day', 'label': 'Full date'}
+            ]
+        }
+        
+        logger.debug(
+            "Workspace settings retrieved successfully",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace.id,
+                "domestic_currency": settings.domestic_currency,
+                "action": "workspace_settings_retrieved",
+                "component": "WorkspaceViewSet",
+            },
+        )
+        
+        return Response(settings_data)
 
 # -------------------------------------------------------------------
 # WORKSPACE SETTINGS MANAGEMENT  
@@ -960,7 +1319,7 @@ class TransactionViewSet(viewsets.ModelViewSet):
         draft_type = instance.type  # 'income' or 'expense'
         deleted_count, _ = TransactionDraft.objects.filter(
             user=self.request.user,
-            workspace=instance.workspace,  # <-- TU: použij instance.workspace namiesto workspace
+            workspace=instance.workspace,
             draft_type=draft_type
         ).delete()
         
@@ -969,7 +1328,7 @@ class TransactionViewSet(viewsets.ModelViewSet):
                 "Transaction draft deleted after successful update",
                 extra={
                     "user_id": self.request.user.id,
-                    "workspace_id": instance.workspace.id,  # <-- TU tiež
+                    "workspace_id": instance.workspace.id,
                     "transaction_type": draft_type,
                     "drafts_deleted": deleted_count,
                     "action": "draft_cleaned_after_update",
@@ -1052,139 +1411,108 @@ class TransactionViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-
-@api_view(['POST'])
-@transaction.atomic
-def bulk_sync_transactions(request, workspace_id):
-    """
-    Universal atomic bulk sync endpoint for transactions.
-    
-    Performs atomic bulk create, update, and delete operations on transactions
-    within a specific workspace.
-    
-    Args:
-        request: HTTP request with transaction data
-        workspace_id: ID of the workspace for synchronization
-        
-    Returns:
-        Response: Results of bulk sync operation
-    """
-    logger.info(
-        "Bulk transaction sync initiated",
-        extra={
-            "user_id": request.user.id,
-            "workspace_id": workspace_id,
-            "transaction_count": len(request.data) if isinstance(request.data, list) else 0,
-            "action": "bulk_sync_start",
-            "component": "bulk_sync_transactions",
-        },
-    )
-    
-    try:
-        workspace = Workspace.objects.get(id=workspace_id, members=request.user)
-        transactions_data = request.data
-        
-        results = TransactionService.bulk_sync_transactions(
-            transactions_data, 
-            workspace, 
-            request.user
+    @action(detail=False, methods=['post'], url_path='workspaces/(?P<workspace_id>[^/.]+)/bulk-sync')
+    def bulk_sync(self, request, workspace_id=None):
+        """
+        Bulk sync transactions for specific workspace.
+        """
+        logger.info(
+            "Bulk sync transaction viewset action called",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace_id,
+                "action": "bulk_sync_viewset_called",
+                "component": "TransactionViewSet",
+            },
         )
-
-        # DELETE DRAFT: Remove draft if there were CREATE or UPDATE operations
-        # Check if any transactions were created or updated (not just deleted)
-        created_count = results.get('created', 0)
-        updated_count = results.get('updated', 0)
         
-        if created_count > 0 or updated_count > 0:
-            # Determine types from ALL bulk data (both new and updated transactions)
-            transaction_types = set()
-            for transaction in transactions_data:
-                if (isinstance(transaction, dict) and 
-                    transaction.get('type') in ['income', 'expense']):
-                    transaction_types.add(transaction['type'])
+        try:
+            workspace = Workspace.objects.get(id=workspace_id, members=request.user)
+            transactions_data = request.data
             
-            # Delete drafts for all types that had transactions created or updated
-            for draft_type in transaction_types:
-                deleted_count, _ = TransactionDraft.objects.filter(
-                    user=request.user,
-                    workspace=workspace,
-                    draft_type=draft_type
-                ).delete()
+            results = TransactionService.bulk_sync_transactions(
+                transactions_data, 
+                workspace, 
+                request.user
+            )
+
+            # DELETE DRAFT: Remove draft if there were CREATE or UPDATE operations
+            created_count = results.get('created', 0)
+            updated_count = results.get('updated', 0)
+            
+            if created_count > 0 or updated_count > 0:
+                transaction_types = set()
+                for transaction in transactions_data:
+                    if (isinstance(transaction, dict) and 
+                        transaction.get('type') in ['income', 'expense']):
+                        transaction_types.add(transaction['type'])
                 
-                if deleted_count > 0:
-                    logger.info(
-                        "Transaction draft deleted after bulk sync with creates/updates",
-                        extra={
-                            "user_id": request.user.id,
-                            "workspace_id": workspace_id,
-                            "transaction_type": draft_type,
-                            "drafts_deleted": deleted_count,
-                            "new_transactions_created": created_count,
-                            "transactions_updated": updated_count,
-                            "action": "draft_cleaned_after_bulk_sync",
-                            "component": "bulk_sync_transactions",
-                        },
-                    )
-        else:
-            logger.debug(
-                "No draft cleanup needed - only deletes in bulk sync",
+                for draft_type in transaction_types:
+                    deleted_count, _ = TransactionDraft.objects.filter(
+                        user=request.user,
+                        workspace=workspace,
+                        draft_type=draft_type
+                    ).delete()
+                    
+                    if deleted_count > 0:
+                        logger.info(
+                            "Transaction draft deleted after bulk sync with creates/updates",
+                            extra={
+                                "user_id": request.user.id,
+                                "workspace_id": workspace_id,
+                                "transaction_type": draft_type,
+                                "drafts_deleted": deleted_count,
+                                "action": "draft_cleaned_after_bulk_sync",
+                                "component": "TransactionViewSet",
+                            },
+                        )
+            
+            logger.info(
+                "Bulk transaction sync completed successfully",
                 extra={
                     "user_id": request.user.id,
                     "workspace_id": workspace_id,
-                    "created": created_count,
-                    "updated": updated_count,
-                    "deleted": results.get('deleted', 0),
-                    "action": "draft_cleanup_skipped",
-                    "component": "bulk_sync_transactions",
+                    "results": results,
+                    "action": "bulk_sync_success",
+                    "component": "TransactionViewSet",
                 },
             )
-        
-        logger.info(
-            "Bulk transaction sync completed successfully",
-            extra={
-                "user_id": request.user.id,
-                "workspace_id": workspace_id,
-                "results": results,
-                "action": "bulk_sync_success",
-                "component": "bulk_sync_transactions",
-            },
-        )
-        
-        return Response(results)
-        
-    except Workspace.DoesNotExist:
-        logger.warning(
-            "Workspace not found for bulk sync",
-            extra={
-                "user_id": request.user.id,
-                "workspace_id": workspace_id,
-                "action": "workspace_not_found",
-                "component": "bulk_sync_transactions",
-                "severity": "medium",
-            },
-        )
-        return Response(
-            {'error': 'Workspace not found'}, 
-            status=status.HTTP_404_NOT_FOUND
-        )
-    except Exception as e:
-        logger.error(
-            "Bulk transaction sync failed",
-            extra={
-                "user_id": request.user.id,
-                "workspace_id": workspace_id,
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-                "action": "bulk_sync_failure",
-                "component": "bulk_sync_transactions",
-                "severity": "high",
-            },
-            exc_info=True,
-        )
-        return Response(
-            {'error': str(e)}, 
-            status=status.HTTP_400_BAD_REQUEST
-        )
+            
+            return Response(results)
+            
+        except Workspace.DoesNotExist:
+            logger.warning(
+                "Workspace not found for bulk sync",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace_id,
+                    "action": "workspace_not_found",
+                    "component": "TransactionViewSet",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {'error': 'Workspace not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(
+                "Bulk transaction sync failed",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace_id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "action": "bulk_sync_failure",
+                    "component": "TransactionViewSet",
+                    "severity": "high",
+                },
+                exc_info=True,
+            )
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 # -------------------------------------------------------------------
 # EXCHANGE RATES MANAGEMENT

@@ -1082,6 +1082,10 @@ class TransactionDraft(models.Model):
         """
         Save draft - automatically replaces any existing draft for this workspace/type.
         """
+
+        if not self.user_id:
+            raise ValueError("User must be set before saving TransactionDraft")
+    
         # Delete any existing draft for this user/workspace/type
         TransactionDraft.objects.filter(
             user=self.user,
@@ -1107,8 +1111,13 @@ class TransactionDraft(models.Model):
             if 'type' in transaction and transaction['type'] not in ['income', 'expense']:
                 raise ValidationError(f"Invalid transaction type at index {i}")
             
-            if 'original_amount' in transaction and transaction['original_amount'] <= 0:
-                raise ValidationError(f"Invalid amount at index {i}")
+            if 'original_amount' in transaction:
+                try:
+                    amount = float(transaction['original_amount'])
+                    if amount <= 0:
+                        raise ValidationError(f"Invalid amount at index {i}")
+                except (TypeError, ValueError):
+                    raise ValidationError(f"Invalid amount format at index {i}")
 
     def get_transactions_count(self):
         """

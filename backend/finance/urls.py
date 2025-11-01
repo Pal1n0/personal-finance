@@ -60,9 +60,17 @@ router.register(
 )
 
 # Workspace management endpoints
-router.register(r'workspaces', 
-     views.WorkspaceViewSet, 
-     basename='workspace'
+router.register(
+    r'workspaces', 
+    views.WorkspaceViewSet, 
+    basename='workspace'
+)
+
+# Transaction drafts management endpoints
+router.register(
+    r'transaction-drafts',
+    views.TransactionDraftViewSet,
+    basename='transactiondraft'
 )
 
 # Custom API endpoints for bulk operations and synchronization
@@ -70,28 +78,50 @@ urlpatterns = [
     # Include all router-generated URLs
     path('', include(router.urls)),
     
-    # Category synchronization endpoint
+    # Category synchronization endpoint (JEDENKRÁT!)
     path(
         'workspaces/<int:workspace_id>/categories/<str:category_type>/sync/', 
         views.sync_categories_api, 
         name='sync-categories'
     ),
     
-    # Bulk transaction synchronization endpoint
+    # Workspace members endpoint
     path(
-        'workspaces/<int:workspace_id>/transactions/bulk-sync/',
-        views.bulk_sync_transactions, 
-        name='bulk-sync-transactions'
+        'workspaces/<int:pk>/members/',
+        views.WorkspaceViewSet.as_view({'get': 'members'}),
+        name='workspace-members'
     ),
+    
+    # Workspace settings endpoint  
+    path(
+        'workspaces/<int:pk>/settings/',
+        views.WorkspaceViewSet.as_view({'get': 'settings'}),
+        name='workspace-settings'
+    ),
+    
+    # Transaction bulk delete endpoint
+    path(
+        'transactions/bulk-delete/',
+        views.TransactionViewSet.as_view({'post': 'bulk_delete'}),
+        name='transaction-bulk-delete'
+    ),
+    
+    # Bulk transaction synchronization endpoint (PRIBUDOL!)
+    path(
+    'workspaces/<int:workspace_id>/transactions/bulk-sync/',
+    views.TransactionViewSet.as_view({'post': 'bulk_sync'}),
+    name='bulk-sync-transactions'
+),
 ]
 
 # Log URL configuration on startup
+custom_endpoints_count = len(urlpatterns) - 1  # Subtract the include route
 logger.info(
     "Financial API URLs configured successfully",
     extra={
-        "total_routes": len(router.urls) + len(urlpatterns) - 1,  # Subtract the include route
+        "total_routes": len(router.urls) + custom_endpoints_count,
         "viewset_endpoints": len(router.registry),
-        "custom_endpoints": 2,
+        "custom_endpoints": custom_endpoints_count,  # SPRÁVNY POČET
         "action": "url_configuration_loaded",
         "component": "urls",
     },

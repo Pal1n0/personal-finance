@@ -85,7 +85,7 @@ LOGGING["handlers"]["development_file"] = {
 os.makedirs(BASE_DIR / "logs", exist_ok=True)
 
 # Update loggers for development environment
-for logger_name in ["django", "users", "axes", "allauth"]:
+for logger_name in ["django", "users", "axes", "allauth", "finance"]:
     if logger_name in LOGGING["loggers"]:
         LOGGING["loggers"][logger_name]["handlers"] = ["console", "development_file"]
         LOGGING["loggers"][logger_name]["level"] = "DEBUG"

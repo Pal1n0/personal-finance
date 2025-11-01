@@ -78,19 +78,21 @@ class WorkspaceSerializer(serializers.ModelSerializer):
     Serializer for Workspace model with user membership information.
     
     Provides enhanced workspace data including user role context,
-    member counts, and ownership information for frontend consumption.
+    member counts, ownership information, and user permissions for frontend consumption.
     """
     
     owner_username = serializers.CharField(source='owner.username', read_only=True)
     user_role = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
     is_owner = serializers.SerializerMethodField()
+    user_permissions = serializers.SerializerMethodField()  # ADDED THIS FIELD
     
     class Meta:
         model = Workspace
         fields = [
             'id', 'name', 'description', 'owner', 'owner_username', 
-            'user_role', 'member_count', 'is_owner', 'created_at', 'is_active'
+            'user_role', 'member_count', 'is_owner', 'user_permissions',  # ADDED user_permissions
+            'created_at', 'is_active'
         ]
         read_only_fields = ['id', 'owner', 'owner_username', 'created_at']
     
@@ -107,10 +109,16 @@ class WorkspaceSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             try:
-                membership = WorkspaceMembership.objects.get(
-                    workspace=obj, 
-                    user=request.user
-                )
+                # Use preloaded memberships from context if available
+                user_memberships = self.context.get('user_memberships', {})
+                membership = user_memberships.get(obj.id)
+                
+                if not membership:
+                    # Fallback to database query if not in context
+                    membership = WorkspaceMembership.objects.get(
+                        workspace=obj, 
+                        user=request.user
+                    )
                 
                 logger.debug(
                     "User role retrieved for workspace",
@@ -190,6 +198,72 @@ class WorkspaceSerializer(serializers.ModelSerializer):
             
             return is_owner
         return False
+    
+    def get_user_permissions(self, obj):
+        """
+        Get detailed user permissions for this workspace.
+        
+        Args:
+            obj: Workspace instance
+            
+        Returns:
+            dict: User permissions for this workspace
+        """
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return {}
+        
+        try:
+            # Use preloaded memberships from context if available
+            user_memberships = self.context.get('user_memberships', {})
+            membership = user_memberships.get(obj.id)
+            
+            if not membership:
+                # Fallback to database query if not in context
+                membership = WorkspaceMembership.objects.get(
+                    workspace=obj,
+                    user=request.user
+                )
+            
+            permissions = {
+                'can_activate': membership.role in ['admin', 'owner'] and not obj.is_active,
+                'can_deactivate': membership.role in ['admin', 'owner'] and obj.is_active,
+                'can_hard_delete': obj.owner == request.user,
+                'can_invite': membership.role in ['admin', 'owner'] and obj.is_active,
+                'can_manage_members': membership.role in ['admin', 'owner'] and obj.is_active,
+                'can_view': obj.is_active or membership.role in ['admin', 'owner'],
+                'can_edit': membership.role in ['admin', 'owner'] and obj.is_active,
+                'can_see_inactive': membership.role in ['admin', 'owner'],
+                'can_soft_delete': membership.role in ['admin', 'owner'] and obj.is_active,
+            }
+            
+            logger.debug(
+                "User permissions calculated for workspace",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": obj.id,
+                    "user_role": membership.role,
+                    "workspace_active": obj.is_active,
+                    "permissions": permissions,
+                    "action": "user_permissions_calculated",
+                    "component": "WorkspaceSerializer",
+                },
+            )
+            
+            return permissions
+            
+        except WorkspaceMembership.DoesNotExist:
+            logger.warning(
+                "Workspace membership not found for permissions calculation",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": obj.id,
+                    "action": "permissions_calculation_failed",
+                    "component": "WorkspaceSerializer",
+                    "severity": "low",
+                },
+            )
+            return {}
     
     def validate_name(self, value):
         """
@@ -290,7 +364,7 @@ class WorkspaceSerializer(serializers.ModelSerializer):
         )
         
         return workspace
-
+    
 # -------------------------------------------------------------------
 # WORKSPACE MEMBERSHIP SERIALIZER
 # -------------------------------------------------------------------
@@ -308,14 +382,27 @@ class WorkspaceMembershipSerializer(serializers.ModelSerializer):
     user_username = serializers.CharField(source='user.username', read_only=True)
     user_email = serializers.CharField(source='user.email', read_only=True)
     workspace_name = serializers.CharField(source='workspace.name', read_only=True)
+    is_workspace_owner = serializers.SerializerMethodField()  # ADDED FOR CLARITY
     
     class Meta:
         model = WorkspaceMembership
         fields = [
             'id', 'workspace', 'workspace_name', 'user', 'user_username', 
-            'user_email', 'role', 'joined_at'
+            'user_email', 'role', 'is_workspace_owner', 'joined_at'  # ADDED is_workspace_owner
         ]
-        read_only_fields = ['id', 'workspace', 'user', 'joined_at']
+        read_only_fields = ['id', 'workspace', 'user', 'joined_at', 'is_workspace_owner']
+    
+    def get_is_workspace_owner(self, obj):
+        """
+        Check if the membership user is the workspace owner.
+        
+        Args:
+            obj: WorkspaceMembership instance
+            
+        Returns:
+            bool: True if user is workspace owner
+        """
+        return obj.user == obj.workspace.owner
     
     def validate_role(self, value):
         """
@@ -412,7 +499,7 @@ class WorkspaceMembershipSerializer(serializers.ModelSerializer):
         )
         
         return value
-
+    
 # -------------------------------------------------------------------
 # WORKSPACE SETTINGS SERIALIZER
 # -------------------------------------------------------------------
