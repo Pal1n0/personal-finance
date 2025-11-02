@@ -194,7 +194,7 @@ class TransactionDraftFactory(DjangoModelFactory):
     transactions_data = factory.LazyFunction(lambda: [
         {
             'type': 'expense',
-            'original_amount': '100.00',  # ← STRING!
+            'original_amount': '100.00',
             'original_currency': 'EUR',
             'date': timezone.now().date().isoformat(),
             'note_manual': 'Test transaction'

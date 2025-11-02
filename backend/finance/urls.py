@@ -95,7 +95,7 @@ urlpatterns = [
     # Workspace settings endpoint  
     path(
         'workspaces/<int:pk>/settings/',
-        views.WorkspaceViewSet.as_view({'get': 'settings'}),
+        views.WorkspaceViewSet.as_view({'get': 'workspace_settings'}),
         name='workspace-settings'
     ),
     

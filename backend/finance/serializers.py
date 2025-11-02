@@ -82,19 +82,20 @@ class WorkspaceSerializer(serializers.ModelSerializer):
     """
     
     owner_username = serializers.CharField(source='owner.username', read_only=True)
+    owner_email = serializers.CharField(source='owner.email', read_only=True)  # ADDED
     user_role = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
     is_owner = serializers.SerializerMethodField()
-    user_permissions = serializers.SerializerMethodField()  # ADDED THIS FIELD
+    user_permissions = serializers.SerializerMethodField()
     
     class Meta:
         model = Workspace
         fields = [
-            'id', 'name', 'description', 'owner', 'owner_username', 
-            'user_role', 'member_count', 'is_owner', 'user_permissions',  # ADDED user_permissions
+            'id', 'name', 'description', 'owner', 'owner_username', 'owner_email',  # ADDED owner_email
+            'user_role', 'member_count', 'is_owner', 'user_permissions',
             'created_at', 'is_active'
         ]
-        read_only_fields = ['id', 'owner', 'owner_username', 'created_at']
+        read_only_fields = ['id', 'owner', 'owner_username', 'owner_email', 'created_at']  # ADDED owner_email
     
     def get_user_role(self, obj):
         """
@@ -157,7 +158,11 @@ class WorkspaceSerializer(serializers.ModelSerializer):
         Returns:
             int: Number of workspace members
         """
-        count = obj.members.count()
+        # Use cached count if available, otherwise calculate
+        if hasattr(obj, 'member_count_cache'):
+            count = obj.member_count_cache
+        else:
+            count = obj.members.count()
         
         logger.debug(
             "Member count calculated for workspace",
@@ -203,6 +208,8 @@ class WorkspaceSerializer(serializers.ModelSerializer):
         """
         Get detailed user permissions for this workspace.
         
+        Calculates comprehensive permissions based on user role and workspace state.
+        
         Args:
             obj: Workspace instance
             
@@ -211,7 +218,7 @@ class WorkspaceSerializer(serializers.ModelSerializer):
         """
         request = self.context.get('request')
         if not request or not request.user.is_authenticated:
-            return {}
+            return self._get_anonymous_permissions()
         
         try:
             # Use preloaded memberships from context if available
@@ -225,17 +232,7 @@ class WorkspaceSerializer(serializers.ModelSerializer):
                     user=request.user
                 )
             
-            permissions = {
-                'can_activate': membership.role in ['admin', 'owner'] and not obj.is_active,
-                'can_deactivate': membership.role in ['admin', 'owner'] and obj.is_active,
-                'can_hard_delete': obj.owner == request.user,
-                'can_invite': membership.role in ['admin', 'owner'] and obj.is_active,
-                'can_manage_members': membership.role in ['admin', 'owner'] and obj.is_active,
-                'can_view': obj.is_active or membership.role in ['admin', 'owner'],
-                'can_edit': membership.role in ['admin', 'owner'] and obj.is_active,
-                'can_see_inactive': membership.role in ['admin', 'owner'],
-                'can_soft_delete': membership.role in ['admin', 'owner'] and obj.is_active,
-            }
+            permissions = self._calculate_user_permissions(obj, membership, request.user)
             
             logger.debug(
                 "User permissions calculated for workspace",
@@ -244,7 +241,7 @@ class WorkspaceSerializer(serializers.ModelSerializer):
                     "workspace_id": obj.id,
                     "user_role": membership.role,
                     "workspace_active": obj.is_active,
-                    "permissions": permissions,
+                    "permissions_count": len(permissions),
                     "action": "user_permissions_calculated",
                     "component": "WorkspaceSerializer",
                 },
@@ -263,7 +260,71 @@ class WorkspaceSerializer(serializers.ModelSerializer):
                     "severity": "low",
                 },
             )
-            return {}
+            return self._get_anonymous_permissions()
+    
+    def _calculate_user_permissions(self, workspace, membership, user):
+        """
+        Calculate user permissions based on role and workspace state.
+        
+        Args:
+            workspace: Workspace instance
+            membership: WorkspaceMembership instance
+            user: User instance
+            
+        Returns:
+            dict: Calculated permissions
+        """
+        is_owner = workspace.owner == user
+        is_admin_owner = membership.role in ['admin', 'owner']
+        workspace_active = workspace.is_active
+        
+        permissions = {
+            # Basic permissions
+            'can_view': workspace_active or is_admin_owner,
+            'can_see_inactive': is_admin_owner,
+            
+            # Workspace management
+            'can_edit': is_admin_owner and workspace_active,
+            'can_activate': is_admin_owner and not workspace_active,
+            'can_deactivate': is_admin_owner and workspace_active,
+            'can_soft_delete': is_admin_owner and workspace_active,
+            
+            # Member management
+            'can_manage_members': is_admin_owner and workspace_active,
+            'can_invite': is_admin_owner and workspace_active,
+            
+            # Data management
+            'can_create_transactions': membership.role in ['editor', 'admin', 'owner'] and workspace_active,
+            'can_view_transactions': workspace_active or is_admin_owner,
+            
+            # Ownership-specific permissions
+            'can_hard_delete': is_owner,
+            'can_transfer_ownership': is_owner and workspace_active,
+        }
+        
+        return permissions
+    
+    def _get_anonymous_permissions(self):
+        """
+        Get permissions for anonymous/unauthenticated users.
+        
+        Returns:
+            dict: Empty permissions for anonymous users
+        """
+        return {
+            'can_view': False,
+            'can_see_inactive': False,
+            'can_edit': False,
+            'can_activate': False,
+            'can_deactivate': False,
+            'can_soft_delete': False,
+            'can_manage_members': False,
+            'can_invite': False,
+            'can_create_transactions': False,
+            'can_view_transactions': False,
+            'can_hard_delete': False,
+            'can_transfer_ownership': False,
+        }
     
     def validate_name(self, value):
         """
@@ -276,7 +337,7 @@ class WorkspaceSerializer(serializers.ModelSerializer):
             str: Validated and stripped workspace name
             
         Raises:
-            ValidationError: If name is too short
+            ValidationError: If name is too short or too long
         """
         stripped_value = value.strip()
         
@@ -364,7 +425,7 @@ class WorkspaceSerializer(serializers.ModelSerializer):
         )
         
         return workspace
-    
+ 
 # -------------------------------------------------------------------
 # WORKSPACE MEMBERSHIP SERIALIZER
 # -------------------------------------------------------------------
@@ -942,3 +1003,9 @@ class TransactionDraftSerializer(serializers.ModelSerializer):
     def get_transactions_count(self, obj):
         """Get number of transactions in draft."""
         return obj.get_transactions_count()
+
+    def validate(self, attrs):
+        """Ensure user is set from request."""
+        attrs = super().validate(attrs)
+        attrs['user'] = self.context['request'].user
+        return attrs   

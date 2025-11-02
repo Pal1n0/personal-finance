@@ -253,6 +253,7 @@ class WorkspaceSettings(models.Model):
                 "workspace_id": self.workspace.id,
                 "domestic_currency": self.domestic_currency,
                 "fiscal_year_start": self.fiscal_year_start,
+                "accounting_mode": self.accounting_mode,
                 "action": "workspace_settings_validation",
                 "component": "WorkspaceSettings",
             },
@@ -1078,7 +1079,7 @@ class TransactionDraft(models.Model):
         ordering = ['-last_modified']
         verbose_name_plural = "Transaction drafts"
 
-    def save(self, *args, **kwargs):
+    '''def save(self, *args, **kwargs):
         """
         Save draft - automatically replaces any existing draft for this workspace/type.
         """
@@ -1093,7 +1094,7 @@ class TransactionDraft(models.Model):
             draft_type=self.draft_type
         ).delete()
         
-        super().save(*args, **kwargs)
+        super().save(*args, **kwargs) '''
 
     def clean(self):
         """

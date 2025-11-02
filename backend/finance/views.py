@@ -13,6 +13,8 @@ from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, mixins, serializers, status
 from rest_framework.decorators import api_view, action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
+from .permissions import IsWorkspaceMember, IsWorkspaceEditor, IsWorkspaceAdmin, IsWorkspaceOwner
 from rest_framework.response import Response
 
 from .models import (
@@ -58,11 +60,21 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
     serializer_class = WorkspaceSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_permissions(self):
+        """
+        Dynamically assign permissions based on action type.
+        """
+        if self.action in ['create']:
+            return [IsAuthenticated()]
+        elif self.action in ['update', 'partial_update', 'destroy', 'activate']:
+            return [IsAuthenticated(), IsWorkspaceAdmin()]
+        elif self.action in ['hard_delete']:
+            return [IsAuthenticated(), IsWorkspaceOwner()]
+        return [IsAuthenticated(), IsWorkspaceMember()]
+
     def get_queryset(self):
         """
-        Get workspaces based on user role:
-        - Viewers/editors: only active workspaces
-        - Admins/owners: all workspaces (active + inactive)
+        Get workspaces based on user role with optimized queries.
         """
         logger.debug(
             "Retrieving workspaces queryset with role-based filtering",
@@ -76,49 +88,34 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         if not self.request.user.is_authenticated:
             return Workspace.objects.none()
         
-        # Get all memberships for the current user
+        # Single query to check admin/owner role and get workspaces
         user_memberships = WorkspaceMembership.objects.filter(
             user=self.request.user
         ).select_related('workspace')
         
-        # Check if user has any admin/owner role in any workspace
         has_admin_owner_role = user_memberships.filter(
             role__in=['admin', 'owner']
         ).exists()
         
-        if has_admin_owner_role:
-            # Admin/owner can see ALL workspaces (active + inactive)
-            workspaces = Workspace.objects.filter(
-                members=self.request.user
-            ).select_related('owner').prefetch_related('members')
+        workspaces = Workspace.objects.filter(
+            members=self.request.user
+        )
+        
+        if not has_admin_owner_role:
+            workspaces = workspaces.filter(is_active=True)
             
-            logger.debug(
-                "Admin/owner workspace access - all workspaces",
-                extra={
-                    "user_id": self.request.user.id,
-                    "total_workspaces_count": workspaces.count(),
-                    "active_workspaces_count": workspaces.filter(is_active=True).count(),
-                    "inactive_workspaces_count": workspaces.filter(is_active=False).count(),
-                    "action": "admin_owner_workspaces_accessed",
-                    "component": "WorkspaceViewSet",
-                },
-            )
-        else:
-            # Viewer/editor can only see ACTIVE workspaces
-            workspaces = Workspace.objects.filter(
-                members=self.request.user,
-                is_active=True  # Only active workspaces for viewers/editors
-            ).select_related('owner').prefetch_related('members')
-            
-            logger.debug(
-                "Viewer/editor workspace access - active workspaces only",
-                extra={
-                    "user_id": self.request.user.id,
-                    "active_workspaces_count": workspaces.count(),
-                    "action": "viewer_editor_workspaces_accessed",
-                    "component": "WorkspaceViewSet",
-                },
-            )
+        workspaces = workspaces.select_related('owner').prefetch_related('members')
+        
+        logger.debug(
+            "Workspaces queryset prepared",
+            extra={
+                "user_id": self.request.user.id,
+                "total_workspaces_count": workspaces.count(),
+                "has_admin_owner_access": has_admin_owner_role,
+                "action": "workspaces_queryset_prepared",
+                "component": "WorkspaceViewSet",
+            },
+        )
         
         return workspaces
 
@@ -147,12 +144,10 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         """
         response = super().list(request, *args, **kwargs)
         
-        # Add summary information for frontend
         workspaces = self.get_queryset()
         active_count = workspaces.filter(is_active=True).count()
         inactive_count = workspaces.filter(is_active=False).count()
         
-        # Get user's roles across all workspaces
         user_memberships = WorkspaceMembership.objects.filter(
             user=request.user
         )
@@ -160,7 +155,6 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         for membership in user_memberships:
             role_counts[membership.role] = role_counts.get(membership.role, 0) + 1
         
-        # Determine user's overall access level
         has_admin_owner_access = user_memberships.filter(
             role__in=['admin', 'owner']
         ).exists()
@@ -184,7 +178,6 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         """
         instance = self.get_object()
         
-        # Additional security check for viewers/editors - can't access inactive workspaces
         user_membership = WorkspaceMembership.objects.get(
             workspace=instance, 
             user=request.user
@@ -209,7 +202,7 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
-
+    
     def perform_destroy(self, instance):
         """
         SOFT DELETE - set workspace as inactive (admin/owner only).
@@ -278,10 +271,10 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=['delete'])
+    @transaction.atomic
     def hard_delete(self, request, pk=None):
         """
-        HARD DELETE - permanently remove workspace and all related data.
-        Only workspace owner can perform hard delete.
+        HARD DELETE - permanently remove workspace with comprehensive safety checks.
         """
         workspace = self.get_object()
         
@@ -298,7 +291,7 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
             },
         )
         
-        # Check if user is the owner
+        # Check if user is the owner (permission class should handle this, but double-check)
         if workspace.owner != request.user:
             logger.error(
                 "Workspace hard deletion permission denied - not owner",
@@ -316,7 +309,31 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Confirm hard deletion with additional check
+        # Safety check: Prevent deletion if other members exist
+        other_members = workspace.members.exclude(id=request.user.id)
+        if other_members.exists():
+            member_count = other_members.count()
+            logger.warning(
+                "Workspace hard deletion blocked - other members exist",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "other_members_count": member_count,
+                    "action": "workspace_hard_deletion_blocked_members",
+                    "component": "WorkspaceViewSet",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {
+                    "error": "Cannot delete workspace with other members.",
+                    "detail": f"Workspace has {member_count} other member(s). Remove all members first.",
+                    "member_count": member_count
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Double confirmation for irreversible action
         confirmation = request.data.get('confirmation')
         workspace_name_confirmation = request.data.get('workspace_name')
         
@@ -331,33 +348,66 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
                 {"error": "Workspace name confirmation does not match."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Store workspace info for logging before deletion
+
+        # Store additional info for logging
         workspace_id = workspace.id
         workspace_name = workspace.name
         member_count = workspace.members.count()
+        transaction_count = Transaction.objects.filter(workspace=workspace).count()
         
-        # Perform hard delete
-        workspace.delete()
-        
-        logger.critical(
-            "Workspace hard deleted permanently",
-            extra={
-                "user_id": request.user.id,
-                "workspace_id": workspace_id,
-                "workspace_name": workspace_name,
-                "member_count": member_count,
-                "action": "workspace_hard_deletion_success",
-                "component": "WorkspaceViewSet",
-                "severity": "critical",
-            },
-        )
-        
-        return Response(
-            {"message": "Workspace permanently deleted."},
-            status=status.HTTP_200_OK
-        )
-
+        try:
+            # Perform hard delete within atomic transaction
+            workspace.delete()
+            
+            logger.critical(
+                "Workspace hard deleted permanently",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace_id,
+                    "workspace_name": workspace_name,
+                    "member_count": member_count,
+                    "transaction_count": transaction_count,
+                    "action": "workspace_hard_deletion_success",
+                    "component": "WorkspaceViewSet",
+                    "severity": "critical",
+                },
+            )
+            
+            return Response(
+                {
+                    "message": "Workspace permanently deleted.",
+                    "details": {
+                        "workspace_name": workspace_name,
+                        "members_affected": member_count,
+                        "transactions_deleted": transaction_count
+                    }
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(
+                "Workspace hard deletion failed",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace_id,
+                    "workspace_name": workspace_name,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "action": "workspace_hard_deletion_failure",
+                    "component": "WorkspaceViewSet",
+                    "severity": "critical",
+                },
+                exc_info=True,
+            )
+            return Response(
+                {
+                    "error": "Workspace deletion failed",
+                    "detail": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
         """
@@ -616,7 +666,7 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         })
     
     @action(detail=True, methods=['get'])
-    def settings(self, request, pk=None):
+    def workspace_settings(self, request, pk=None):
         """
         Get workspace settings.
         
@@ -733,6 +783,17 @@ class WorkspaceSettingsViewSet(mixins.RetrieveModelMixin,
     
     serializer_class = WorkspaceSettingsSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        """
+        Dynamically assign permissions based on action type.
+        
+        Returns:
+            list: Appropriate permission classes for the current action
+        """
+        if self.action in ['update', 'partial_update']:
+            return [IsAuthenticated(), IsWorkspaceAdmin()]
+        return [IsAuthenticated(), IsWorkspaceMember()]
 
     def get_queryset(self):
         """
@@ -1055,23 +1116,47 @@ class IncomeCategoryViewSet(viewsets.ReadOnlyModelViewSet):
 
 class TransactionViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for managing financial transactions.
+    ViewSet for managing financial transactions with role-based permissions.
     
-    Provides full CRUD operations for transactions with advanced filtering,
-    workspace validation, and bulk operations.
+    Permission rules:
+    - Viewers: Read-only access (list, retrieve)
+    - Editors/Admins/Owners: Full CRUD + bulk operations
+    - All users must be workspace members
+    
+    Security features:
+    - Automatic user assignment from request
+    - Workspace membership validation
+    - Category workspace validation
+    - Atomic bulk operations
+    - Automatic draft cleanup
+    - Comprehensive logging
     """
     
     serializer_class = TransactionSerializer
     permission_classes = [IsAuthenticated]
 
-    def get_queryset(self):
+    def get_permissions(self):
         """
-        Get transactions queryset with advanced filtering.
-        
-        Supports filtering by type, fiscal year, month, and workspace.
+        Dynamically assign permissions based on action type.
         
         Returns:
-            QuerySet: Filtered transactions based on request parameters
+            list: Appropriate permission classes for the current action
+        """
+        if self.action in ['create', 'update', 'partial_update', 'destroy', 'bulk_delete', 'bulk_sync']:
+            return [IsAuthenticated(), IsWorkspaceEditor()]
+        return [IsAuthenticated(), IsWorkspaceMember()]
+
+    def get_queryset(self):
+        """
+        Get transactions queryset with advanced filtering and security.
+        
+        Features:
+        - Automatic filtering by current user and workspace membership
+        - Support for type, fiscal year, month, and workspace filters
+        - Comprehensive logging for audit trails
+        
+        Returns:
+            QuerySet: Filtered transactions based on request parameters and permissions
         """
         logger.debug(
             "Retrieving transactions queryset",
@@ -1083,12 +1168,13 @@ class TransactionViewSet(viewsets.ModelViewSet):
             },
         )
         
-        # Base queryset with user and workspace authorization
+        # Base security filter - only user's transactions in accessible workspaces
         qs = Transaction.objects.filter(
             user=self.request.user,
             workspace__members=self.request.user
         )
         
+        # Apply filters from query parameters
         tx_type = self.request.query_params.get('type')
         fiscal_year = self.request.query_params.get('fiscal_year')
         month = self.request.query_params.get('month')
@@ -1180,12 +1266,20 @@ class TransactionViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """
-        Create a new transaction with validation and workspace checks.
+        Create a new transaction with comprehensive validation and security.
+        
+        Steps:
+        1. Validate editor permissions for the workspace
+        2. Validate category workspace membership
+        3. Save transaction with automatic user assignment
+        4. Update month field for reporting
+        5. Clean up related drafts
         
         Args:
             serializer: TransactionSerializer instance
             
         Raises:
+            PermissionDenied: If user lacks editor permissions
             ValidationError: If workspace or category validation fails
         """
         workspace = serializer.validated_data.get('workspace')
@@ -1200,11 +1294,30 @@ class TransactionViewSet(viewsets.ModelViewSet):
             },
         )
         
+        # Editor permission check
+        if not WorkspaceMembership.objects.filter(
+            workspace=workspace,
+            user=self.request.user,
+            role__in=['editor', 'admin', 'owner']
+        ).exists():
+            logger.warning(
+                "Workspace editor permission denied for transaction creation",
+                extra={
+                    "user_id": self.request.user.id,
+                    "workspace_id": workspace.id if workspace else None,
+                    "action": "workspace_editor_permission_denied",
+                    "component": "TransactionViewSet",
+                    "severity": "high",
+                },
+            )
+            raise PermissionDenied("You don't have permission to create transactions in this workspace")
+
+        # Workspace access and category validation
         if workspace and workspace.members.filter(id=self.request.user.id).exists():
-            # Validate category workspace membership
             expense_category = serializer.validated_data.get('expense_category')
             income_category = serializer.validated_data.get('income_category')
             
+            # Validate category belongs to the same workspace
             if expense_category and expense_category.version.workspace != workspace:
                 logger.warning(
                     "Expense category workspace validation failed",
@@ -1235,16 +1348,16 @@ class TransactionViewSet(viewsets.ModelViewSet):
                 )
                 raise serializers.ValidationError("Income category does not belong to this workspace")
             
-            # Save transaction instance
+            # Save transaction with automatic user assignment
             instance = serializer.save(user=self.request.user)
             
-            # Update month field based on transaction date
+            # Update month field for reporting and aggregation
             if instance.date:
                 instance.month = instance.date.replace(day=1)
                 instance.save(update_fields=['month'])
 
-             # DELETE DRAFT: Remove draft for this transaction type after successful save
-            draft_type = instance.type  # 'income' or 'expense'
+            # Clean up drafts for this transaction type
+            draft_type = instance.type
             deleted_count, _ = TransactionDraft.objects.filter(
                 user=self.request.user,
                 workspace=workspace,
@@ -1291,10 +1404,19 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         """
-        Update an existing transaction and recalculate month field.
+        Update an existing transaction with permission validation.
+        
+        Steps:
+        1. Validate editor permissions
+        2. Update transaction data
+        3. Recalculate month field if date changed
+        4. Clean up related drafts
         
         Args:
             serializer: TransactionSerializer instance
+            
+        Raises:
+            PermissionDenied: If user lacks editor permissions
         """
         instance = serializer.instance
         
@@ -1308,15 +1430,34 @@ class TransactionViewSet(viewsets.ModelViewSet):
             },
         )
         
+        # Editor permission check
+        if not WorkspaceMembership.objects.filter(
+            workspace=instance.workspace,
+            user=self.request.user,
+            role__in=['editor', 'admin', 'owner']
+        ).exists():
+            logger.warning(
+                "Workspace editor permission denied for transaction update",
+                extra={
+                    "user_id": self.request.user.id,
+                    "workspace_id": instance.workspace.id,
+                    "transaction_id": instance.id,
+                    "action": "workspace_editor_permission_denied",
+                    "component": "TransactionViewSet",
+                    "severity": "high",
+                },
+            )
+            raise PermissionDenied("You don't have permission to update transactions in this workspace")
+
         instance = serializer.save()
         
-        # Update month field if date changed
+        # Update month field for reporting if date changed
         if instance.date:
             instance.month = instance.date.replace(day=1)
             instance.save(update_fields=['month'])
 
-        # DELETE DRAFT: Remove draft for this transaction type after successful update
-        draft_type = instance.type  # 'income' or 'expense'
+        # Clean up drafts for this transaction type
+        draft_type = instance.type
         deleted_count, _ = TransactionDraft.objects.filter(
             user=self.request.user,
             workspace=instance.workspace,
@@ -1346,17 +1487,76 @@ class TransactionViewSet(viewsets.ModelViewSet):
             },
         )
 
+    def perform_destroy(self, instance):
+        """
+        Delete a transaction with permission validation.
+        
+        Args:
+            instance: Transaction instance to delete
+            
+        Raises:
+            PermissionDenied: If user lacks editor permissions
+        """
+        if not WorkspaceMembership.objects.filter(
+            workspace=instance.workspace,
+            user=self.request.user,
+            role__in=['editor', 'admin', 'owner']
+        ).exists():
+            logger.warning(
+                "Workspace editor permission denied for transaction deletion",
+                extra={
+                    "user_id": self.request.user.id,
+                    "workspace_id": instance.workspace.id,
+                    "transaction_id": instance.id,
+                    "action": "workspace_editor_permission_denied",
+                    "component": "TransactionViewSet",
+                    "severity": "high",
+                },
+            )
+            raise PermissionDenied("You don't have permission to delete transactions in this workspace")
+        
+        logger.info(
+            "Transaction deletion initiated",
+            extra={
+                "user_id": self.request.user.id,
+                "transaction_id": instance.id,
+                "workspace_id": instance.workspace.id,
+                "action": "transaction_deletion_start",
+                "component": "TransactionViewSet",
+            },
+        )
+        
+        instance.delete()
+        
+        logger.info(
+            "Transaction deleted successfully",
+            extra={
+                "user_id": self.request.user.id,
+                "transaction_id": instance.id,
+                "action": "transaction_deletion_success",
+                "component": "TransactionViewSet",
+            },
+        )
+
     @action(detail=False, methods=['post'])
     @transaction.atomic
     def bulk_delete(self, request):
         """
-        Atomically delete multiple transactions in bulk.
+        Atomically delete multiple transactions with permission validation.
+        
+        Features:
+        - Atomic operation (all or nothing)
+        - Individual permission check for each transaction
+        - Comprehensive error handling and logging
         
         Args:
             request: HTTP request with transaction IDs in body
             
         Returns:
             Response: Result of bulk delete operation
+            
+        Raises:
+            PermissionDenied: If user lacks permissions for any transaction
         """
         transaction_ids = request.data.get('ids', [])
         
@@ -1377,6 +1577,26 @@ class TransactionViewSet(viewsets.ModelViewSet):
                 user=request.user
             )
             
+            # Check permissions for each transaction
+            for transaction in transactions:
+                if not WorkspaceMembership.objects.filter(
+                    workspace=transaction.workspace,
+                    user=request.user,
+                    role__in=['editor', 'admin', 'owner']
+                ).exists():
+                    logger.warning(
+                        "Workspace editor permission denied for bulk transaction deletion",
+                        extra={
+                            "user_id": request.user.id,
+                            "workspace_id": transaction.workspace.id,
+                            "transaction_id": transaction.id,
+                            "action": "workspace_editor_permission_denied",
+                            "component": "TransactionViewSet",
+                            "severity": "high",
+                        },
+                    )
+                    raise PermissionDenied(f"You don't have permission to delete transaction {transaction.id}")
+            
             deleted_count, deletion_details = transactions.delete()
             
             logger.info(
@@ -1392,6 +1612,8 @@ class TransactionViewSet(viewsets.ModelViewSet):
             
             return Response({'deleted': deleted_count})
             
+        except PermissionDenied:
+            raise
         except Exception as e:
             logger.error(
                 "Bulk transaction delete failed",
@@ -1414,7 +1636,23 @@ class TransactionViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='workspaces/(?P<workspace_id>[^/.]+)/bulk-sync')
     def bulk_sync(self, request, workspace_id=None):
         """
-        Bulk sync transactions for specific workspace.
+        Bulk sync transactions for specific workspace with atomic safety.
+        
+        Features:
+        - Atomic operation (all or nothing)
+        - Editor permission validation
+        - Automatic draft cleanup on successful operations
+        - Comprehensive error handling
+        
+        Args:
+            request: HTTP request with transaction data
+            workspace_id: Target workspace ID
+            
+        Returns:
+            Response: Results of bulk sync operation
+            
+        Raises:
+            PermissionDenied: If user lacks editor permissions
         """
         logger.info(
             "Bulk sync transaction viewset action called",
@@ -1428,15 +1666,35 @@ class TransactionViewSet(viewsets.ModelViewSet):
         
         try:
             workspace = Workspace.objects.get(id=workspace_id, members=request.user)
+            
+            # Editor permission check
+            if not WorkspaceMembership.objects.filter(
+                workspace=workspace,
+                user=request.user,
+                role__in=['editor', 'admin', 'owner']
+            ).exists():
+                logger.warning(
+                    "Workspace editor permission denied for bulk sync",
+                    extra={
+                        "user_id": request.user.id,
+                        "workspace_id": workspace_id,
+                        "action": "workspace_editor_permission_denied",
+                        "component": "TransactionViewSet",
+                        "severity": "high",
+                    },
+                )
+                raise PermissionDenied("You don't have permission to sync transactions in this workspace")
+
             transactions_data = request.data
             
+            # Execute bulk sync operation
             results = TransactionService.bulk_sync_transactions(
                 transactions_data, 
                 workspace, 
                 request.user
             )
 
-            # DELETE DRAFT: Remove draft if there were CREATE or UPDATE operations
+            # Clean up drafts if transactions were created or updated
             created_count = results.get('created', 0)
             updated_count = results.get('updated', 0)
             
@@ -1480,6 +1738,8 @@ class TransactionViewSet(viewsets.ModelViewSet):
             
             return Response(results)
             
+        except PermissionDenied:
+            raise
         except Workspace.DoesNotExist:
             logger.warning(
                 "Workspace not found for bulk sync",
@@ -1709,76 +1969,65 @@ def sync_categories_api(request, workspace_id, category_type):
 # Single draft operations per workspace with atomic replacement
 
 class TransactionDraftViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for managing single transaction draft per workspace.
-    """
     serializer_class = TransactionDraftSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """Get drafts for current user's workspaces."""
         return TransactionDraft.objects.filter(
             user=self.request.user,
             workspace__members=self.request.user
         )
 
-    def get_object(self):
-        """Get specific draft or 404."""
-        workspace_id = self.kwargs.get('workspace_pk')
-        draft_type = self.kwargs.get('draft_type')  # 'income' or 'expense'
-        
-        return get_object_or_404(
-            TransactionDraft,
-            user=self.request.user,
-            workspace_id=workspace_id,
-            workspace__members=self.request.user,
-            draft_type=draft_type
-        )
-
     @action(detail=False, methods=['post'])
+    @transaction.atomic
     def save_draft(self, request, workspace_pk=None):
-        """
-        Save or replace draft for workspace.
-        
-        Expected payload:
-        {
-            "draft_type": "income|expense",
-            "transactions_data": [{...}, {...}]  # transaction objects
-        }
-        """
         workspace = get_object_or_404(Workspace, id=workspace_pk, members=request.user)
         
         draft_type = request.data.get('draft_type')
         transactions_data = request.data.get('transactions_data', [])
         
-        # Create or replace draft
-        draft, created = TransactionDraft.objects.update_or_create(
-            user=request.user,
-            workspace=workspace,
-            draft_type=draft_type,
-            defaults={'transactions_data': transactions_data}
-        )
+        with transaction.atomic():
+            TransactionDraft.objects.filter(
+                user=request.user,
+                workspace=workspace,
+                draft_type=draft_type
+            ).delete()
+            
+            draft = TransactionDraft.objects.create(
+                user=request.user,
+                workspace=workspace,
+                draft_type=draft_type,
+                transactions_data=transactions_data
+            )
         
-        action_type = "created" if created else "updated"
         logger.info(
-            f"Transaction draft {action_type}",
+            "Transaction draft saved atomically",
             extra={
                 "user_id": request.user.id,
                 "workspace_id": workspace.id,
                 "draft_type": draft_type,
                 "transaction_count": len(transactions_data),
-                "action": f"draft_{action_type}",
-                "component": "TransactionDraftViewSet",
             },
         )
         
         return Response(TransactionDraftSerializer(draft).data)
 
+    @action(detail=False, methods=['get'])
+    def get_workspace_draft(self, request, workspace_pk=None):
+        draft_type = request.query_params.get('type')
+        
+        try:
+            draft = TransactionDraft.objects.get(
+                user=request.user,
+                workspace_id=workspace_pk,
+                draft_type=draft_type
+            )
+            return Response(TransactionDraftSerializer(draft).data)
+        except TransactionDraft.DoesNotExist:
+            return Response({"transactions_data": []})
+
     @action(detail=True, methods=['delete'])
     def discard(self, request, workspace_pk=None, draft_type=None):
-        """
-        Permanently delete draft.
-        """
         draft = self.get_object()
         draft_id = draft.id
         
@@ -1791,26 +2040,7 @@ class TransactionDraftViewSet(viewsets.ModelViewSet):
                 "workspace_id": workspace_pk,
                 "draft_type": draft_type,
                 "draft_id": draft_id,
-                "action": "draft_discarded",
-                "component": "TransactionDraftViewSet",
             },
         )
         
         return Response({"message": "Draft discarded successfully"})
-
-    @action(detail=False, methods=['get'])
-    def get_workspace_draft(self, request, workspace_pk=None):
-        """
-        Get draft for specific workspace and type.
-        """
-        draft_type = request.query_params.get('type')  # 'income' or 'expense'
-        
-        try:
-            draft = TransactionDraft.objects.get(
-                user=request.user,
-                workspace_id=workspace_pk,
-                draft_type=draft_type
-            )
-            return Response(TransactionDraftSerializer(draft).data)
-        except TransactionDraft.DoesNotExist:
-            return Response({"transactions_data": []})  # Return empty draft

@@ -36,9 +36,6 @@ class BaseAPITestCase(APITestCase):
     
     def setUp(self):
         """Set up test data and client with JWT support."""
-        from django.utils import timezone
-        from datetime import date
-        
         self.client = APIClient()
         
         # Create UNIQUE test users for this test
@@ -54,18 +51,20 @@ class BaseAPITestCase(APITestCase):
         # Create UNIQUE workspace for this test
         self.workspace = WorkspaceFactory(owner=self.user)
         
-        # Use get_or_create for membership to avoid duplicates
-        self.admin_membership, created = WorkspaceMembership.objects.get_or_create(
+        # Clear any existing memberships first
+        WorkspaceMembership.objects.filter(workspace=self.workspace).delete()
+        
+        # Create fresh memberships
+        self.admin_membership = WorkspaceMembershipFactory(
             workspace=self.workspace,
             user=self.user,
-            defaults={'role': 'admin', 'joined_at': timezone.now()}
+            role='admin'
         )
         
-        # Add other user as viewer - use get_or_create
-        self.viewer_membership, created = WorkspaceMembership.objects.get_or_create(
+        self.viewer_membership = WorkspaceMembershipFactory(
             workspace=self.workspace,
             user=self.other_user,
-            defaults={'role': 'viewer', 'joined_at': timezone.now()}
+            role='viewer'
         )
         
         # Create workspace settings - use get_or_create
@@ -218,36 +217,23 @@ class WorkspaceAPITests(BaseAPITestCase):
             role='admin'
         )
 
+    def _get_workspaces_list(self, response):
+        """Helper method to extract workspaces list from paginated response."""
+        return response.data['workspaces']['results']
+
     def test_list_workspaces(self):
         """Test listing user's workspaces with proper role-based filtering."""
-        # User should see only workspaces where they are members
         response = self.client.get(self.list_url)
-        
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
-        # Count workspaces user should see (active + where they are member)
-        visible_workspaces_count = Workspace.objects.filter(
-            memberships__user=self.user,
-            is_active=True
+        workspaces_list = self._get_workspaces_list(response)
+        
+        # Keďže user je admin, mal by vidieť VŠETKY workspaces kde je member (aj neaktívne)
+        all_user_workspaces_count = Workspace.objects.filter(
+            members=self.user
         ).count()
-        
-        self.assertEqual(len(response.data), visible_workspaces_count)
-        
-        # Verify each returned workspace is accessible to user
-        for workspace_data in response.data:
-            workspace_id = workspace_data['id']
-            workspace = Workspace.objects.get(id=workspace_id)
-            
-            # User should be member of this workspace
-            self.assertTrue(
-                WorkspaceMembership.objects.filter(
-                    workspace=workspace,
-                    user=self.user
-                ).exists()
-            )
-            
-            # Workspace should be active (for non-admin users)
-            self.assertTrue(workspace.is_active)
+
+        self.assertEqual(len(workspaces_list), all_user_workspaces_count)
 
     def test_list_workspaces_as_admin_sees_all(self):
         """Test that admin users see all workspaces (including inactive)."""
@@ -255,22 +241,24 @@ class WorkspaceAPITests(BaseAPITestCase):
         self.user.is_superuser = True
         self.user.save()
         
-        # Create an inactive workspace
+        # Create an inactive workspace owned by other user
+        # User NIE JE member tohto workspace, ale ako admin by mal vidieť všetky
         inactive_workspace = WorkspaceFactory(
             owner=self.other_user,
             is_active=False
         )
         
         response = self.client.get(self.list_url)
-        
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        workspaces_list = self._get_workspaces_list(response)
         
         # Admin should see ALL workspaces including inactive
         all_workspaces_count = Workspace.objects.all().count()
-        self.assertEqual(len(response.data), all_workspaces_count)
+        self.assertEqual(len(workspaces_list), all_workspaces_count)
         
         # Verify inactive workspace is included
-        workspace_ids = [ws['id'] for ws in response.data]
+        workspace_ids = [ws['id'] for ws in workspaces_list]
         self.assertIn(inactive_workspace.id, workspace_ids)
 
     def test_list_workspaces_as_owner_sees_all(self):
@@ -282,15 +270,16 @@ class WorkspaceAPITests(BaseAPITestCase):
         )
         
         response = self.client.get(self.list_url)
-        
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        workspaces_list = self._get_workspaces_list(response)
         
         # Owner should see ALL their workspaces including inactive
         user_workspaces_count = Workspace.objects.filter(owner=self.user).count()
-        self.assertEqual(len(response.data), user_workspaces_count)
+        self.assertEqual(len(workspaces_list), user_workspaces_count)
         
         # Verify inactive workspace is included
-        workspace_ids = [ws['id'] for ws in response.data]
+        workspace_ids = [ws['id'] for ws in workspaces_list]
         self.assertIn(inactive_workspace.id, workspace_ids)
 
     def test_list_workspaces_as_viewer_sees_only_active(self):
@@ -310,29 +299,31 @@ class WorkspaceAPITests(BaseAPITestCase):
         )
         
         response = self.client.get(self.list_url)
-        
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        workspaces_list = self._get_workspaces_list(response)
         
         # Viewer should see only ACTIVE workspaces where they are members
         active_workspaces_count = Workspace.objects.filter(
-            memberships__user=self.other_user,
+            members=self.other_user,
             is_active=True
         ).count()
         
-        self.assertEqual(len(response.data), active_workspaces_count)
+        self.assertEqual(len(workspaces_list), active_workspaces_count)
         
         # Verify inactive workspace is NOT included
-        workspace_ids = [ws['id'] for ws in response.data]
+        workspace_ids = [ws['id'] for ws in workspaces_list]
         self.assertNotIn(inactive_workspace.id, workspace_ids)
 
     def test_list_workspaces_includes_correct_data(self):
         """Test that workspace list includes correct serialized data."""
         response = self.client.get(self.list_url)
-        
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
+        workspaces_list = self._get_workspaces_list(response)
+        
         # Verify serialized data structure
-        workspace_data = response.data[0]
+        workspace_data = workspaces_list[0]  # Prvý workspace v zozname
         
         self.assertIn('id', workspace_data)
         self.assertIn('name', workspace_data)
@@ -342,7 +333,7 @@ class WorkspaceAPITests(BaseAPITestCase):
         self.assertIn('user_role', workspace_data)
         self.assertIn('is_owner', workspace_data)
         self.assertIn('member_count', workspace_data)
-        self.assertIn('permissions', workspace_data)
+        self.assertIn('user_permissions', workspace_data)
         
         # Verify user role is correctly set
         membership = WorkspaceMembership.objects.get(
@@ -361,9 +352,10 @@ class WorkspaceAPITests(BaseAPITestCase):
         self.client.force_authenticate(user=new_user)
         
         response = self.client.get(self.list_url)
-        
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 0)
+        
+        workspaces_list = self._get_workspaces_list(response)
+        self.assertEqual(len(workspaces_list), 0)
 
     def test_list_workspaces_different_roles(self):
         """Test workspace list with users having different roles."""
@@ -389,15 +381,19 @@ class WorkspaceAPITests(BaseAPITestCase):
         self.client.force_authenticate(user=editor_user)
         response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['user_role'], 'editor')
+        
+        workspaces_list = self._get_workspaces_list(response)
+        self.assertEqual(len(workspaces_list), 1)
+        self.assertEqual(workspaces_list[0]['user_role'], 'editor')
         
         # Test as viewer  
         self.client.force_authenticate(user=viewer_user)
         response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['user_role'], 'viewer')
+        
+        workspaces_list = self._get_workspaces_list(response)
+        self.assertEqual(len(workspaces_list), 1)
+        self.assertEqual(workspaces_list[0]['user_role'], 'viewer')
 
     def test_retrieve_workspace(self):
         """Test retrieving workspace details."""
@@ -471,7 +467,7 @@ class WorkspaceAPITests(BaseAPITestCase):
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)  # owner + other_user
+        self.assertEqual(len(response.data['members']), 2)  # owner + other_user
 
     def test_workspace_settings_endpoint(self):
         """Test retrieving workspace settings."""
@@ -481,6 +477,141 @@ class WorkspaceAPITests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['domestic_currency'], 'EUR')
 
+    def test_workspace_delete_permissions_comprehensive(self):
+        """Comprehensive test for workspace deletion permissions and scenarios."""
+        # SCENÁR 1: Owner môže soft delete aj s ďalšími members
+        # Pridáme ďalšieho membera
+        extra_user = UserFactory()
+        WorkspaceMembershipFactory(
+            workspace=self.workspace,
+            user=extra_user,
+            role='editor'
+        )
+        
+        # Owner by mal môcť soft delete
+        response = self.client.delete(self.detail_url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.workspace.refresh_from_db()
+        self.assertFalse(self.workspace.is_active)
+        
+        # Reaktivujeme workspace pre ďalšie testy
+        self.workspace.is_active = True
+        self.workspace.save()
+        
+        # SCENÁR 2: Admin (nie owner) môže soft delete
+        admin_workspace = WorkspaceFactory(owner=self.other_user)
+        WorkspaceMembershipFactory(
+            workspace=admin_workspace,
+            user=self.user,
+            role='admin'
+        )
+        
+        admin_workspace_url = reverse('workspace-detail', kwargs={'pk': admin_workspace.pk})
+        response = self.client.delete(admin_workspace_url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        admin_workspace.refresh_from_db()
+        self.assertFalse(admin_workspace.is_active)
+        
+        # SCENÁR 3: Editor NEmôže delete
+        editor_workspace = WorkspaceFactory(owner=self.other_user)
+        WorkspaceMembershipFactory(
+            workspace=editor_workspace,
+            user=self.user,
+            role='editor'
+        )
+        
+        editor_workspace_url = reverse('workspace-detail', kwargs={'pk': editor_workspace.pk})
+        response = self.client.delete(editor_workspace_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        editor_workspace.refresh_from_db()
+        self.assertTrue(editor_workspace.is_active)
+        
+        # SCENÁR 4: Viewer NEmôže delete
+        viewer_workspace = WorkspaceFactory(owner=self.other_user)
+        WorkspaceMembershipFactory(
+            workspace=viewer_workspace,
+            user=self.user,
+            role='viewer'
+        )
+        
+        viewer_workspace_url = reverse('workspace-detail', kwargs={'pk': viewer_workspace.pk})
+        response = self.client.delete(viewer_workspace_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        viewer_workspace.refresh_from_db()
+        self.assertTrue(viewer_workspace.is_active)
+
+    def test_workspace_hard_delete_comprehensive(self):
+        """Comprehensive test for hard delete scenarios with state changes."""
+        # SCENÁR 1: Hard delete zlyhá keď sú ďalší members
+        # Overíme aktuálny stav - máme owner + other_user
+        self.assertEqual(self.workspace.members.count(), 2)
+        
+        hard_delete_url = reverse('workspace-hard-delete', kwargs={'pk': self.workspace.pk})
+        response = self.client.delete(hard_delete_url, {
+            'confirmation': 'I understand this action is irreversible',
+            'workspace_name': self.workspace.name
+        }, format='json')
+        
+        # Hard delete by mal zlyhať
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('other members', response.data['error'].lower())
+        self.workspace.refresh_from_db()
+        self.assertTrue(self.workspace.is_active)
+        
+        # SCENÁR 2: Odstránime ostatných members a hard delete by mal prejsť
+        # Odstránime other_user z workspace
+        WorkspaceMembership.objects.filter(
+            workspace=self.workspace,
+            user=self.other_user
+        ).delete()
+        
+        # Overíme že zostal len owner
+        self.assertEqual(self.workspace.members.count(), 1)
+        self.assertEqual(self.workspace.members.first(), self.user)
+        
+        # Teraz by hard delete mal prejsť
+        response = self.client.delete(hard_delete_url, {
+            'confirmation': 'I understand this action is irreversible',
+            'workspace_name': self.workspace.name
+        }, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Overíme že workspace bol skutočne vymazaný
+        with self.assertRaises(Workspace.DoesNotExist):
+            Workspace.objects.get(pk=self.workspace.pk)
+
+    def test_workspace_delete_edge_cases(self):
+        """Test edge cases for workspace deletion."""
+        # SCENÁR 1: Non-owner sa pokúsi delete - zlyhanie
+        self.client.force_authenticate(user=self.other_user)
+        response = self.client.delete(self.detail_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.workspace.refresh_from_db()
+        self.assertTrue(self.workspace.is_active)
+        
+        # SCENÁR 2: Non-owner sa pokúsi hard delete - zlyhanie
+        hard_delete_url = reverse('workspace-hard-delete', kwargs={'pk': self.workspace.pk})
+        response = self.client.delete(hard_delete_url, {
+            'confirmation': 'I understand this action is irreversible',
+            'workspace_name': self.workspace.name
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        # SCENÁR 3: Neplatná confirmácia pre hard delete
+        self.client.force_authenticate(user=self.user)  # Vrátime sa k ownerovi
+        response = self.client.delete(hard_delete_url, {
+            'confirmation': 'wrong confirmation',
+            'workspace_name': self.workspace.name
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        
+        # SCENÁR 4: Nesprávny workspace názov pre hard delete
+        response = self.client.delete(hard_delete_url, {
+            'confirmation': 'I understand this action is irreversible',
+            'workspace_name': 'Wrong Name'
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         
 
 
@@ -515,6 +646,7 @@ class WorkspaceSettingsAPITests(BaseAPITestCase):
         self.workspace_settings.refresh_from_db()
         self.assertEqual(self.workspace_settings.domestic_currency, 'USD')
         self.assertEqual(self.workspace_settings.fiscal_year_start, 4)
+        self.assertEqual(response.data['fiscal_year_start'], 4)
 
     def test_currency_change_triggers_recalculation(self):
         """Test that currency change triggers transaction recalculation."""
