@@ -77,6 +77,10 @@ DATABASES = {
         "PASSWORD": config("POSTGRES_PASSWORD"),
         "HOST": config("DB_HOST"),
         "PORT": "5432",
+        "CONN_MAX_AGE": 60,  # Connection pooling 1 minute
+        "OPTIONS": {
+            "connect_timeout": 5,  # Max 5 second waiting for DB connection
+        }
     }
 }
 

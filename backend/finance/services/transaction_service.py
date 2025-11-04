@@ -63,10 +63,8 @@ class TransactionService:
             },
         )
         
-        transactions = []
-        validation_errors = []
-        
         # Pre-validate all transactions before creation
+        validation_errors = []
         for i, data in enumerate(transactions_data):
             try:
                 TransactionService._validate_transaction_data(data, workspace)
@@ -88,28 +86,43 @@ class TransactionService:
             )
             raise ValidationError("; ".join(validation_errors))
         
-        # Process and create transactions
+        # OPTIMIZATION: Bulk fetch categories to avoid N+1 queries
+        expense_category_ids = [data['expense_category'] for data in transactions_data 
+                            if data.get('expense_category')]
+        income_category_ids = [data['income_category'] for data in transactions_data 
+                            if data.get('income_category')]
+        
+        expense_categories = {str(cat.id): cat for cat in ExpenseCategory.objects.filter(
+            id__in=expense_category_ids,
+            version__workspace=workspace
+        )} if expense_category_ids else {}
+        
+        income_categories = {str(cat.id): cat for cat in IncomeCategory.objects.filter(
+            id__in=income_category_ids, 
+            version__workspace=workspace
+        )} if income_category_ids else {}
+        
+        # Log category resolution results
+        if expense_category_ids:
+            logger.debug(
+                "Expense categories resolved in bulk",
+                extra={
+                    "requested_ids": expense_category_ids,
+                    "resolved_ids": list(expense_categories.keys()),
+                    "action": "bulk_category_resolution",
+                    "component": "TransactionService",
+                },
+            )
+        
+        transactions = []
         for data in transactions_data:
             expense_category = None
             income_category = None
             
-            # Resolve expense category
+            # Resolve expense category from pre-fetched data
             if data.get('expense_category'):
-                try:
-                    expense_category = ExpenseCategory.objects.get(
-                        id=data['expense_category'], 
-                        version__workspace=workspace
-                    )
-                    logger.debug(
-                        "Expense category resolved",
-                        extra={
-                            "category_id": data['expense_category'],
-                            "category_name": expense_category.name,
-                            "action": "category_resolved",
-                            "component": "TransactionService",
-                        },
-                    )
-                except ExpenseCategory.DoesNotExist:
+                expense_category = expense_categories.get(str(data['expense_category']))
+                if not expense_category:
                     logger.warning(
                         "Expense category not found during transaction creation",
                         extra={
@@ -120,24 +133,11 @@ class TransactionService:
                             "severity": "medium",
                         },
                     )
-                    
-            # Resolve income category  
+                        
+            # Resolve income category from pre-fetched data
             if data.get('income_category'):
-                try:
-                    income_category = IncomeCategory.objects.get(
-                        id=data['income_category'],
-                        version__workspace=workspace  
-                    )
-                    logger.debug(
-                        "Income category resolved",
-                        extra={
-                            "category_id": data['income_category'],
-                            "category_name": income_category.name,
-                            "action": "category_resolved",
-                            "component": "TransactionService",
-                        },
-                    )
-                except IncomeCategory.DoesNotExist:
+                income_category = income_categories.get(str(data['income_category']))
+                if not income_category:
                     logger.warning(
                         "Income category not found during transaction creation",
                         extra={
@@ -198,9 +198,9 @@ class TransactionService:
                 "component": "TransactionService",
             },
         )
-        
         return transactions
     
+
     @staticmethod
     @db_transaction.atomic
     def bulk_sync_transactions(transactions_data, workspace, user):
@@ -253,7 +253,7 @@ class TransactionService:
             'errors': []
         }
         
-        # 1. DELETE operations
+        # 1. DELETE operations - optimized with single query
         if transactions_data.get('delete'):
             logger.debug(
                 "Processing transaction deletions",
@@ -264,22 +264,28 @@ class TransactionService:
                 },
             )
             
-            # Verify transactions exist and belong to user/workspace
-            existing_transactions = Transaction.objects.filter(
+            # Single query to verify and delete in one operation
+            deleted_info = Transaction.objects.filter(
                 id__in=transactions_data['delete'],
                 workspace=workspace,
                 user=user
-            )
+            ).delete()
             
-            existing_ids = list(existing_transactions.values_list('id', flat=True))
-            invalid_ids = set(transactions_data['delete']) - set(existing_ids)
+            deleted_count = deleted_info[0] if deleted_info else 0
+            deleted_ids = list(Transaction.objects.filter(
+                id__in=transactions_data['delete']
+            ).values_list('id', flat=True))
+            
+            # Identify invalid IDs for error reporting
+            valid_ids_set = set(deleted_ids)
+            invalid_ids = [id for id in transactions_data['delete'] if id not in valid_ids_set]
             
             if invalid_ids:
                 logger.warning(
                     "Invalid transaction IDs for deletion",
                     extra={
-                        "invalid_ids": list(invalid_ids),
-                        "valid_ids": existing_ids,
+                        "invalid_ids": invalid_ids,
+                        "valid_ids": deleted_ids,
                         "action": "bulk_delete_validation_warning",
                         "component": "TransactionService",
                         "severity": "medium",
@@ -287,21 +293,19 @@ class TransactionService:
                 )
                 results['errors'].extend([f"Invalid delete ID: {id}" for id in invalid_ids])
             
-            # Perform deletion on valid transactions only
-            deleted_count, deletion_details = existing_transactions.delete()
-            results['deleted'] = existing_ids
+            results['deleted'] = deleted_ids
             
             logger.debug(
                 "Delete operations completed",
                 extra={
                     "deleted_count": deleted_count,
-                    "deleted_ids": existing_ids,
+                    "deleted_ids": deleted_ids,
                     "action": "bulk_delete_completed",
                     "component": "TransactionService",
                 },
             )
         
-        # 2. CREATE operations
+        # 2. CREATE operations - already optimized via bulk_create_transactions
         if transactions_data.get('create'):
             try:
                 new_transactions = TransactionService.bulk_create_transactions(
@@ -322,7 +326,7 @@ class TransactionService:
                 )
                 results['errors'].append(f"Create failed: {str(e)}")
         
-        # 3. UPDATE operations
+        # 3. UPDATE operations - major optimization
         if transactions_data.get('update'):
             logger.debug(
                 "Processing transaction updates",
@@ -336,80 +340,144 @@ class TransactionService:
             updates = []
             update_errors = []
             
+            # Pre-fetch all transactions in single query
+            update_ids = [data['id'] for data in transactions_data['update'] if data.get('id')]
+            transactions_dict = {str(t.id): t for t in Transaction.objects.filter(
+                id__in=update_ids,
+                workspace=workspace,
+                user=user
+            ).select_related('expense_category', 'income_category')}
+            
+            # Pre-fetch categories in bulk to avoid N+1 queries
+            expense_category_ids = [data['expense_category'] for data in transactions_data['update'] 
+                                if data.get('expense_category')]
+            income_category_ids = [data['income_category'] for data in transactions_data['update'] 
+                                if data.get('income_category')]
+            
+            expense_categories = {str(cat.id): cat for cat in ExpenseCategory.objects.filter(
+                id__in=expense_category_ids,
+                version__workspace=workspace
+            )} if expense_category_ids else {}
+            
+            income_categories = {str(cat.id): cat for cat in IncomeCategory.objects.filter(
+                id__in=income_category_ids,
+                version__workspace=workspace
+            )} if income_category_ids else {}
+            
             for data in transactions_data['update']:
-                try:
-                    transaction = Transaction.objects.get(
-                        id=data['id'],
-                        workspace=workspace,
-                        user=user
-                    )
+                transaction_id = data.get('id')
+                if not transaction_id:
+                    update_errors.append("Missing transaction ID in update data")
+                    continue
                     
-                    # Validate update data
-                    TransactionService._validate_transaction_data(data, workspace, is_update=True)
-                    
-                    # Update core transaction fields
-                    transaction.type = data.get('type', transaction.type)
-                    transaction.original_amount = data.get('original_amount', transaction.original_amount)
-                    transaction.original_currency = data.get('original_currency', transaction.original_currency)
-                    transaction.date = data.get('date', transaction.date)
-                    transaction.tags = data.get('tags', transaction.tags)
-                    transaction.note_manual = data.get('note_manual', transaction.note_manual)
-                    transaction.note_auto = data.get('note_auto', transaction.note_auto)
-                    
-                    # Update month if date changed
-                    if 'date' in data:
-                        transaction.month = data['date'].replace(day=1)
-                    
-                    # Update categories
-                    if 'expense_category' in data:
-                        if data['expense_category']:
-                            transaction.expense_category = ExpenseCategory.objects.get(
-                                id=data['expense_category'],
-                                version__workspace=workspace
-                            )
-                        else:
-                            transaction.expense_category = None
-                    
-                    if 'income_category' in data:
-                        if data['income_category']:
-                            transaction.income_category = IncomeCategory.objects.get(
-                                id=data['income_category'],
-                                version__workspace=workspace
-                            )
-                        else:
-                            transaction.income_category = None
-                    
-                    updates.append(transaction)
-                    
-                except (Transaction.DoesNotExist, ExpenseCategory.DoesNotExist, IncomeCategory.DoesNotExist) as e:
+                transaction = transactions_dict.get(str(transaction_id))
+                if not transaction:
                     logger.warning(
-                        "Transaction or category not found during update",
+                        "Transaction not found during update",
                         extra={
-                            "transaction_id": data.get('id'),
-                            "error_type": type(e).__name__,
+                            "transaction_id": transaction_id,
                             "action": "update_skip_not_found",
                             "component": "TransactionService",
                             "severity": "medium",
                         },
                     )
-                    update_errors.append(f"Transaction {data.get('id')} not found")
+                    update_errors.append(f"Transaction {transaction_id} not found")
+                    continue
+                
+                try:
+                    # Validate update data
+                    TransactionService._validate_transaction_data(data, workspace, is_update=True)
+                    
+                    # Track if we need recalculation
+                    needs_recalculation = False
+                    
+                    # Update core transaction fields
+                    if 'type' in data:
+                        transaction.type = data['type']
+                    if 'original_amount' in data:
+                        transaction.original_amount = data['original_amount']
+                        needs_recalculation = True
+                    if 'original_currency' in data:
+                        transaction.original_currency = data['original_currency']
+                        needs_recalculation = True
+                    if 'date' in data:
+                        transaction.date = data['date']
+                        transaction.month = data['date'].replace(day=1)
+                        needs_recalculation = True
+                    if 'tags' in data:
+                        transaction.tags = data['tags']
+                    if 'note_manual' in data:
+                        transaction.note_manual = data['note_manual']
+                    if 'note_auto' in data:
+                        transaction.note_auto = data['note_auto']
+                    
+                    # Update categories
+                    if 'expense_category' in data:
+                        if data['expense_category']:
+                            category = expense_categories.get(str(data['expense_category']))
+                            if not category:
+                                raise ExpenseCategory.DoesNotExist(f"Expense category {data['expense_category']} not found")
+                            transaction.expense_category = category
+                        else:
+                            transaction.expense_category = None
+                    
+                    if 'income_category' in data:
+                        if data['income_category']:
+                            category = income_categories.get(str(data['income_category']))
+                            if not category:
+                                raise IncomeCategory.DoesNotExist(f"Income category {data['income_category']} not found")
+                            transaction.income_category = category
+                        else:
+                            transaction.income_category = None
+                    
+                    # Store recalculation flag
+                    transaction._needs_recalculation = needs_recalculation
+                    updates.append(transaction)
+                    
+                except (ExpenseCategory.DoesNotExist, IncomeCategory.DoesNotExist) as e:
+                    logger.warning(
+                        "Category not found during update",
+                        extra={
+                            "transaction_id": transaction_id,
+                            "error_type": type(e).__name__,
+                            "action": "update_skip_category_not_found",
+                            "component": "TransactionService",
+                            "severity": "medium",
+                        },
+                    )
+                    update_errors.append(f"Transaction {transaction_id}: {str(e)}")
                     continue
                 except ValidationError as e:
-                    update_errors.append(f"Transaction {data.get('id')}: {str(e)}")
+                    update_errors.append(f"Transaction {transaction_id}: {str(e)}")
                     continue
             
             if updates:
                 try:
-                    # Recalculate domestic amounts for updated transactions
-                    updates = recalculate_transactions_domestic_amount(updates, workspace)
+                    # Separate transactions that need recalculation
+                    transactions_needing_recalc = [t for t in updates if getattr(t, '_needs_recalculation', False)]
+                    other_updates = [t for t in updates if not getattr(t, '_needs_recalculation', False)]
                     
-                    # Update all modified fields including domestic amount
-                    Transaction.objects.bulk_update(updates, [
-                        'type', 'original_amount', 'original_currency', 'date',
-                        'expense_category', 'income_category', 'amount_domestic',
-                        'tags', 'note_manual', 'note_auto', 'month'
-                    ])
-                    results['updated'] = [t.id for t in updates]
+                    # Recalculate only necessary transactions
+                    if transactions_needing_recalc:
+                        transactions_needing_recalc = recalculate_transactions_domestic_amount(
+                            transactions_needing_recalc, workspace
+                        )
+                    
+                    # Combine all updates
+                    all_updates = transactions_needing_recalc + other_updates
+                    
+                    # Bulk update with batch size for large datasets
+                    BATCH_SIZE = 500
+                    for i in range(0, len(all_updates), BATCH_SIZE):
+                        batch = all_updates[i:i + BATCH_SIZE]
+                        Transaction.objects.bulk_update(batch, [
+                            'type', 'original_amount', 'original_currency', 'date',
+                            'expense_category', 'income_category', 'amount_domestic',
+                            'tags', 'note_manual', 'note_auto', 'month'
+                        ])
+                    
+                    results['updated'] = [t.id for t in all_updates]
+                    
                 except CurrencyConversionError as e:
                     logger.error(
                         "Currency conversion failed during update",
@@ -432,10 +500,25 @@ class TransactionService:
                 extra={
                     "updated_count": len(results['updated']),
                     "update_errors": len(update_errors),
+                    "recalculated_count": len(transactions_needing_recalc) if 'transactions_needing_recalc' in locals() else 0,
                     "action": "bulk_update_completed",
                     "component": "TransactionService",
                 },
             )
+        
+        logger.info(
+            "Bulk transaction sync completed",
+            extra={
+                "user_id": user.id,
+                "workspace_id": workspace.id,
+                "created_count": len(results['created']),
+                "updated_count": len(results['updated']),
+                "deleted_count": len(results['deleted']),
+                "error_count": len(results['errors']),
+                "action": "bulk_sync_completed",
+                "component": "TransactionService",
+            },
+        )
         
         return results
     
@@ -471,7 +554,8 @@ class TransactionService:
             },
         )
         
-        transactions = Transaction.objects.filter(workspace=workspace)
+        # OPTIMIZATION: Use iterator() for large datasets to avoid memory issues
+        transactions = Transaction.objects.filter(workspace=workspace).iterator(chunk_size=2000)
         transactions_list = list(transactions)
         
         if not transactions_list:
@@ -491,12 +575,14 @@ class TransactionService:
                 workspace
             )
             
-            Transaction.objects.bulk_update(
-                updated_transactions,
-                ['amount_domestic']
-            )
+            # OPTIMIZATION: Batch update for very large datasets
+            BATCH_SIZE = 1000
+            updated_count = 0
             
-            updated_count = len(updated_transactions)
+            for i in range(0, len(updated_transactions), BATCH_SIZE):
+                batch = updated_transactions[i:i + BATCH_SIZE]
+                Transaction.objects.bulk_update(batch, ['amount_domestic'])
+                updated_count += len(batch)
             
             logger.info(
                 "Transaction recalculation completed successfully",
@@ -504,6 +590,7 @@ class TransactionService:
                     "workspace_id": workspace.id,
                     "transactions_updated": updated_count,
                     "domestic_currency": workspace.settings.domestic_currency,
+                    "batch_count": (len(updated_transactions) + BATCH_SIZE - 1) // BATCH_SIZE,
                     "action": "recalculation_success",
                     "component": "TransactionService",
                 },
@@ -517,6 +604,7 @@ class TransactionService:
                 extra={
                     "workspace_id": workspace.id,
                     "error_message": str(e),
+                    "transaction_count": len(transactions_list),
                     "action": "recalculation_currency_conversion_failed",
                     "component": "TransactionService",
                     "severity": "critical",
@@ -524,7 +612,7 @@ class TransactionService:
             )
             # Transaction will roll back due to @db_transaction.atomic
             raise
-    
+
     @staticmethod
     def _validate_transaction_data(data, workspace, is_update=False):
         """

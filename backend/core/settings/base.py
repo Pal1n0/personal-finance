@@ -122,6 +122,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    "finance.middleware.AdminImpersonationMiddleware",
 ]
 
 # URLs and WSGI configuration

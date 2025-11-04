@@ -78,7 +78,7 @@ urlpatterns = [
     # Include all router-generated URLs
     path('', include(router.urls)),
     
-    # Category synchronization endpoint (JEDENKRÁT!)
+    # Category synchronization endpoint
     path(
         'workspaces/<int:workspace_id>/categories/<str:category_type>/sync/', 
         views.sync_categories_api, 
@@ -99,6 +99,27 @@ urlpatterns = [
         name='workspace-settings'
     ),
     
+    # Workspace hard delete endpoint (PRIBUDOL - existuje v views)
+    path(
+        'workspaces/<int:pk>/hard-delete/',
+        views.WorkspaceViewSet.as_view({'delete': 'hard_delete'}),
+        name='workspace-hard-delete'
+    ),
+    
+    # Workspace activate endpoint (PRIBUDOL - existuje v views)
+    path(
+        'workspaces/<int:pk>/activate/',
+        views.WorkspaceViewSet.as_view({'post': 'activate'}),
+        name='workspace-activate'
+    ),
+    
+    # Workspace membership info endpoint (PRIBUDOL - existuje v views)
+    path(
+        'workspaces/<int:pk>/membership-info/',
+        views.WorkspaceViewSet.as_view({'get': 'membership_info'}),
+        name='workspace-membership-info'
+    ),
+    
     # Transaction bulk delete endpoint
     path(
         'transactions/bulk-delete/',
@@ -106,12 +127,33 @@ urlpatterns = [
         name='transaction-bulk-delete'
     ),
     
-    # Bulk transaction synchronization endpoint (PRIBUDOL!)
+    # Bulk transaction synchronization endpoint
     path(
-    'workspaces/<int:workspace_id>/transactions/bulk-sync/',
-    views.TransactionViewSet.as_view({'post': 'bulk_sync'}),
-    name='bulk-sync-transactions'
-),
+        'workspaces/<int:workspace_id>/transactions/bulk-sync/',
+        views.TransactionViewSet.as_view({'post': 'bulk_sync'}),
+        name='bulk-sync-transactions'
+    ),
+    
+    # Transaction draft save endpoint (PRIBUDOL - existuje v views)
+    path(
+        'workspaces/<int:workspace_pk>/transaction-drafts/save-draft/',
+        views.TransactionDraftViewSet.as_view({'post': 'save_draft'}),
+        name='transaction-draft-save'
+    ),
+    
+    # Transaction draft get workspace draft endpoint (PRIBUDOL - existuje v views)
+    path(
+        'workspaces/<int:workspace_pk>/transaction-drafts/get-workspace-draft/',
+        views.TransactionDraftViewSet.as_view({'get': 'get_workspace_draft'}),
+        name='transaction-draft-get-workspace'
+    ),
+    
+    # Transaction draft discard endpoint (PRIBUDOL - existuje v views)
+    path(
+        'transaction-drafts/<int:pk>/discard/',
+        views.TransactionDraftViewSet.as_view({'delete': 'discard'}),
+        name='transaction-draft-discard'
+    ),
 ]
 
 # Log URL configuration on startup
@@ -121,7 +163,7 @@ logger.info(
     extra={
         "total_routes": len(router.urls) + custom_endpoints_count,
         "viewset_endpoints": len(router.registry),
-        "custom_endpoints": custom_endpoints_count,  # SPRÁVNY POČET
+        "custom_endpoints": custom_endpoints_count,
         "action": "url_configuration_loaded",
         "component": "urls",
     },

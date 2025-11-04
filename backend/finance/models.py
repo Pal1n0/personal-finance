@@ -6,9 +6,10 @@ including workspaces, transactions, categories, exchange rates, and user setting
 """
 
 import logging
-from django.db import models
+from django.db import models, transaction
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from .managers import UserScopedManager
 
 
 # Get structured logger for this module
@@ -45,16 +46,15 @@ class UserSettings(models.Model):
         default='en'
     )
 
+    class Meta:
+        verbose_name_plural = "User settings"
+
     def __str__(self):
-        """
-        String representation of UserSettings.
-        """
+        """String representation of UserSettings."""
         return f"{self.user.username} settings"
 
     def clean(self):
-        """
-        Validate user settings data.
-        """
+        """Validate user settings data."""
         super().clean()
         
         logger.debug(
@@ -66,6 +66,7 @@ class UserSettings(models.Model):
                 "component": "UserSettings",
             },
         )
+
 
 # -------------------------------------------------------------------
 # WORKSPACE & MEMBERSHIP  
@@ -96,16 +97,23 @@ class Workspace(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
     
+    class Meta:
+        ordering = ['name']
+
+        indexes = [
+            models.Index(fields=['owner', 'is_active']),
+            models.Index(fields=['is_active']),
+            models.Index(fields=['created_at']),
+        ]
+
     def __str__(self):
-        """
-        String representation of Workspace.
-        """
+        """String representation of Workspace."""
         return f"{self.name} (Owner: {self.owner.username})"
 
     def clean(self):
-        """
-        Validate workspace data.
-        """
+        """Validate workspace data."""
+        super().clean()
+        
         if not self.name or len(self.name.strip()) < 2:
             raise ValidationError("Workspace name must be at least 2 characters long.")
         
@@ -116,6 +124,108 @@ class Workspace(models.Model):
                 "workspace_name": self.name,
                 "action": "workspace_validation",
                 "component": "Workspace",
+            },
+        )
+
+# -------------------------------------------------------------------
+# WORKSPACE ADMIN MANAGEMENT
+# -------------------------------------------------------------------
+# Workspace-level admin assignments with audit trail
+
+class WorkspaceAdmin(models.Model):
+    """
+    Workspace-level administrator assignments.
+    
+    Allows superusers to assign specific users as administrators
+    for specific workspaces with comprehensive audit trail.
+    """
+    
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='workspace_admin_assignments'
+    )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name='admin_assignments'
+    )
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='assigned_workspace_admins'
+    )
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+    
+    # Optional: Additional permissions for granular control
+    can_impersonate = models.BooleanField(default=True)
+    can_manage_users = models.BooleanField(default=True)
+    can_manage_categories = models.BooleanField(default=True)
+    can_manage_settings = models.BooleanField(default=True)
+    
+    class Meta:
+        unique_together = ['user', 'workspace']
+        verbose_name_plural = "Workspace admins"
+        indexes = [
+            models.Index(fields=['user', 'is_active']),
+            models.Index(fields=['workspace', 'is_active']),
+            models.Index(fields=['assigned_at']),
+        ]
+        ordering = ['-assigned_at']
+
+    def __str__(self):
+        """String representation of WorkspaceAdmin."""
+        return f"{self.user.username} - Admin of {self.workspace.name}"
+
+    def clean(self):
+        """Validate workspace admin assignment data."""
+        super().clean()
+        
+        # Prevent duplicate active assignments
+        if WorkspaceAdmin.objects.filter(
+            user=self.user,
+            workspace=self.workspace,
+            is_active=True
+        ).exclude(pk=self.pk).exists():
+            raise ValidationError("User is already an active admin for this workspace.")
+        
+        # Ensure assigned_by is a superuser
+        if not self.assigned_by.is_superuser:
+            raise ValidationError("Only superusers can assign workspace admins.")
+        
+        logger.debug(
+            "WorkspaceAdmin validation completed",
+            extra={
+                "workspace_id": self.workspace.id,
+                "user_id": self.user.id,
+                "assigned_by_id": self.assigned_by.id,
+                "action": "workspace_admin_validation",
+                "component": "WorkspaceAdmin",
+            },
+        )
+
+    @property
+    def can_impersonate_users(self):
+        """Check if this admin can impersonate users in the workspace."""
+        return self.is_active and self.can_impersonate
+
+    def deactivate(self, deactivated_by):
+        """Deactivate workspace admin assignment with audit trail."""
+        if not deactivated_by.is_superuser:
+            raise ValidationError("Only superusers can deactivate workspace admins.")
+        
+        self.is_active = False
+        self.save()
+        
+        logger.info(
+            "Workspace admin deactivated",
+            extra={
+                "workspace_id": self.workspace.id,
+                "user_id": self.user.id,
+                "deactivated_by_id": deactivated_by.id,
+                "action": "workspace_admin_deactivated",
+                "component": "WorkspaceAdmin",
             },
         )
 
@@ -142,17 +252,20 @@ class WorkspaceMembership(models.Model):
     class Meta:
         unique_together = ['workspace', 'user']
         verbose_name_plural = "Workspace memberships"
+        indexes = [
+            models.Index(fields=['user', 'role']),
+            models.Index(fields=['workspace', 'role']),
+            models.Index(fields=['joined_at']),
+        ]
     
     def __str__(self):
-        """
-        String representation of WorkspaceMembership.
-        """
+        """String representation of WorkspaceMembership."""
         return f"{self.user.username} in {self.workspace.name} as {self.role}"
 
     def clean(self):
-        """
-        Validate workspace membership data.
-        """
+        """Validate workspace membership data."""
+        super().clean()
+        
         # Prevent duplicate memberships
         if WorkspaceMembership.objects.filter(
             workspace=self.workspace, 
@@ -170,6 +283,7 @@ class WorkspaceMembership(models.Model):
                 "component": "WorkspaceMembership",
             },
         )
+
 
 # -------------------------------------------------------------------
 # WORKSPACE SETTINGS
@@ -235,15 +349,13 @@ class WorkspaceSettings(models.Model):
     accounting_mode = models.BooleanField(default=False)
 
     def __str__(self):
-        """
-        String representation of WorkspaceSettings.
-        """
+        """String representation of WorkspaceSettings."""
         return f"{self.workspace.name} settings"
     
     def clean(self):
-        """
-        Validate workspace settings data.
-        """
+        """Validate workspace settings data."""
+        super().clean()
+        
         if self.fiscal_year_start not in [choice[0] for choice in self.FISCAL_YEAR_START_CHOICES]:
             raise ValidationError("Invalid fiscal year start month.")
         
@@ -258,6 +370,7 @@ class WorkspaceSettings(models.Model):
                 "component": "WorkspaceSettings",
             },
         )
+
 
 # -------------------------------------------------------------------
 # EXPENSE CATEGORIES
@@ -275,7 +388,7 @@ class ExpenseCategoryVersion(models.Model):
     
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
     name = models.CharField(max_length=100, blank=False, null=False)
-    description = models.CharField(max_length=1000, blank=True, null=True)  
+    description = models.TextField(blank=True, null=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
@@ -285,15 +398,13 @@ class ExpenseCategoryVersion(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        """
-        String representation of ExpenseCategoryVersion.
-        """
+        """String representation of ExpenseCategoryVersion."""
         return f"{self.workspace.name} - Expense"
 
     def clean(self):
-        """
-        Validate expense category version data.
-        """
+        """Validate expense category version data."""
+        super().clean()
+        
         if not self.name or len(self.name.strip()) < 2:
             raise ValidationError("Version name must be at least 2 characters long.")
         
@@ -330,7 +441,7 @@ class ExpenseCategory(models.Model):
         related_name='categories'
     )
     name = models.CharField(max_length=50)
-    description = models.CharField(max_length=1000, blank=True, null=True)  
+    description = models.TextField(blank=True, null=True)
     children = models.ManyToManyField(
         'self',
         symmetrical=False,
@@ -346,34 +457,16 @@ class ExpenseCategory(models.Model):
 
     @property
     def is_leaf(self):
-        """
-        Check if category is a leaf node (has no children).
-        
-        Returns:
-            bool: True if category has no children
-        """
+        """Check if category is a leaf node (has no children)."""
         return not self.children.exists()
 
     @property 
     def is_root(self):
-        """
-        Check if category is a root node (has no parents).
-        
-        Returns:
-            bool: True if category has no parents
-        """
+        """Check if category is a root node (has no parents)."""
         return not self.parents.exists()
     
     def add_child(self, child):
-        """
-        Safely add child category with validation.
-        
-        Args:
-            child: ExpenseCategory instance to add as child
-            
-        Raises:
-            ValidationError: If child already has a parent
-        """
+        """Safely add child category with validation."""
         if child.parents.exists():
             logger.warning(
                 "Attempt to add child with existing parent",
@@ -401,9 +494,9 @@ class ExpenseCategory(models.Model):
         )
     
     def clean(self):
-        """
-        Validate category data and relationships.
-        """
+        """Validate category data and relationships."""
+        super().clean()
+        
         # Validate level constraints
         if self.level < 1 or self.level > 5:
             raise ValidationError("Category level must be between 1 and 5")
@@ -440,10 +533,9 @@ class ExpenseCategory(models.Model):
         )
 
     def __str__(self):
-        """
-        String representation of ExpenseCategory.
-        """
+        """String representation of ExpenseCategory."""
         return f"{self.name} (Level {self.level})"
+
 
 # -------------------------------------------------------------------
 # INCOME CATEGORIES
@@ -461,7 +553,7 @@ class IncomeCategoryVersion(models.Model):
     
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
     name = models.CharField(max_length=100, blank=False, null=False)
-    description = models.CharField(max_length=1000, blank=True, null=True)  
+    description = models.TextField(blank=True, null=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
@@ -471,15 +563,13 @@ class IncomeCategoryVersion(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        """
-        String representation of IncomeCategoryVersion.
-        """
+        """String representation of IncomeCategoryVersion."""
         return f"{self.workspace.name} - Income"
 
     def clean(self):
-        """
-        Validate income category version data.
-        """
+        """Validate income category version data."""
+        super().clean()
+        
         if not self.name or len(self.name.strip()) < 2:
             raise ValidationError("Version name must be at least 2 characters long.")
         
@@ -516,7 +606,7 @@ class IncomeCategory(models.Model):
         related_name='categories'
     )
     name = models.CharField(max_length=50)
-    description = models.CharField(max_length=1000, blank=True, null=True)  
+    description = models.TextField(blank=True, null=True)
     children = models.ManyToManyField(
         'self',
         symmetrical=False,
@@ -532,34 +622,16 @@ class IncomeCategory(models.Model):
 
     @property
     def is_leaf(self):
-        """
-        Check if category is a leaf node (has no children).
-        
-        Returns:
-            bool: True if category has no children
-        """
+        """Check if category is a leaf node (has no children)."""
         return not self.children.exists()
 
     @property 
     def is_root(self):
-        """
-        Check if category is a root node (has no parents).
-        
-        Returns:
-            bool: True if category has no parents
-        """
+        """Check if category is a root node (has no parents)."""
         return not self.parents.exists()
     
     def add_child(self, child):
-        """
-        Safely add child category with validation.
-        
-        Args:
-            child: IncomeCategory instance to add as child
-            
-        Raises:
-            ValidationError: If child already has a parent
-        """
+        """Safely add child category with validation."""
         if child.parents.exists():
             logger.warning(
                 "Attempt to add child with existing parent",
@@ -587,9 +659,9 @@ class IncomeCategory(models.Model):
         )
     
     def clean(self):
-        """
-        Validate category data and relationships.
-        """
+        """Validate category data and relationships."""
+        super().clean()
+        
         # Validate level constraints
         if self.level < 1 or self.level > 5:
             raise ValidationError("Category level must be between 1 and 5")
@@ -626,38 +698,17 @@ class IncomeCategory(models.Model):
         )
 
     def __str__(self):
-        """
-        String representation of IncomeCategory.
-        """
+        """String representation of IncomeCategory."""
         return f"{self.name} (Level {self.level})"
 
+
 # -------------------------------------------------------------------
-# CATEGORY PROPERTIES
+# CATEGORY PROPERTIES  
 # -------------------------------------------------------------------
 # Additional properties and constraints for categories
 
 
-class BaseCategoryProperty(models.Model):
-    """
-    Abstract base model for category properties.
-    
-    Provides common fields and methods for both expense and income
-    category property models.
-    """
-    
-    property_type = models.CharField(max_length=10)
-    
-    class Meta:
-        abstract = True
-    
-    def __str__(self):
-        """
-        String representation of BaseCategoryProperty.
-        """
-        return f"{self.property_type}"
-
-
-class ExpenseCategoryProperty(BaseCategoryProperty):
+class ExpenseCategoryProperty(models.Model):
     """
     Property definitions for expense categories.
     
@@ -681,15 +732,12 @@ class ExpenseCategoryProperty(BaseCategoryProperty):
         verbose_name_plural = "Expense category properties"
 
     def __str__(self):
-        """
-        String representation of ExpenseCategoryProperty.
-        """
         return f"{self.category.name} - {self.property_type}"
 
     def clean(self):
-        """
-        Validate expense category property data.
-        """
+        """Validate expense category property data."""
+        super().clean()
+        
         logger.debug(
             "ExpenseCategoryProperty validation completed",
             extra={
@@ -701,7 +749,7 @@ class ExpenseCategoryProperty(BaseCategoryProperty):
         )
 
 
-class IncomeCategoryProperty(BaseCategoryProperty):
+class IncomeCategoryProperty(models.Model):
     """
     Property definitions for income categories.
     
@@ -725,15 +773,12 @@ class IncomeCategoryProperty(BaseCategoryProperty):
         verbose_name_plural = "Income category properties"
 
     def __str__(self):
-        """
-        String representation of IncomeCategoryProperty.
-        """
         return f"{self.category.name} - {self.property_type}"
 
     def clean(self):
-        """
-        Validate income category property data.
-        """
+        """Validate income category property data."""
+        super().clean()
+        
         logger.debug(
             "IncomeCategoryProperty validation completed",
             extra={
@@ -743,6 +788,7 @@ class IncomeCategoryProperty(BaseCategoryProperty):
                 "component": "IncomeCategoryProperty",
             },
         )
+
 
 # -------------------------------------------------------------------
 # EXCHANGE RATES
@@ -768,15 +814,13 @@ class ExchangeRate(models.Model):
         verbose_name_plural = "Exchange rates"
 
     def __str__(self):
-        """
-        String representation of ExchangeRate.
-        """
+        """String representation of ExchangeRate."""
         return f"{self.currency} - {self.rate_to_eur} ({self.date})"
     
     def clean(self):
-        """
-        Validate exchange rate data.
-        """
+        """Validate exchange rate data."""
+        super().clean()
+        
         if self.rate_to_eur <= 0:
             logger.warning(
                 "Invalid exchange rate - must be positive",
@@ -805,6 +849,7 @@ class ExchangeRate(models.Model):
                 "component": "ExchangeRate",
             },
         )
+
 
 # -------------------------------------------------------------------
 # TRANSACTIONS
@@ -853,6 +898,8 @@ class Transaction(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = UserScopedManager()
+
     class Meta:
         indexes = [
             models.Index(fields=['user', 'date']),
@@ -863,90 +910,91 @@ class Transaction(models.Model):
         ordering = ['-date', '-created_at']
 
     def save(self, *args, **kwargs):
-        """
-        Save transaction with automatic month calculation and currency conversion.
-        """
-        # Calculate month from date
-        if self.date:
-            self.month = self.date.replace(day=1)
+        """Save transaction with atomic operation for data consistency."""
+        with transaction.atomic():
+            # Calculate month from date
+            if self.date:
+                self.month = self.date.replace(day=1)
+            
+            # Determine if recalculation is needed
+            needs_recalculation = self._needs_recalculation()
+            
+            # Recalculate domestic amount if needed
+            if needs_recalculation:
+                self._recalculate_domestic_amount_with_logging()
+            
+            super().save(*args, **kwargs)
+
+    def _needs_recalculation(self):
+        """Check if transaction needs domestic amount recalculation."""
+        if not self.pk:
+            return True
         
-        # Determine if recalculation is needed
-        needs_recalculation = False
+        try:
+            old = Transaction.objects.get(pk=self.pk)
+            return (
+                old.original_amount != self.original_amount or
+                old.original_currency != self.original_currency or
+                old.date != self.date
+            )
+        except Transaction.DoesNotExist:
+            return True
+
+    def _recalculate_domestic_amount_with_logging(self):
+        """Recalculate domestic amount with comprehensive logging."""
+        logger.debug(
+            "Transaction recalculation triggered",
+            extra={
+                "transaction_id": self.id if self.id else "new",
+                "needs_recalculation": True,
+                "action": "transaction_recalculation_triggered",
+                "component": "Transaction",
+            },
+        )
         
-        if self.pk:
-            try:
-                old = Transaction.objects.get(pk=self.pk)
-                needs_recalculation = (
-                    old.original_amount != self.original_amount or
-                    old.original_currency != self.original_currency or
-                    old.date != self.date
-                )
-            except Transaction.DoesNotExist:
-                needs_recalculation = True
-        else:
-            needs_recalculation = True
-        
-        # Recalculate domestic amount if needed
-        if needs_recalculation:
+        try:
+            from .utils.currency_utils import recalculate_transactions_domestic_amount
+            transactions = recalculate_transactions_domestic_amount([self], self.workspace)
+            
+            if transactions and transactions[0].amount_domestic is not None:
+                self.amount_domestic = transactions[0].amount_domestic
+            else:
+                self.amount_domestic = self.original_amount
+                
             logger.debug(
-                "Transaction recalculation triggered",
+                "Transaction domestic amount recalculated",
                 extra={
                     "transaction_id": self.id if self.id else "new",
-                    "needs_recalculation": needs_recalculation,
-                    "action": "transaction_recalculation_triggered",
+                    "original_amount": float(self.original_amount),
+                    "domestic_amount": float(self.amount_domestic),
+                    "action": "transaction_recalculation_success",
                     "component": "Transaction",
                 },
             )
-            
-            try:
-                from .utils.currency_utils import recalculate_transactions_domestic_amount
-                transactions = recalculate_transactions_domestic_amount([self], self.workspace)
-                if transactions and transactions[0].amount_domestic is not None:
-                    self.amount_domestic = transactions[0].amount_domestic
-                else:
-                    self.amount_domestic = self.original_amount
-                    
-                logger.debug(
-                    "Transaction domestic amount recalculated",
-                    extra={
-                        "transaction_id": self.id if self.id else "new",
-                        "original_amount": float(self.original_amount),
-                        "domestic_amount": float(self.amount_domestic),
-                        "action": "transaction_recalculation_success",
-                        "component": "Transaction",
-                    },
-                )
-            except Exception as e:
-                logger.error(
-                    "Transaction recalculation failed",
-                    extra={
-                        "transaction_id": self.id if self.id else "new",
-                        "error_type": type(e).__name__,
-                        "error_message": str(e),
-                        "action": "transaction_recalculation_failed",
-                        "component": "Transaction",
-                        "severity": "high",
-                    },
-                    exc_info=True,
-                )
-                self.amount_domestic = self.original_amount
-        
-        super().save(*args, **kwargs)
+        except Exception as e:
+            logger.error(
+                "Transaction recalculation failed",
+                extra={
+                    "transaction_id": self.id if self.id else "new",
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "action": "transaction_recalculation_failed",
+                    "component": "Transaction",
+                    "severity": "high",
+                },
+                exc_info=True,
+            )
+            self.amount_domestic = self.original_amount
         
     @property
     def category(self):
-        """
-        Get the associated category regardless of type.
-        
-        Returns:
-            Category: ExpenseCategory or IncomeCategory instance
-        """
+        """Get the associated category regardless of type."""
         return self.expense_category or self.income_category
     
     def clean(self):
-        """
-        Validate transaction data and business rules.
-        """
+        """Validate transaction data and business rules."""
+        super().clean()
+        
         # Validate category consistency
         if self.expense_category and self.income_category:
             logger.warning(
@@ -1029,9 +1077,7 @@ class Transaction(models.Model):
         )
 
     def __str__(self):
-        """
-        String representation of Transaction.
-        """
+        """String representation of Transaction."""
         domestic_currency = getattr(self.workspace.settings, 'domestic_currency', 'EUR')
         return f"{self.user} | {self.type} | {self.amount_domestic} {domestic_currency}"
 
@@ -1040,6 +1086,7 @@ class Transaction(models.Model):
 # TRANSACTION DRAFTS
 # -------------------------------------------------------------------
 # Single transaction draft per workspace for UX work-in-progress
+
 
 class TransactionDraft(models.Model):
     """
@@ -1065,6 +1112,8 @@ class TransactionDraft(models.Model):
     last_modified = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = UserScopedManager()
+    
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -1079,56 +1128,35 @@ class TransactionDraft(models.Model):
         ordering = ['-last_modified']
         verbose_name_plural = "Transaction drafts"
 
-    '''def save(self, *args, **kwargs):
-        """
-        Save draft - automatically replaces any existing draft for this workspace/type.
-        """
-
-        if not self.user_id:
-            raise ValueError("User must be set before saving TransactionDraft")
-    
-        # Delete any existing draft for this user/workspace/type
-        TransactionDraft.objects.filter(
-            user=self.user,
-            workspace=self.workspace, 
-            draft_type=self.draft_type
-        ).delete()
-        
-        super().save(*args, **kwargs) '''
-
     def clean(self):
-        """
-        Basic validation for draft data structure.
-        """
+        """Basic validation for draft data structure."""
+        super().clean()
+        
         if not isinstance(self.transactions_data, list):
             raise ValidationError("Transactions data must be a list")
         
         # Validate each transaction in the draft
-        for i, transaction in enumerate(self.transactions_data):
-            if not isinstance(transaction, dict):
+        for i, transaction_data in enumerate(self.transactions_data):
+            if not isinstance(transaction_data, dict):
                 raise ValidationError(f"Transaction at index {i} must be a dictionary")
             
             # Basic field validation
-            if 'type' in transaction and transaction['type'] not in ['income', 'expense']:
+            if 'type' in transaction_data and transaction_data['type'] not in ['income', 'expense']:
                 raise ValidationError(f"Invalid transaction type at index {i}")
             
-            if 'original_amount' in transaction:
+            if 'original_amount' in transaction_data:
                 try:
-                    amount = float(transaction['original_amount'])
+                    amount = float(transaction_data['original_amount'])
                     if amount <= 0:
                         raise ValidationError(f"Invalid amount at index {i}")
                 except (TypeError, ValueError):
                     raise ValidationError(f"Invalid amount format at index {i}")
 
     def get_transactions_count(self):
-        """
-        Get number of transactions in draft.
-        """
+        """Get number of transactions in draft."""
         return len(self.transactions_data) if self.transactions_data else 0
 
     def __str__(self):
-        """
-        String representation of TransactionDraft.
-        """
+        """String representation of TransactionDraft."""
         count = self.get_transactions_count()
         return f"Draft: {self.user} | {self.draft_type or 'mixed'} | {count} transactions"
