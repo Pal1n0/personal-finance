@@ -239,7 +239,7 @@ class WorkspaceMembership(models.Model):
     """
     
     ROLE_CHOICES = [
-        ('admin', 'Admin'),
+        ('owner', 'Owner'),
         ('editor', 'Editor'), 
         ('viewer', 'Viewer'),
     ]
