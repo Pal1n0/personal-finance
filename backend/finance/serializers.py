@@ -6,6 +6,7 @@ with proper validation, error handling, and data transformation.
 """
 
 import logging
+from django.conf import settings
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
@@ -52,7 +53,8 @@ class UserSettingsSerializer(serializers.ModelSerializer):
         Raises:
             ValidationError: If language code is invalid
         """
-        valid_languages = ['en', 'sk', 'cs']  # Extend based on supported languages
+
+        valid_languages = [lang[0] for lang in getattr(settings, 'LANGUAGES', [])]
         
         if value not in valid_languages:
             logger.warning(
@@ -74,7 +76,6 @@ class UserSettingsSerializer(serializers.ModelSerializer):
 # -------------------------------------------------------------------
 # Workspace data with membership context and role information
 
-
 class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer):
     """
     Serializer for Workspace model with user membership information.
@@ -84,7 +85,7 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
     """
     
     owner_username = serializers.CharField(source='owner.username', read_only=True)
-    owner_email = serializers.CharField(source='owner.email', read_only=True)  # ADDED
+    owner_email = serializers.CharField(source='owner.email', read_only=True)
     user_role = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
     is_owner = serializers.SerializerMethodField()
@@ -93,11 +94,11 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
     class Meta:
         model = Workspace
         fields = [
-            'id', 'name', 'description', 'owner', 'owner_username', 'owner_email',  # ADDED owner_email
+            'id', 'name', 'description', 'owner', 'owner_username', 'owner_email',
             'user_role', 'member_count', 'is_owner', 'user_permissions',
             'created_at', 'is_active'
         ]
-        read_only_fields = ['id', 'owner', 'owner_username', 'owner_email', 'created_at']  # ADDED owner_email
+        read_only_fields = ['id', 'owner', 'owner_username', 'owner_email', 'created_at']
     
     def get_user_role(self, obj):
         """
@@ -111,20 +112,20 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
         """
         request = self.context.get('request')
         if request and request.user.is_authenticated:
-            membership = self._get_membership_for_workspace(obj, request)
+            role = self._get_membership_for_workspace(obj, request)
         
-            if membership:
+            if role:
                 logger.debug(
                     "User role retrieved from cache",
                     extra={
                         "user_id": request.user.id,
                         "workspace_id": obj.id,
-                        "user_role": membership.role,
+                        "user_role": role,
                         "action": "user_role_retrieved_cached",
                         "component": "WorkspaceSerializer",
                     },
                 )
-                return membership.role
+                return role
             else:
                 logger.warning(
                     "Workspace membership not found in cache",
@@ -179,7 +180,7 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
         """
         request = self.context.get('request')
         if request and request.user.is_authenticated:
-            is_owner = obj.owner == request.user
+            is_owner = obj.owner_id == request.user.id
             
             logger.debug(
                 "Ownership check completed",
@@ -211,17 +212,17 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
         if not request or not request.user.is_authenticated:
             return self._get_anonymous_permissions()
         
-        membership = self._get_membership_for_workspace(obj, request)
+        user_role = self._get_membership_for_workspace(obj, request)
     
-        if membership:
-            permissions = self._calculate_user_permissions(obj, membership, request.user)
+        if user_role:
+            permissions = self._calculate_user_permissions(obj, user_role, request.user)
             
             logger.debug(
                 "User permissions calculated from cached membership",
                 extra={
                     "user_id": request.user.id,
                     "workspace_id": obj.id,
-                    "user_role": membership.role,
+                    "user_role": user_role,
                     "permissions_count": len(permissions),
                     "action": "user_permissions_calculated_cached",
                     "component": "WorkspaceSerializer",
@@ -242,20 +243,20 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
             )
             return self._get_anonymous_permissions()
     
-    def _calculate_user_permissions(self, workspace, membership, user):
+    def _calculate_user_permissions(self, workspace, user_role, user):
         """
         Calculate user permissions based on role and workspace state.
         
         Args:
             workspace: Workspace instance
-            membership: WorkspaceMembership instance
+            user_role: User's role in workspace
             user: User instance
             
         Returns:
             dict: Calculated permissions
         """
-        is_owner = workspace.owner == user
-        is_admin_owner = membership.role in ['admin', 'owner']
+        is_owner = workspace.owner_id == user.id
+        is_admin_owner = user_role in ['admin', 'owner']
         workspace_active = workspace.is_active
         
         permissions = {
@@ -274,7 +275,7 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
             'can_invite': is_admin_owner and workspace_active,
             
             # Data management
-            'can_create_transactions': membership.role in ['editor', 'admin', 'owner'] and workspace_active,
+            'can_create_transactions': user_role in ['editor', 'admin', 'owner'] and workspace_active,
             'can_view_transactions': workspace_active or is_admin_owner,
             
             # Ownership-specific permissions
@@ -411,7 +412,6 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
 # -------------------------------------------------------------------
 # Membership data with role-based permission validation
 
-
 class WorkspaceMembershipSerializer(serializers.ModelSerializer):
     """
     Serializer for WorkspaceMembership model.
@@ -423,13 +423,13 @@ class WorkspaceMembershipSerializer(serializers.ModelSerializer):
     user_username = serializers.CharField(source='user.username', read_only=True)
     user_email = serializers.CharField(source='user.email', read_only=True)
     workspace_name = serializers.CharField(source='workspace.name', read_only=True)
-    is_workspace_owner = serializers.SerializerMethodField()  # ADDED FOR CLARITY
+    is_workspace_owner = serializers.SerializerMethodField()
     
     class Meta:
         model = WorkspaceMembership
         fields = [
             'id', 'workspace', 'workspace_name', 'user', 'user_username', 
-            'user_email', 'role', 'is_workspace_owner', 'joined_at'  # ADDED is_workspace_owner
+            'user_email', 'role', 'is_workspace_owner', 'joined_at'
         ]
         read_only_fields = ['id', 'workspace', 'user', 'joined_at', 'is_workspace_owner']
     
@@ -546,7 +546,6 @@ class WorkspaceMembershipSerializer(serializers.ModelSerializer):
 # -------------------------------------------------------------------
 # Workspace configuration with currency and fiscal settings
 
-
 class WorkspaceSettingsSerializer(serializers.ModelSerializer):
     """
     Serializer for workspace-specific settings.
@@ -655,7 +654,6 @@ class IncomeCategoryVersionSerializer(serializers.ModelSerializer):
 # -------------------------------------------------------------------
 # Hierarchical category data with relationships
 
-
 class ExpenseCategorySerializer(CategoryWorkspaceMixin, serializers.ModelSerializer):
     """
     Serializer for Expense Category model.
@@ -726,13 +724,10 @@ class IncomeCategorySerializer(CategoryWorkspaceMixin, serializers.ModelSerializ
         
         return stripped_value
 
-    
-
 # -------------------------------------------------------------------
 # TRANSACTION SERIALIZER
 # -------------------------------------------------------------------
 # Financial transactions with category validation and currency conversion
-
 
 class TransactionSerializer(TargetUserMixin, serializers.ModelSerializer):
     """
@@ -779,17 +774,27 @@ class TransactionSerializer(TargetUserMixin, serializers.ModelSerializer):
         if request and hasattr(request, 'workspace'):
             workspace = request.workspace
             
-            # Expense categories limited to current workspace
-            self.fields['expense_category'].queryset = ExpenseCategory.objects.filter(
-                version__workspace=workspace,
-                is_active=True
-            )
+            # Use cached category lists if available
+            if hasattr(request, '_cached_expense_categories'):
+                expense_categories = request._cached_expense_categories
+            else:
+                expense_categories = ExpenseCategory.objects.filter(
+                    version__workspace=workspace,
+                    is_active=True
+                )
+                request._cached_expense_categories = expense_categories
             
-            # Income categories limited to current workspace  
-            self.fields['income_category'].queryset = IncomeCategory.objects.filter(
-                version__workspace=workspace,
-                is_active=True
-            )
+            if hasattr(request, '_cached_income_categories'):
+                income_categories = request._cached_income_categories
+            else:
+                income_categories = IncomeCategory.objects.filter(
+                    version__workspace=workspace,
+                    is_active=True
+                )
+                request._cached_income_categories = income_categories
+            
+            self.fields['expense_category'].queryset = expense_categories
+            self.fields['income_category'].queryset = income_categories
             
             logger.debug(
                 "TransactionSerializer initialized with workspace-scoped categories",
@@ -887,12 +892,12 @@ class TransactionSerializer(TargetUserMixin, serializers.ModelSerializer):
             workspace = request.workspace
             
             # Verify categories belong to correct workspace
-            if expense_category and expense_category.version.workspace != workspace:
+            if expense_category and expense_category.version.workspace_id != workspace.id:
                 logger.warning(
                     "Security violation attempted - expense category from different workspace",
                     extra={
                         "provided_category_id": expense_category.id,
-                        "category_workspace_id": expense_category.version.workspace.id,
+                        "category_workspace_id": expense_category.version.workspace_id,
                         "target_workspace_id": workspace.id,
                         "action": "cross_workspace_category_access_attempt",
                         "component": "TransactionSerializer",
@@ -901,12 +906,12 @@ class TransactionSerializer(TargetUserMixin, serializers.ModelSerializer):
                 )
                 raise DRFValidationError("Expense category does not belong to this workspace")
                 
-            if income_category and income_category.version.workspace != workspace:
+            if income_category and income_category.version.workspace_id != workspace.id:
                 logger.warning(
                     "Security violation attempted - income category from different workspace",
                     extra={
                         "provided_category_id": income_category.id,
-                        "category_workspace_id": income_category.version.workspace.id,
+                        "category_workspace_id": income_category.version.workspace_id,
                         "target_workspace_id": workspace.id,
                         "action": "cross_workspace_category_access_attempt",
                         "component": "TransactionSerializer",
@@ -960,12 +965,10 @@ class TransactionSerializer(TargetUserMixin, serializers.ModelSerializer):
         
         return value
 
-
 # -------------------------------------------------------------------
 # TRANSACTION LIST SERIALIZER
 # -------------------------------------------------------------------
-# Only for get requests lightiwhg
-
+# Only for get requests lightweight
 
 class TransactionListSerializer(serializers.ModelSerializer):
     """
@@ -1042,7 +1045,6 @@ class TransactionListSerializer(serializers.ModelSerializer):
 # -------------------------------------------------------------------
 # Currency exchange rates with validation
 
-
 class ExchangeRateSerializer(serializers.ModelSerializer):
     """
     Serializer for Exchange Rate model.
@@ -1107,6 +1109,7 @@ class ExchangeRateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Exchange rate must be positive")
         
         return value
+
 # -------------------------------------------------------------------
 # TRANSACTION DRAFT SERIALIZER
 # -------------------------------------------------------------------
@@ -1130,5 +1133,3 @@ class TransactionDraftSerializer(TargetUserMixin, serializers.ModelSerializer):
     def get_transactions_count(self, obj):
         """Get number of transactions in draft."""
         return obj.get_transactions_count()
-
-    

@@ -147,7 +147,7 @@ class IsWorkspaceEditor(permissions.BasePermission):
     """
     
     # Define authorized write roles
-    WRITE_ROLES = ['writer', 'owner']
+    WRITE_ROLES = ['editor', 'owner']
     
     def has_permission(self, request, view):
         """

@@ -9,8 +9,6 @@ import logging
 from django.db import models, transaction
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from .managers import UserScopedManager
-
 
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
@@ -29,11 +27,7 @@ class UserSettings(models.Model):
     and other personalization options.
     """
     
-    LANGUAGE_CHOICES = [
-        ('en', 'English'),
-        ('cs', 'Czech'),
-        ('sk', 'Slovak'),
-    ]
+    LANGUAGE_CHOICES = settings.LANGUAGES
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, 
@@ -898,7 +892,6 @@ class Transaction(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    objects = UserScopedManager()
 
     class Meta:
         indexes = [
@@ -906,6 +899,9 @@ class Transaction(models.Model):
             models.Index(fields=['user', 'month']),
             models.Index(fields=['user', 'type']),
             models.Index(fields=['workspace', 'date']),
+            models.Index(fields=['workspace', 'month'], name='idx_workspace_month'),
+            models.Index(fields=['workspace', 'type', 'date'], name='idx_workspace_type_date'),
+            models.Index(fields=['workspace', 'user'], name='idx_workspace_user'),
         ]
         ordering = ['-date', '-created_at']
 
@@ -1112,8 +1108,6 @@ class TransactionDraft(models.Model):
     last_modified = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects = UserScopedManager()
-    
     class Meta:
         constraints = [
             models.UniqueConstraint(

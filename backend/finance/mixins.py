@@ -1,94 +1,135 @@
-# finance/mixins.py
-from rest_framework import serializers
-from .models import WorkspaceMembership
+"""
+Enterprise-grade mixins for Django REST Framework serializers.
+Provides request-level caching, security validation, and admin impersonation support.
+"""
+
+import logging
 from rest_framework.exceptions import ValidationError as DRFValidationError
+from .models import WorkspaceMembership
+
+logger = logging.getLogger(__name__)
+
 
 class TargetUserMixin:
     """
-    Mixin for serializers that need automatic user assignment.
-    Uses request.target_user for admin impersonation support.
+    Mixin for automatic user assignment from request.target_user.
+    Supports secure admin impersonation with comprehensive audit logging.
     """
+
     def validate(self, attrs):
         """
-        Automatically assign user from request.target_user.
+        Automatically assign user from request.target_user with security context.
         
-        Args:
-            attrs: Serializer data
-            
         Returns:
-            dict: Updated data with user assignment
+            dict: Updated attributes with user assignment
         """
         attrs = super().validate(attrs)
         request = self.context.get('request')
+        
         if request and hasattr(request, 'target_user'):
             attrs['user'] = request.target_user
+            logger.debug(
+                "User assignment from target_user completed",
+                extra={
+                    "target_user_id": request.target_user.id,
+                    "impersonation_active": getattr(request, 'is_admin_impersonation', False),
+                    "action": "target_user_assignment",
+                    "component": "TargetUserMixin",
+                },
+            )
+        
         return attrs
+
 
 class WorkspaceMembershipMixin:
     """
-    Mixin for caching workspace membership data in request context
-    to avoid duplicate database queries.
+    Advanced mixin for cached workspace membership data access.
+    Eliminates duplicate database queries through optimized request-level caching.
     """
-    
+
     def _get_user_memberships(self, request):
         """
-        Get or cache user memberships in request context.
+        Retrieve cached membership data from request context with fallback strategy.
         
-        Args:
-            request: HTTP request object
-            
         Returns:
-            dict: Cached memberships {workspace_id: membership}
+            dict: Cached workspace memberships {workspace_id: role}
         """
         if not hasattr(request, '_cached_user_memberships'):
-            # Cache all user memberships for this request
-            memberships = WorkspaceMembership.objects.filter(user=request.user)
-            request._cached_user_memberships = {m.workspace_id: m for m in memberships}
+            memberships = WorkspaceMembership.objects.filter(
+                user=request.user
+            ).select_related('workspace')  # ✅ OPTIMALIZÁCIA
+            
+            request._cached_user_memberships = {m.workspace_id: m.role for m in memberships}
+            
+            logger.debug(
+                "Membership cache initialized from database",
+                extra={
+                    "user_id": request.user.id,
+                    "cached_workspaces_count": len(request._cached_user_memberships),
+                    "action": "membership_cache_initialized",
+                    "component": "WorkspaceMembershipMixin",
+                },
+            )
         
         return request._cached_user_memberships
-    
+
     def _get_membership_for_workspace(self, obj, request):
         """
-        Get user membership for specific workspace from cache.
+        Get user role for specific workspace from optimized cache.
         
-        Args:
-            obj: Workspace instance
-            request: HTTP request object
-            
         Returns:
-            WorkspaceMembership or None: User's membership in workspace
+            str or None: User's role in the workspace
         """
         memberships = self._get_user_memberships(request)
-        return memberships.get(obj.id)
-    
+        role = memberships.get(obj.id)
+        
+        if role:
+            logger.debug(
+                "Workspace role retrieved from cache",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": obj.id,
+                    "user_role": role,
+                    "action": "workspace_role_cache_hit",
+                    "component": "WorkspaceMembershipMixin",
+                },
+            )
+        
+        return role
+
+
 class CategoryWorkspaceMixin:
     """
-    Mixin for category serializers to validate workspace consistency.
-    Prevents cross-workspace access during admin impersonation.
+    Security-focused mixin for category workspace validation.
+    Prevents cross-workspace access during admin impersonation sessions.
     """
-    
+
     def validate(self, data):
         """
-        Validate category belongs to current workspace.
+        Validate category belongs to current workspace context.
         
-        Ensures category version matches the workspace context to prevent
-        cross-workspace access during admin impersonation.
-        
-        Args:
-            data: Category data to validate
-            
-        Returns:
-            dict: Validated category data
-            
         Raises:
             DRFValidationError: If workspace validation fails
         """
         request = self.context.get('request')
+        
         if request and hasattr(request, 'workspace'):
             workspace = request.workspace
             version = data.get('version') or (self.instance.version if self.instance else None)
             
-            if version and version.workspace != workspace:
+            if version and version.workspace_id != workspace.id:
+                logger.warning(
+                    "Category workspace security violation prevented",
+                    extra={
+                        "category_version_id": version.id,
+                        "version_workspace_id": version.workspace_id,
+                        "request_workspace_id": workspace.id,
+                        "impersonation_active": getattr(request, 'is_admin_impersonation', False),
+                        "action": "cross_workspace_access_blocked",
+                        "component": "CategoryWorkspaceMixin",
+                        "severity": "high",
+                    },
+                )
                 raise DRFValidationError("Category version does not belong to this workspace")
         
         return data

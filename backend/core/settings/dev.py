@@ -155,11 +155,11 @@ try:
     security_index = MIDDLEWARE.index('django.middleware.security.SecurityMiddleware')
     
     # Insert our query monitoring middleware
-    MIDDLEWARE.insert(security_index + 1, 'core.middleware.query_monitoring.QueryCountMiddleware')
+    MIDDLEWARE.insert(security_index + 1, 'core.middleware.QueryCountMiddleware')
     
     # Optional: Add debug middleware for detailed SQL output
     if QUERY_DEBUG_ENABLED:
-        MIDDLEWARE.insert(security_index + 2, 'core.middleware.query_monitoring.QueryDebugMiddleware')
+        MIDDLEWARE.insert(security_index + 2, 'core.middleware.QueryDebugMiddleware')
         
 except ValueError:
     # Fallback: add to beginning if SecurityMiddleware not found
