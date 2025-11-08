@@ -191,7 +191,7 @@ def exchange_rate_usd(db):
     return ExchangeRate.objects.create(
         currency='USD',
         rate_to_eur=0.85,
-        date=timezone.now().date()
+        date=date(2025, 11, 1),
     )
 
 # =============================================================================
@@ -208,8 +208,8 @@ def expense_transaction(db, test_user, test_workspace, expense_root_category, wo
         original_amount=100.50,
         original_currency='EUR',
         amount_domestic=100.50,
-        date=timezone.now().date(),
-        month=timezone.now().date().replace(day=1),
+        date=date(2025, 11, 8),
+        month=date(2025, 11, 1),
         tags=['potraviny', 'nakup'],
         note_manual='Nákup potravín'  
     )
@@ -300,25 +300,6 @@ def income_child_category(db, income_category_version, income_root_category):
     )
     income_root_category.children.add(child)
     return child
-
-# finance/tests/conftest.py
-@pytest.fixture
-def exchange_rate_usd(db):
-    """USD exchange rate"""
-    return ExchangeRate.objects.create(
-        currency='USD',
-        rate_to_eur=Decimal('0.85'),
-        date=timezone.now().date()
-    )
-
-@pytest.fixture
-def exchange_rate_gbp(db):
-    """GBP exchange rate"""
-    return ExchangeRate.objects.create(
-        currency='GBP',
-        rate_to_eur=Decimal('0.75'),
-        date=timezone.now().date()
-    )
 
 @pytest.fixture
 def workspace_settings_other_currency(db, test_workspace):
@@ -420,4 +401,13 @@ def exchange_rate_usd_2024_jan20():
         currency='USD',
         rate_to_eur=Decimal('0.86'),  # Iný rate ako pre 2024-01-15
         date=date(2024, 1, 20)
+    )
+
+@pytest.fixture
+def exchange_rate_usd_2025_11_08(db):
+    """USD exchange rate pre dátum 2025-11-08"""
+    return ExchangeRate.objects.create(
+        currency='USD',
+        rate_to_eur=Decimal('0.85'),
+        date=date(2025, 11, 8)
     )

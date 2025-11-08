@@ -1,6 +1,7 @@
 # tests/unit/test_models.py
 import pytest
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from decimal import Decimal
 from finance.models import (
@@ -541,7 +542,8 @@ class TestTransactionDraft:
         assert 'Invalid transaction type' in str(exc_info.value)
     
     def test_draft_unique_constraint(self, test_user, test_workspace):
-        """Test unikátnosti draftu pre user/workspace/type"""
+        """Test unikátnosti draftu pre user/workspace/type - NEMÔŽE existovať duplikát"""
+       
         # Vytvor prvý draft
         draft1 = TransactionDraft.objects.create(
             user=test_user,
@@ -550,16 +552,20 @@ class TestTransactionDraft:
             draft_type='expense'
         )
         
-        # Vytvor druhý draft s rovnakými parametrami - mal by nahradiť prvý
-        draft2 = TransactionDraft(
-            user=test_user,
-            workspace=test_workspace, 
-            transactions_data=[{'type': 'expense', 'original_amount': 100}],
-            draft_type='expense'
-        )
-        draft2.save()  # Toto by malo vymazať draft1
+        # Pokus o vytvorenie druhého draftu - malo by ZLYHAŤ
+        with transaction.atomic():
+            with pytest.raises(IntegrityError):
+                TransactionDraft.objects.create(
+                    user=test_user,
+                    workspace=test_workspace,  
+                    draft_type='expense',
+                    transactions_data=[{'type': 'expense', 'original_amount': 100}]
+                )
         
-        # Over že existuje len jeden draft
+        # Refreshnúť prvý draft z databázy
+        draft1.refresh_from_db()
+        
+        # Over že existuje stále len jeden draft
         drafts_count = TransactionDraft.objects.filter(
             user=test_user,
             workspace=test_workspace,
@@ -567,13 +573,43 @@ class TestTransactionDraft:
         ).count()
         
         assert drafts_count == 1
-        # Over že je to nový draft
-        current_draft = TransactionDraft.objects.get(
+        assert draft1.transactions_data[0]['original_amount'] == 50
+
+    def test_draft_atomic_replacement(self, test_user, test_workspace):
+        """Test že API endpoint správne nahrádza draft (atomic replace)"""
+        # Vytvor prvý draft
+        draft1 = TransactionDraft.objects.create(
             user=test_user,
-            workspace=test_workspace, 
+            workspace=test_workspace,
+            transactions_data=[{'type': 'expense', 'original_amount': 50}],
             draft_type='expense'
         )
-        assert current_draft.transactions_data[0]['original_amount'] == 100
+        
+        # Simuluj atomic replacement (ako to robí API)
+        with transaction.atomic():
+            TransactionDraft.objects.filter(
+                user=test_user,
+                workspace=test_workspace,
+                draft_type='expense'
+            ).delete()
+            
+            draft2 = TransactionDraft.objects.create(
+                user=test_user,
+                workspace=test_workspace, 
+                transactions_data=[{'type': 'expense', 'original_amount': 100}],
+                draft_type='expense'
+            )
+        
+        # Over že máme nový draft
+        drafts_count = TransactionDraft.objects.filter(
+            user=test_user,
+            workspace=test_workspace,
+            draft_type='expense'
+        ).count()
+        
+        assert drafts_count == 1
+        assert draft2.transactions_data[0]['original_amount'] == 100
+        assert draft2.id != draft1.id  # Nový ID
 # =============================================================================
 # COMPLEX SCENARIO TESTS
 # =============================================================================

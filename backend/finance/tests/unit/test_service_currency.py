@@ -74,7 +74,7 @@ class TestCurrencyService:
         assert 'Invalid currency' in str(exc_info.value)
         assert 'INVALID_CURRENCY' in str(exc_info.value)
     
-    def test_change_workspace_currency_success(self, workspace_settings, expense_transaction, exchange_rate_usd):
+    def test_change_workspace_currency_success(self, workspace_settings, expense_transaction, exchange_rate_usd_2025_11_08):
         """Test úspešnej zmeny meny"""
         # Presvedčíme sa že máme transakciu s EUR
         assert workspace_settings.domestic_currency == 'EUR'

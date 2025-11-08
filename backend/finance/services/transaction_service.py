@@ -263,19 +263,19 @@ class TransactionService:
                     "component": "TransactionService",
                 },
             )
+
+            transactions_to_delete = Transaction.objects.filter(
+            id__in=transactions_data['delete'],
+            workspace=workspace,
+            user=user
+            )
+
+            deleted_ids = list(transactions_to_delete.values_list('id', flat=True))
             
             # Single query to verify and delete in one operation
-            deleted_info = Transaction.objects.filter(
-                id__in=transactions_data['delete'],
-                workspace=workspace,
-                user=user
-            ).delete()
-            
+            deleted_info = transactions_to_delete.delete()
             deleted_count = deleted_info[0] if deleted_info else 0
-            deleted_ids = list(Transaction.objects.filter(
-                id__in=transactions_data['delete']
-            ).values_list('id', flat=True))
-            
+
             # Identify invalid IDs for error reporting
             valid_ids_set = set(deleted_ids)
             invalid_ids = [id for id in transactions_data['delete'] if id not in valid_ids_set]
