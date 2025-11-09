@@ -1,6 +1,7 @@
 # finance/middleware.py
 import logging
 from django.core.cache import cache
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils.deprecation import MiddlewareMixin
 from django.db import DatabaseError
@@ -23,7 +24,7 @@ class AdminImpersonationMiddleware(MiddlewareMixin):
     # Security constants
     MAX_IMPERSONATIONS_PER_MINUTE = 10
     IMPERSONATION_CACHE_TIMEOUT = 60  # seconds
-    SYSTEM_USER_EMAIL_DOMAINS = ('@system', '@admin', '@internal')
+    ALLOWED_SUPERUSER_EMAILS = settings.PROTECTED_SUPERUSER_EMAILS
     
     def process_view(self, request, view_func, view_args, view_kwargs):
         """
@@ -107,6 +108,7 @@ class AdminImpersonationMiddleware(MiddlewareMixin):
         request.is_admin_impersonation = False
         request.impersonation_type = None
         request.impersonation_workspace_ids = []
+        request.workspace = None
         
         request.user_permissions = {
             'is_superuser': False,
@@ -166,7 +168,10 @@ class AdminImpersonationMiddleware(MiddlewareMixin):
                 request.user_permissions['workspace_exists'] = workspace_exists
                 request.user_permissions['current_workspace_id'] = workspace_id
                 
-                if not workspace_exists:
+                if workspace_exists:
+                    request.workspace = Workspace.objects.get(id=workspace_id)
+
+                else:
                     logger.warning(
                         "Access attempt to non-existent workspace",
                         extra={
@@ -252,6 +257,21 @@ class AdminImpersonationMiddleware(MiddlewareMixin):
                 },
             )
 
+    def _validate_superuser_email(self, user):
+        """Check if user can be superuser based on email"""
+        if user.is_superuser and user.email not in self.PROTECTED_SUPERUSER_EMAILS:
+            logger.critical(
+                "Security violation: Unauthorized superuser email",
+                extra={
+                    "user_id": user.id,
+                    "email": user.email,
+                    "action": "unauthorized_superuser_email",
+                    "severity": "critical",
+                },
+            )
+            return False
+        return True
+    
     def _validate_impersonation_target(self, admin_user, target_user):
         """
         Validate impersonation target for security compliance.
@@ -272,9 +292,8 @@ class AdminImpersonationMiddleware(MiddlewareMixin):
             )
             return False
             
-        # Prevent superuser impersonation by non-superusers
-        if (target_user.is_superuser and 
-            not admin_user.is_superuser):
+        # Prevent non-superusers from impersonating superusers  
+        if target_user.is_superuser and not admin_user.is_superuser:
             logger.warning(
                 "Non-superuser attempted to impersonate superuser",
                 extra={
@@ -287,14 +306,15 @@ class AdminImpersonationMiddleware(MiddlewareMixin):
             )
             return False
             
-        # Prevent impersonation of system accounts
-        if any(target_user.email.endswith(domain) for domain in self.SYSTEM_USER_EMAIL_DOMAINS):
+        # Validate superuser emails for security
+        if not self._validate_superuser_email(target_user):
             logger.warning(
-                "System account impersonation attempt blocked",
+                "Unauthorized superuser impersonation attempt blocked",
                 extra={
                     "admin_id": admin_user.id,
                     "target_user_id": target_user.id,
-                    "action": "system_account_impersonation_blocked",
+                    "target_user_email": target_user.email,
+                    "action": "unauthorized_superuser_impersonation_blocked",
                     "component": "AdminImpersonationMiddleware",
                     "severity": "high",
                 },

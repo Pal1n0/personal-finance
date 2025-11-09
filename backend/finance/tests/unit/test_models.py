@@ -125,6 +125,20 @@ class TestWorkspaceMembership:
         valid_roles = ['admin', 'editor', 'viewer']
         assert workspace_member.role in valid_roles
 
+    def test_membership_cannot_add_owner(self):
+        with self.assertRaises(ValidationError) as context:
+            membership = WorkspaceMembership(
+                workspace=self.workspace,
+                user=self.owner,  # 🚨 Trying to add owner as regular member
+                role='editor'
+            )
+            membership.full_clean()
+        self.assertIn('Workspace owner should not be added as a regular membership', str(context.exception))
+
+    def test_membership_role_choices_only_editor_viewer(self):
+        valid_roles = ['editor', 'viewer']  # 🚨 Only these two now
+        self.assertIn(self.membership.role, valid_roles)
+
 # =============================================================================
 # WORKSPACE SETTINGS TESTS
 # =============================================================================

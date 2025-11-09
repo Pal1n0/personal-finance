@@ -98,6 +98,13 @@ ACCOUNT_EMAIL_CONFIRMATION_DONE_URL = "/email-verified/"
 ACCOUNT_EMAIL_CONFIRMATION_HMAC = True
 ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 3
 
+PROTECTED_SUPERUSER_EMAILS = [
+    'admin@financeapp.com',
+    'superuser@financeapp.com', 
+    'tech@financeapp.com',
+    'system@financeapp.com'
+]
+
 # REST Auth configuration
 REST_AUTH = {
     "USE_JWT": True,

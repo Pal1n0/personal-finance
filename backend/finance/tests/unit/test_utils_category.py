@@ -1,10 +1,12 @@
 # finance/tests/unit/test_utils_category.py
 import pytest
 from django.core.exceptions import ValidationError
+from finance.models import ExpenseCategory
 from finance.utils.category_utils import (
     validate_category_hierarchy, 
     sync_categories_tree,
-    CategorySyncError
+    CategorySyncError,
+    check_category_usage
 )
 
 
@@ -29,7 +31,6 @@ class TestValidateCategoryHierarchy:
     
     def test_validate_empty_data(self, expense_category_version):
         """Test validácie prázdnych dát"""
-        from finance.models import ExpenseCategory
         
         data = {}
         validate_category_hierarchy(data, expense_category_version, ExpenseCategory)
@@ -57,7 +58,6 @@ class TestValidateCategoryHierarchy:
     
     def test_validate_invalid_create_missing_name(self, expense_category_version):
         """Test validácie create operácií s chýbajúcim menom"""
-        from finance.models import ExpenseCategory
         
         data = {
             'create': [
@@ -74,7 +74,6 @@ class TestValidateCategoryHierarchy:
     
     def test_validate_invalid_create_missing_temp_id(self, expense_category_version):
         """Test validácie create operácií s chýbajúcim temp_id"""
-        from finance.models import ExpenseCategory
         
         data = {
             'create': [
@@ -123,7 +122,6 @@ class TestValidateCategoryHierarchy:
     
     def test_validate_delete_operations(self, expense_category_version, expense_root_category):
         """Test validácie delete operácií"""
-        from finance.models import ExpenseCategory
         
         data = {
             'delete': [expense_root_category.id]
@@ -147,7 +145,6 @@ class TestSyncCategoriesTree:
     
     def test_sync_basic_create(self, expense_category_version):
         """Test základnej synchronizácie s create operáciami"""
-        from finance.models import ExpenseCategory
         
         data = {
             'create': [
@@ -174,7 +171,6 @@ class TestSyncCategoriesTree:
     
     def test_sync_create_with_parent_child(self, expense_category_version):
         """Test synchronizácie s parent-child vzťahmi"""
-        from finance.models import ExpenseCategory
         
         data = {
             'create': [
@@ -210,7 +206,6 @@ class TestSyncCategoriesTree:
     
     def test_sync_update_operation(self, expense_category_version, expense_root_category):
         """Test synchronizácie s update operáciou"""
-        from finance.models import ExpenseCategory
         
         original_name = expense_root_category.name
         
@@ -238,7 +233,6 @@ class TestSyncCategoriesTree:
     
     def test_sync_delete_operation(self, expense_category_version, expense_root_category):
         """Test synchronizácie s delete operáciou"""
-        from finance.models import ExpenseCategory
         
         category_id = expense_root_category.id
         
@@ -257,7 +251,6 @@ class TestSyncCategoriesTree:
     
     def test_sync_complex_operations(self, expense_category_version, expense_root_category):
         """Test komplexnej synchronizácie s viacerými operáciami"""
-        from finance.models import ExpenseCategory
         
         # Pôvodná kategória na update
         update_id = expense_root_category.id
@@ -306,7 +299,6 @@ class TestSyncCategoriesTree:
     
     def test_sync_invalid_category_for_update(self, expense_category_version):
         """Test synchronizácie s neplatnou kategóriou pre update"""
-        from finance.models import ExpenseCategory
         
         data = {
             'update': [
@@ -325,7 +317,6 @@ class TestSyncCategoriesTree:
     
     def test_sync_validation_error(self, expense_category_version):
         """Test synchronizácie s validačnou chybou"""
-        from finance.models import ExpenseCategory
         
         data = {
             'create': [
@@ -348,7 +339,6 @@ class TestCategoryHierarchyScenarios:
     
     def test_flat_structure_only_level5(self, expense_category_version):
         """Test plochej štruktúry - len level 5 kategórie"""
-        from finance.models import ExpenseCategory
         
         data = {
             'create': [
@@ -373,7 +363,6 @@ class TestCategoryHierarchyScenarios:
     
     def test_mixed_structure(self, expense_category_version):
         """Test zmiešanej štruktúry - hierarchia aj ploché kategórie"""
-        from finance.models import ExpenseCategory
         
         data = {
             'create': [
@@ -406,7 +395,6 @@ class TestCategoryHierarchyScenarios:
     
     def test_circular_reference_detection(self, expense_category_version):
         """Test detekcie cyklických referencií"""
-        from finance.models import ExpenseCategory
         
         # Vytvoríme kategórie ktoré budú mať cyklickú referenciu
         data = {
@@ -449,3 +437,115 @@ class TestCategoryHierarchyScenarios:
         with pytest.raises(ValidationError) as exc_info:
             validate_category_hierarchy(update_data, expense_category_version, ExpenseCategory)
         assert 'circular' in str(exc_info.value).lower()
+
+    def test_sync_cannot_move_used_leaf_category(self, expense_category_version, expense_leaf_category, transaction_with_expense):
+        """Test že leaf kategória s transakciami sa nedá presunúť"""
+        
+        data = {
+            'update': [
+                {
+                    'id': expense_leaf_category.id,
+                    'name': expense_leaf_category.name,
+                    'level': expense_leaf_category.level,
+                    'parent_id': None  # Pokus o presun
+                }
+            ]
+        }
+        
+        result = sync_categories_tree(data, expense_category_version, ExpenseCategory)
+        
+        assert len(result['errors']) > 0
+        assert 'used in transactions' in result['errors'][0].lower()
+
+    def test_sync_can_move_unused_leaf_category(self, expense_category_version, expense_leaf_category):
+        """Test že leaf kategória bez transakcií sa dá presunúť"""
+        
+        # Vytvor rodičovskú kategóriu
+        parent = ExpenseCategory.objects.create(
+            name="Parent Category",
+            level=4,
+            version=expense_category_version
+        )
+        
+        data = {
+            'update': [
+                {
+                    'id': expense_leaf_category.id,
+                    'name': expense_leaf_category.name,
+                    'level': expense_leaf_category.level,
+                    'parent_id': parent.id
+                }
+            ]
+        }
+        
+        result = sync_categories_tree(data, expense_category_version, ExpenseCategory)
+        
+        assert len(result['errors']) == 0
+        assert len(result['updated']) == 1
+        
+        # Over že vzťah bol vytvorený
+        expense_leaf_category.refresh_from_db()
+        assert parent in expense_leaf_category.parents.all()
+
+    def test_sync_can_move_non_leaf_category(self, expense_category_version, expense_root_category):
+        """Test že non-leaf kategórie sa môžu presúvať"""
+        
+        # Vytvor nového rodiča
+        new_parent = ExpenseCategory.objects.create(
+            name="New Parent",
+            level=1, 
+            version=expense_category_version
+        )
+        
+        data = {
+            'update': [
+                {
+                    'id': expense_root_category.id,
+                    'name': expense_root_category.name,
+                    'level': expense_root_category.level,
+                    'parent_id': new_parent.id
+                }
+            ]
+        }
+        
+        result = sync_categories_tree(data, expense_category_version, ExpenseCategory)
+        
+        assert len(result['errors']) == 0
+        assert len(result['updated']) == 1
+
+    def test_sync_cannot_move_level1_to_parent(self, expense_category_version, expense_root_category):
+        """Test že level 1 kategórie nemôžu mať rodiča"""
+        
+        # Pokus dať level 1 kategórii rodiča (čo by malo zlyhať v validácii)
+        fake_parent_id = 9999
+        
+        data = {
+            'update': [
+                {
+                    'id': expense_root_category.id,
+                    'name': expense_root_category.name,
+                    'level': 1,
+                    'parent_id': fake_parent_id
+                }
+            ]
+        }
+        
+        with pytest.raises(ValidationError) as exc_info:
+            validate_category_hierarchy(data, expense_category_version, ExpenseCategory)
+        assert 'level 1' in str(exc_info.value).lower()
+
+    def test_check_category_usage_function(self, expense_leaf_category, transaction_with_expense):
+        """Test helper funkcie pre kontrolu používania"""
+        
+        # Test s používanou kategóriou
+        is_used = check_category_usage(expense_leaf_category.id, ExpenseCategory)
+        assert is_used == True
+        
+        # Test s nepoužívanou kategóriou  
+        unused_category = ExpenseCategory.objects.create(
+            name="Unused Category",
+            level=5,
+            version=expense_leaf_category.version
+        )
+        is_used = check_category_usage(unused_category.id, ExpenseCategory)
+        assert is_used == False

@@ -18,25 +18,39 @@ class TargetUserMixin:
 
     def validate(self, attrs):
         """
-        Automatically assign user from request.target_user with security context.
+        Automatically assign user and workspace from request context.
         
         Returns:
-            dict: Updated attributes with user assignment
+            dict: Updated attributes with user and workspace assignment
         """
         attrs = super().validate(attrs)
         request = self.context.get('request')
         
-        if request and hasattr(request, 'target_user'):
-            attrs['user'] = request.target_user
-            logger.debug(
-                "User assignment from target_user completed",
-                extra={
-                    "target_user_id": request.target_user.id,
-                    "impersonation_active": getattr(request, 'is_admin_impersonation', False),
-                    "action": "target_user_assignment",
-                    "component": "TargetUserMixin",
-                },
-            )
+        if request:
+            # Assign user from target_user (impersonation support)
+            if hasattr(request, 'target_user'):
+                attrs['user'] = request.target_user
+                logger.debug(
+                    "User assignment from target_user completed",
+                    extra={
+                        "target_user_id": request.target_user.id,
+                        "impersonation_active": getattr(request, 'is_admin_impersonation', False),
+                        "action": "target_user_assignment",
+                        "component": "TargetUserMixin",
+                    },
+                )
+            
+            # Assign workspace from request context
+            if hasattr(request, 'workspace') and 'workspace' not in attrs:
+                attrs['workspace'] = request.workspace
+                logger.debug(
+                    "Workspace assignment from request completed",
+                    extra={
+                        "workspace_id": request.workspace.id,
+                        "action": "workspace_assignment", 
+                        "component": "TargetUserMixin",
+                    },
+                )
         
         return attrs
 
@@ -55,9 +69,10 @@ class WorkspaceMembershipMixin:
             dict: Cached workspace memberships {workspace_id: role}
         """
         if not hasattr(request, '_cached_user_memberships'):
+            target_user = getattr(request, 'target_user', request.user)
             memberships = WorkspaceMembership.objects.filter(
-                user=request.user
-            ).select_related('workspace')  # ✅ OPTIMALIZÁCIA
+                user=target_user
+            ).select_related('workspace') 
             
             request._cached_user_memberships = {m.workspace_id: m.role for m in memberships}
             

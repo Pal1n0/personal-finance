@@ -137,6 +137,26 @@ def expense_category_property(db, expense_root_category):
         property_type='cost'
     )
 
+@pytest.fixture
+def transaction_with_expense(expense_leaf_category, regular_user, workspace):
+    """Fixture pre transakciu s expense kategóriou"""
+    return Transaction.objects.create(
+        amount=100.00,
+        description="Test transaction",
+        expense_category=expense_leaf_category,
+        user=regular_user,
+        workspace=workspace
+    )
+
+@pytest.fixture 
+def expense_leaf_category(expense_category_version):
+    """Fixture pre leaf kategóriu"""
+    return ExpenseCategory.objects.create(
+        name="Leaf Category",
+        level=5,
+        version=expense_category_version
+    )
+
 # =============================================================================
 # INCOME CATEGORY FIXTURES  
 # =============================================================================

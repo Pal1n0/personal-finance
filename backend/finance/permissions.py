@@ -526,3 +526,11 @@ class IsWorkspaceAdmin(permissions.BasePermission):
                     },
                 )
         return None
+
+class IsSuperuser(permissions.IsAdminUser):
+    """
+    Permission that checks if user is superuser.
+    Simple and clean - no business logic in permissions.
+    """
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_superuser)

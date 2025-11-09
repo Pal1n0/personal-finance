@@ -81,7 +81,9 @@ class Workspace(models.Model):
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, 
         on_delete=models.CASCADE, 
-        related_name='owned_workspaces'
+        related_name='owned_workspaces',
+        null=False,
+        blank=False
     )
     members = models.ManyToManyField(
         settings.AUTH_USER_MODEL, 
@@ -121,6 +123,131 @@ class Workspace(models.Model):
             },
         )
 
+    def save(self, *args, **kwargs):
+        """Ensure owner is always in members."""
+        super().save(*args, **kwargs)
+        
+        if not self.members.filter(pk=self.owner.pk).exists():
+            self.members.add(self.owner)
+
+    @staticmethod
+    def get_user_role_in_workspace(user, workspace):
+        """
+        Get user's role in workspace considering owner, admin, and regular members.
+        """
+        # 1. Check if user is owner
+        if user == workspace.owner:
+            return 'owner'
+        
+        # 2. Check if user is workspace admin
+        if WorkspaceAdmin.objects.filter(
+            user=user, 
+            workspace=workspace, 
+            is_active=True
+        ).exists():
+            return 'admin'
+        
+        # 3. Check if user is regular member
+        try:
+            membership = WorkspaceMembership.objects.get(
+                workspace=workspace, 
+                user=user
+            )
+            return membership.role  # 'editor' or 'viewer'
+        except WorkspaceMembership.DoesNotExist:
+            return None
+
+    @staticmethod
+    @transaction.atomic
+    def change_workspace_owner(workspace, new_owner, changed_by):
+        """
+        Atomically change workspace owner.
+        """
+        if not WorkspaceService._can_change_ownership(workspace, changed_by):
+            raise PermissionError("User cannot change workspace ownership.")
+        
+        old_owner = workspace.owner
+        
+        # Update workspace owner
+        workspace.owner = new_owner
+        workspace.save()
+        
+        # Remove old owner from all role tables
+        WorkspaceMembership.objects.filter(
+            workspace=workspace, 
+            user=old_owner
+        ).delete()
+        
+        WorkspaceAdmin.objects.filter(
+            workspace=workspace, 
+            user=old_owner
+        ).update(is_active=False)
+        
+        # Ensure new owner is not in any role tables (clean state)
+        WorkspaceMembership.objects.filter(
+            workspace=workspace, 
+            user=new_owner
+        ).delete()
+        
+        logger.info(
+            "Workspace ownership changed",
+            extra={
+                "workspace_id": workspace.id,
+                "old_owner_id": old_owner.id,
+                "new_owner_id": new_owner.id,
+                "changed_by_id": changed_by.id,
+                "action": "workspace_ownership_changed",
+                "component": "WorkspaceService",
+            },
+        )
+    
+    @staticmethod
+    def get_all_workspace_users_with_roles(workspace):
+        """
+        Get all users with their roles in workspace.
+        """
+        users_data = []
+        
+        # 1. Add owner
+        users_data.append({
+            'user': workspace.owner,
+            'role': 'owner',
+            'is_owner': True,
+            'is_admin': False,
+            'joined_at': workspace.created_at
+        })
+        
+        # 2. Add workspace admins
+        admins = WorkspaceAdmin.objects.filter(
+            workspace=workspace, 
+            is_active=True
+        ).select_related('user')
+        
+        for admin in admins:
+            users_data.append({
+                'user': admin.user,
+                'role': 'admin',
+                'is_owner': False,
+                'is_admin': True,
+                'joined_at': admin.assigned_at
+            })
+        
+        # 3. Add regular members
+        memberships = WorkspaceMembership.objects.filter(
+            workspace=workspace
+        ).select_related('user')
+        
+        for membership in memberships:
+            users_data.append({
+                'user': membership.user,
+                'role': membership.role,  # 'editor' or 'viewer'
+                'is_owner': False,
+                'is_admin': False,
+                'joined_at': membership.joined_at
+            })
+        
+        return users_data
+
 # -------------------------------------------------------------------
 # WORKSPACE ADMIN MANAGEMENT
 # -------------------------------------------------------------------
@@ -150,6 +277,7 @@ class WorkspaceAdmin(models.Model):
         related_name='assigned_workspace_admins'
     )
     assigned_at = models.DateTimeField(auto_now_add=True)
+    deactivated_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     
     # Optional: Additional permissions for granular control
@@ -233,7 +361,6 @@ class WorkspaceMembership(models.Model):
     """
     
     ROLE_CHOICES = [
-        ('owner', 'Owner'),
         ('editor', 'Editor'), 
         ('viewer', 'Viewer'),
     ]
@@ -266,6 +393,9 @@ class WorkspaceMembership(models.Model):
             user=self.user
         ).exclude(pk=self.pk).exists():
             raise ValidationError("User is already a member of this workspace.")
+        
+        if self.user == self.workspace.owner:
+            raise ValidationError("Workspace owner should not be added as a regular membership.")
         
         logger.debug(
             "WorkspaceMembership validation completed",

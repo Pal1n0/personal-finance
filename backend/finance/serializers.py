@@ -386,14 +386,7 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
             validated_data['owner'] = request.user
         
         workspace = super().create(validated_data)
-        
-        # Automatically add owner as admin member
-        WorkspaceMembership.objects.create(
-            workspace=workspace,
-            user=workspace.owner,
-            role='admin'
-        )
-        
+               
         logger.info(
             "Workspace created successfully in serializer",
             extra={
@@ -1113,11 +1106,10 @@ class ExchangeRateSerializer(serializers.ModelSerializer):
 # -------------------------------------------------------------------
 # TRANSACTION DRAFT SERIALIZER
 # -------------------------------------------------------------------
-# Serializer for transaction draft data
 
 class TransactionDraftSerializer(TargetUserMixin, serializers.ModelSerializer):
     """
-    Serializer for Transaction Draft model.
+    Serializer for Transaction Draft model with category level validation.
     """
     transactions_count = serializers.SerializerMethodField()
     
@@ -1131,5 +1123,113 @@ class TransactionDraftSerializer(TargetUserMixin, serializers.ModelSerializer):
         read_only_fields = ['id', 'user', 'workspace', 'last_modified', 'created_at']
 
     def get_transactions_count(self, obj):
-        """Get number of transactions in draft."""
         return obj.get_transactions_count()
+
+    def validate_transactions_data(self, value):
+        """
+        Validate all transactions in draft data.
+        """
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Transactions data must be a list.")
+
+        workspace = self.context.get('request').workspace
+        
+        for index, tx_data in enumerate(value):
+            self._validate_transaction(tx_data, workspace, index)
+            
+        return value
+
+    def _validate_transaction(self, tx_data, workspace, index):
+        """
+        Validate individual transaction in draft.
+        """
+        if not isinstance(tx_data, dict):
+            raise serializers.ValidationError(f"Transaction at index {index} must be an object.")
+
+        tx_type = tx_data.get('type')
+        expense_category_id = tx_data.get('expense_category_id')
+        income_category_id = tx_data.get('income_category_id')
+
+        if not tx_type:
+            raise serializers.ValidationError(f"Transaction at index {index} must have a type.")
+
+        if tx_type not in ['expense', 'income']:
+            raise serializers.ValidationError(f"Transaction at index {index} has invalid type.")
+
+        if tx_type == 'expense' and not expense_category_id:
+            raise serializers.ValidationError(f"Expense transaction at index {index} must have an expense category.")
+
+        if tx_type == 'income' and not income_category_id:
+            raise serializers.ValidationError(f"Income transaction at index {index} must have an income category.")
+
+        if expense_category_id and income_category_id:
+            raise serializers.ValidationError(f"Transaction at index {index} cannot have both expense and income categories.")
+
+        category_id = expense_category_id or income_category_id
+        if category_id:
+            self._validate_category_level(category_id, workspace, tx_type, index)
+
+    def _validate_category_level(self, category_id, workspace, tx_type, index):
+        """
+        Validate that category is at the lowest level.
+        """
+        try:
+            if tx_type == 'expense':
+                category = ExpenseCategory.objects.select_related('version').get(
+                    id=category_id,
+                    version__workspace=workspace,
+                    is_active=True
+                )
+            else:
+                category = IncomeCategory.objects.select_related('version').get(
+                    id=category_id,
+                    version__workspace=workspace,
+                    is_active=True
+                )
+
+            if not self._is_lowest_level_category(category):
+                raise serializers.ValidationError(
+                    f"Category '{category.name}' in transaction {index} is not at the lowest level and cannot be used in transactions."
+                )
+
+        except (ExpenseCategory.DoesNotExist, IncomeCategory.DoesNotExist):
+            raise serializers.ValidationError(
+                f"Category with ID {category_id} in transaction {index} does not exist or is not accessible."
+            )
+
+    def _is_lowest_level_category(self, category):
+        """
+        Check if category is at the lowest possible level.
+        """
+        LOWEST_LEVEL = 5
+        return category.level == LOWEST_LEVEL
+
+    def create(self, validated_data):
+        """
+        Create draft with validated transactions data.
+        """
+        return self._save_draft(validated_data)
+
+    def update(self, instance, validated_data):
+        """
+        Update draft with validated transactions data.
+        """
+        return self._save_draft(validated_data, instance)
+
+    def _save_draft(self, validated_data, instance=None):
+        """
+        Save draft with proper user and workspace context.
+        """
+        request = self.context.get('request')
+        
+        if instance is None:
+            draft = TransactionDraft(**validated_data)
+            draft.user = request.target_user
+            draft.workspace = request.workspace
+        else:
+            for attr, value in validated_data.items():
+                setattr(instance, attr, value)
+            draft = instance
+
+        draft.save()
+        return draft

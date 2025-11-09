@@ -12,6 +12,17 @@ from django.core.exceptions import ValidationError
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
 
+def check_category_usage(category_id, category_model):
+    """
+    Check if category is used in any transactions.
+    """
+    
+    if category_model.__name__ == 'ExpenseCategory':
+        return transaction.objects.filter(expense_category_id=category_id).exists()
+    elif category_model.__name__ == 'IncomeCategory':
+        return transaction.objects.filter(income_category_id=category_id).exists()
+    return False
+
 
 class CategorySyncError(Exception):
     """
@@ -578,6 +589,33 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                         "component": "sync_categories_tree",
                     },
                 )
+
+                # CHECK USAGE FOR LEAF CATEGORIES BEING MOVED
+                for item in categories_data['update']:
+                    if 'parent_id' in item:  # This category is being moved
+                        try:
+                            category = category_model.objects.get(id=item['id'], version=version)
+                            
+                            # If it's a leaf category (level 5) and used in transactions, prevent move
+                            if category.level == 5:
+                                is_used = check_category_usage(category.id, category_model)
+                                if is_used:
+                                    logger.warning(
+                                        "Attempt to move used leaf category",
+                                        extra={
+                                            "category_id": category.id,
+                                            "category_name": category.name, 
+                                            "action": "leaf_category_move_denied",
+                                            "component": "sync_categories_tree",
+                                            "severity": "medium",
+                                        },
+                                    )
+                                    raise ValidationError(
+                                        f"Cannot move leaf category '{category.name}' because it is used in transactions"
+                                    )
+                                    
+                        except category_model.DoesNotExist:
+                            continue  # Will be caught later in the update process
                 
                 updates = []
                 update_ids = []

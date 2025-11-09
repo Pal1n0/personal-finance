@@ -73,6 +73,12 @@ router.register(
     basename='transactiondraft'
 )
 
+# Workspace admin management endpoints
+router.register(
+    r'workspace-admins', 
+    views.WorkspaceAdminViewSet, 
+    basename='workspaceadmin'
+)
 # Custom API endpoints for bulk operations and synchronization
 urlpatterns = [
     # Include all router-generated URLs
@@ -153,6 +159,42 @@ urlpatterns = [
         'transaction-drafts/<int:pk>/discard/',
         views.TransactionDraftViewSet.as_view({'delete': 'discard'}),
         name='transaction-draft-discard'
+    ),
+
+    # Category usage endpoints
+    path(
+        'expense-categories/<int:pk>/usage/',
+        views.ExpenseCategoryViewSet.as_view({'get': 'usage'}),
+        name='expense-category-usage'
+    ),
+    path(
+        'income-categories/<int:pk>/usage/',
+        views.IncomeCategoryViewSet.as_view({'get': 'usage'}),
+        name='income-category-usage'
+    ),
+    
+    # Workspace admin management
+    path(
+        'workspaces/<int:workspace_pk>/assign-admin/',
+        views.WorkspaceAdminViewSet.as_view({'post': 'assign_admin'}),
+        name='workspace-assign-admin'
+    ),
+    path(
+        'workspace-admins/<int:pk>/deactivate/',
+        views.WorkspaceAdminViewSet.as_view({'post': 'deactivate_admin'}),
+        name='workspace-deactivate-admin'
+    ),
+    
+    # Workspace member management
+    path(
+        'workspaces/<int:pk>/change-owner/',
+        views.WorkspaceViewSet.as_view({'post': 'change_owner'}),
+        name='workspace-change-owner'
+    ),
+    path(
+        'workspaces/<int:pk>/update-member-role/',
+        views.WorkspaceViewSet.as_view({'post': 'update_member_role'}),
+        name='workspace-update-member-role'
     ),
 ]
 

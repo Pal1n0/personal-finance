@@ -7,14 +7,14 @@ in the financial management application.
 """
 
 import logging
-from datetime import date
+from datetime import date, timezone
 from django.db import transaction, models
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, mixins, serializers, status
 from rest_framework.decorators import api_view, action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
-from .permissions import IsWorkspaceMember, IsWorkspaceEditor, IsWorkspaceAdmin, IsWorkspaceOwner
+from .permissions import IsWorkspaceMember, IsWorkspaceEditor, IsWorkspaceAdmin, IsWorkspaceOwner, IsSuperuser
 from rest_framework.response import Response
 
 from .models import (
@@ -22,7 +22,7 @@ from .models import (
     WorkspaceSettings, WorkspaceMembership,
     ExpenseCategoryVersion, IncomeCategoryVersion, 
     ExpenseCategory, IncomeCategory, ExchangeRate,
-    TransactionDraft
+    TransactionDraft, WorkspaceAdmin,
 ) 
 from .serializers import (
     TransactionSerializer, UserSettingsSerializer, WorkspaceSettingsSerializer,
@@ -37,6 +37,169 @@ from .mixins import WorkspaceMembershipMixin
 
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
+
+# -------------------------------------------------------------------
+# WORKSPACE ADMIN MANAGEMENT
+# -------------------------------------------------------------------
+
+class WorkspaceAdminViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing workspace administrator assignments.
+    
+    Security Rules:
+    - Only superusers can assign/deactivate workspace admins
+    - Workspace admins can deactivate themselves via business logic
+    - Uses request.target_user for proper impersonation handling
+    """
+    
+    serializer_class = None
+    permission_classes = [IsAuthenticated, IsSuperuser]  # Default to superuser only
+
+    def get_queryset(self):
+        """Get workspace admin assignments - only for superusers."""
+        logger.debug(
+            "Retrieving workspace admin assignments",
+            extra={
+                "user_id": getattr(self.request.target_user, 'id', None),
+                "action": "workspace_admin_retrieval",
+            },
+        )
+        
+        # Use target_user for proper impersonation handling
+        if not self.request.user.is_superuser:
+            return WorkspaceAdmin.objects.none()
+        
+        return WorkspaceAdmin.objects.select_related(
+            'user', 'workspace', 'assigned_by'
+        ).order_by('-assigned_at')
+
+    def get_permissions(self):
+        """All actions require superuser except custom actions with their own checks."""
+        return [IsAuthenticated(), IsSuperuser()]
+
+    @action(detail=False, methods=['post'])
+    def assign_admin(self, request, workspace_pk=None):
+        """Assign a user as workspace administrator - SUPERUSER ONLY"""
+        # Permission is handled by IsSuperuser, but double-check for security
+        if not request.user.is_superuser:
+            return Response(
+                {"error": "Only superusers can assign workspace administrators."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        workspace = get_object_or_404(Workspace, pk=workspace_pk)
+        user_id = request.data.get('user_id')
+        
+        if not user_id:
+            return Response(
+                {"error": "User ID is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Use target_user context if in impersonation
+        effective_user = getattr(request, 'target_user', request.user)
+        
+        if not WorkspaceMembership.objects.filter(workspace=workspace, user=user).exists():
+            return Response(
+                {"error": "User must be a workspace member before admin assignment."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        admin_assignment, created = WorkspaceAdmin.objects.get_or_create(
+            user=user,
+            workspace=workspace,
+            defaults={
+                'assigned_by': effective_user,  # Use effective user (impersonation aware)
+                'is_active': True
+            }
+        )
+        
+        if not created:
+            admin_assignment.is_active = True
+            admin_assignment.assigned_by = effective_user
+            admin_assignment.save()
+        
+        logger.info(
+            "Workspace admin assigned successfully",
+            extra={
+                "assigned_by": effective_user.id,
+                "assigned_user_id": user.id,
+                "workspace_id": workspace.id,
+                "action": "workspace_admin_assigned",
+            },
+        )
+        
+        return Response({
+            "message": f"User {user.username} assigned as workspace admin.",
+            "admin_assignment_id": admin_assignment.id,
+            "assigned_at": admin_assignment.assigned_at
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def deactivate_admin(self, request, pk=None):
+        """
+        Deactivate a workspace admin assignment.
+        
+        Business Rules:
+        - Superusers can deactivate any admin
+        - Workspace admins can only deactivate themselves
+        - Uses impersonation context properly
+        """
+        admin_assignment = get_object_or_404(WorkspaceAdmin, pk=pk)
+        effective_user = getattr(request, 'target_user', request.user)
+        
+        # Business logic: superuser OR self-deactivation
+        is_self_deactivation = admin_assignment.user_id == effective_user.id
+        
+        if not request.user.is_superuser and not is_self_deactivation:
+            logger.warning(
+                "Unauthorized admin deactivation attempt",
+                extra={
+                    "user_id": effective_user.id,
+                    "target_admin_id": admin_assignment.user_id,
+                    "action": "admin_deactivation_denied",
+                    "severity": "high",
+                },
+            )
+            return Response(
+                {"error": "You can only deactivate your own admin assignments."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if not admin_assignment.is_active:
+            return Response(
+                {"error": "Admin assignment is already inactive."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        admin_assignment.is_active = False
+        admin_assignment.deactivated_at = timezone.now()
+        admin_assignment.save()
+        
+        logger.info(
+            "Workspace admin deactivated",
+            extra={
+                "deactivated_by": effective_user.id,
+                "admin_user_id": admin_assignment.user_id,
+                "workspace_id": admin_assignment.workspace.id,
+                "is_self_deactivation": is_self_deactivation,
+                "action": "workspace_admin_deactivated",
+            },
+        )
+        
+        return Response({
+            "message": f"Admin assignment for {admin_assignment.user.username} deactivated.",
+            "deactivated_at": timezone.now(),
+            "deactivated_by": effective_user.id
+        })
 
 # -------------------------------------------------------------------
 # WORKSPACE MANAGEMENT
@@ -75,10 +238,10 @@ class WorkspaceViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
             return [IsAuthenticated()]
         elif self.action in ['update', 'partial_update', 'activate']:
             return [IsAuthenticated(), IsWorkspaceEditor()]  
-        elif self.action in ['destroy']:
+        elif self.action in ['destroy','hard_delete', 'update_member_role']:
             return [IsAuthenticated(), IsWorkspaceOwner()]  
-        elif self.action in ['hard_delete']:
-            return [IsAuthenticated(), IsWorkspaceOwner()]   
+        elif self.action in ['change_owner']:
+            return [IsAuthenticated(), IsWorkspaceAdmin()]   
         return [IsAuthenticated(), IsWorkspaceMember()]      
 
     def get_queryset(self):
@@ -1075,6 +1238,202 @@ class WorkspaceViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
         
         return Response(settings_data)
     
+    @action(detail=True, methods=['post'])
+    @transaction.atomic
+    def change_owner(self, request, pk=None):
+        """
+        Change workspace owner.
+        
+        Only workspace admins or superusers can change ownership.
+        The new owner must be an existing workspace member.
+        """
+        workspace = self.get_object()
+        
+        logger.info(
+            "Workspace ownership change initiated",
+            extra={
+                "request_user_id": request.user.id,
+                "target_user_id": request.target_user.id,
+                "workspace_id": workspace.id,
+                "action": "workspace_ownership_change_start",
+                "component": "WorkspaceViewSet",
+            },
+        )
+        
+        # Check permissions - only admins or superusers can change ownership
+        memberships = self._get_user_memberships(request)
+        user_membership = memberships.get(workspace.id)
+        
+        has_permission = (
+            request.user.is_superuser or 
+            (user_membership and user_membership.role in ['admin', 'owner'])
+        )
+        
+        if not has_permission:
+            logger.warning(
+                "Insufficient permissions for ownership change",
+                extra={
+                    "request_user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "user_role": user_membership.role if user_membership else 'none',
+                    "action": "workspace_ownership_change_denied",
+                    "component": "WorkspaceViewSet",
+                    "severity": "high",
+                },
+            )
+            return Response(
+                {"error": "You need admin or owner permissions to change workspace ownership."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        new_owner_id = request.data.get('new_owner_id')
+        if not new_owner_id:
+            return Response(
+                {"error": "new_owner_id is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            new_owner = User.objects.get(pk=new_owner_id)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "New owner user not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if new owner is workspace member
+        if not WorkspaceMembership.objects.filter(workspace=workspace, user=new_owner).exists():
+            return Response(
+                {"error": "New owner must be a workspace member."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Change ownership
+        old_owner = workspace.owner
+        workspace.owner = new_owner
+        workspace.save()
+        
+        # Update membership roles
+        WorkspaceMembership.objects.filter(
+            workspace=workspace, 
+            user=old_owner
+        ).update(role='admin')  # Old owner becomes admin
+        
+        WorkspaceMembership.objects.filter(
+            workspace=workspace, 
+            user=new_owner
+        ).update(role='owner')  # New owner becomes owner
+        
+        logger.info(
+            "Workspace ownership changed successfully",
+            extra={
+                "request_user_id": request.user.id,
+                "workspace_id": workspace.id,
+                "old_owner_id": old_owner.id,
+                "new_owner_id": new_owner.id,
+                "action": "workspace_ownership_changed",
+                "component": "WorkspaceViewSet",
+            },
+        )
+        
+        return Response({
+            "message": f"Workspace ownership transferred to {new_owner.username}.",
+            "new_owner_id": new_owner.id,
+            "new_owner_username": new_owner.username
+        })
+    
+    @action(detail=True, methods=['post'])
+    def update_member_role(self, request, pk=None):
+        """
+        Update workspace member role.
+        
+        Only workspace admins or owners can update member roles.
+        Cannot change owner role through this endpoint.
+        """
+        workspace = self.get_object()
+        
+        user_id = request.data.get('user_id')
+        new_role = request.data.get('role')
+        
+        if not user_id or not new_role:
+            return Response(
+                {"error": "user_id and role are required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if new_role not in ['viewer', 'editor', 'admin']:
+            return Response(
+                {"error": "Invalid role. Must be viewer, editor, or admin."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check permissions
+        memberships = self._get_user_memberships(request)
+        user_membership = memberships.get(workspace.id)
+        
+        has_permission = (
+            request.user.is_superuser or 
+            (user_membership and user_membership.role in ['admin', 'owner'])
+        )
+        
+        if not has_permission:
+            logger.warning(
+                "Insufficient permissions for member role update",
+                extra={
+                    "request_user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "action": "member_role_update_denied",
+                    "component": "WorkspaceViewSet",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {"error": "You need admin or owner permissions to update member roles."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            target_membership = WorkspaceMembership.objects.get(
+                workspace=workspace, 
+                user_id=user_id
+            )
+        except WorkspaceMembership.DoesNotExist:
+            return Response(
+                {"error": "User is not a member of this workspace."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Prevent changing owner role
+        if target_membership.user == workspace.owner:
+            return Response(
+                {"error": "Cannot change owner role through this endpoint."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        old_role = target_membership.role
+        target_membership.role = new_role
+        target_membership.save()
+        
+        logger.info(
+            "Workspace member role updated",
+            extra={
+                "request_user_id": request.user.id,
+                "workspace_id": workspace.id,
+                "target_user_id": user_id,
+                "old_role": old_role,
+                "new_role": new_role,
+                "action": "member_role_updated",
+                "component": "WorkspaceViewSet",
+            },
+        )
+        
+        return Response({
+            "message": f"User role updated from {old_role} to {new_role}.",
+            "user_id": user_id,
+            "old_role": old_role,
+            "new_role": new_role
+        })
+    
 # -------------------------------------------------------------------
 # WORKSPACE SETTINGS MANAGEMENT  
 # -------------------------------------------------------------------
@@ -1472,6 +1831,96 @@ class ExpenseCategoryViewSet(viewsets.ReadOnlyModelViewSet):
         )
         
         return categories
+    
+    @action(detail=True, methods=['get'])
+    def usage(self, request, pk=None):
+        category = self.get_object()
+        
+        logger.debug(
+            "Checking category usage in transactions",
+            extra={
+                "request_user_id": request.user.id,
+                "target_user_id": request.target_user.id,
+                "category_id": category.id,
+                "category_name": category.name,
+                "action": "category_usage_check",
+                "component": "ExpenseCategoryViewSet",
+            },
+        )
+        
+        workspace = category.version.workspace
+        memberships = WorkspaceMembership.objects.filter(
+            workspace=workspace,
+            user=request.target_user
+        )
+        
+        if not memberships.exists():
+            logger.warning(
+                "User not member of category workspace",
+                extra={
+                    "request_user_id": request.user.id,
+                    "target_user_id": request.target_user.id,
+                    "workspace_id": workspace.id,
+                    "category_id": category.id,
+                    "action": "category_usage_access_denied",
+                    "component": "ExpenseCategoryViewSet",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {"error": "You are not a member of this workspace."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        user_membership = memberships.first()
+        if user_membership.role not in ['editor', 'admin', 'owner']:
+            logger.warning(
+                "Insufficient permissions for category usage check",
+                extra={
+                    "request_user_id": request.user.id,
+                    "target_user_id": request.target_user.id,
+                    "user_role": user_membership.role,
+                    "required_roles": ['editor', 'admin', 'owner'],
+                    "action": "category_usage_permission_denied",
+                    "component": "ExpenseCategoryViewSet",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {"error": "You need editor or higher permissions to check category usage."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        is_used = Transaction.objects.filter(expense_category=category).exists()
+        
+        # ENHANCED RESPONSE WITH MOVE INFORMATION
+        response_data = {
+            'category_id': category.id,
+            'category_name': category.name,
+            'level': category.level,
+            'is_used': is_used,
+            'can_be_moved': not is_used or category.level != 5,  # Non-leaf or unused leaf can be moved
+            'move_restrictions': {
+                'reason': 'Used in transactions' if is_used and category.level == 5 else 'None',
+                'requires_confirmation': category.level != 5 and not is_used  # Non-leaf categories need confirmation
+            }
+        }
+        
+        logger.info(
+            "Category usage check completed",
+            extra={
+                "request_user_id": request.user.id,
+                "target_user_id": request.target_user.id,
+                "category_id": category.id,
+                "is_used": is_used,
+                "can_be_moved": response_data['can_be_moved'],
+                "action": "category_usage_check_completed",
+                "component": "ExpenseCategoryViewSet",
+            },
+        )
+        
+        return Response(response_data)
+
 
     def list(self, request, *args, **kwargs):
         """
@@ -1569,6 +2018,95 @@ class IncomeCategoryViewSet(viewsets.ReadOnlyModelViewSet):
         )
         
         return categories
+    
+    @action(detail=True, methods=['get'])
+    def usage(self, request, pk=None):
+        category = self.get_object()
+        
+        logger.debug(
+            "Checking category usage in transactions",
+            extra={
+                "request_user_id": request.user.id,
+                "target_user_id": request.target_user.id,
+                "category_id": category.id,
+                "category_name": category.name,
+                "action": "category_usage_check",
+                "component": "ExpenseCategoryViewSet",
+            },
+        )
+        
+        workspace = category.version.workspace
+        memberships = WorkspaceMembership.objects.filter(
+            workspace=workspace,
+            user=request.target_user
+        )
+        
+        if not memberships.exists():
+            logger.warning(
+                "User not member of category workspace",
+                extra={
+                    "request_user_id": request.user.id,
+                    "target_user_id": request.target_user.id,
+                    "workspace_id": workspace.id,
+                    "category_id": category.id,
+                    "action": "category_usage_access_denied",
+                    "component": "ExpenseCategoryViewSet",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {"error": "You are not a member of this workspace."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        user_membership = memberships.first()
+        if user_membership.role not in ['editor', 'admin', 'owner']:
+            logger.warning(
+                "Insufficient permissions for category usage check",
+                extra={
+                    "request_user_id": request.user.id,
+                    "target_user_id": request.target_user.id,
+                    "user_role": user_membership.role,
+                    "required_roles": ['editor', 'admin', 'owner'],
+                    "action": "category_usage_permission_denied",
+                    "component": "ExpenseCategoryViewSet",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {"error": "You need editor or higher permissions to check category usage."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        is_used = Transaction.objects.filter(expense_category=category).exists()
+        
+        # ENHANCED RESPONSE WITH MOVE INFORMATION
+        response_data = {
+            'category_id': category.id,
+            'category_name': category.name,
+            'level': category.level,
+            'is_used': is_used,
+            'can_be_moved': not is_used or category.level != 5,  # Non-leaf or unused leaf can be moved
+            'move_restrictions': {
+                'reason': 'Used in transactions' if is_used and category.level == 5 else 'None',
+                'requires_confirmation': category.level != 5 and not is_used  # Non-leaf categories need confirmation
+            }
+        }
+        
+        logger.info(
+            "Category usage check completed",
+            extra={
+                "request_user_id": request.user.id,
+                "target_user_id": request.target_user.id,
+                "category_id": category.id,
+                "is_used": is_used,
+                "can_be_moved": response_data['can_be_moved'],
+                "action": "category_usage_check_completed",
+                "component": "ExpenseCategoryViewSet",
+            },
+        )
+        
+        return Response(response_data)
 
     def list(self, request, *args, **kwargs):
         """
