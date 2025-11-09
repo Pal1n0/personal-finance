@@ -168,7 +168,7 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
             password='testpass123',
             username='otheruser'
         )
-        
+
         self.workspace1 = Workspace.objects.create(
             name='Workspace 1',
             owner=self.user
@@ -177,17 +177,29 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
             name='Workspace 2', 
             owner=self.other_user
         )
+        self.workspace3 = Workspace.objects.create(  # ← PRIDAJ Tretí workspace
+            name='Workspace 3',
+            owner=self.other_user
+        )
+
+        WorkspaceMembership.objects.filter(user=self.user).delete()
+        WorkspaceMembership.objects.filter(user=self.other_user).delete()
         
-        # Create memberships
+        # Create memberships - user má 2 memberships, other_user má 1
         self.membership1 = WorkspaceMembership.objects.create(
             workspace=self.workspace1,
-            user=self.user,
+            user=self.other_user,
             role='admin'
         )
         self.membership2 = WorkspaceMembership.objects.create(
             workspace=self.workspace2,
             user=self.user,
             role='viewer'
+        )
+        self.membership3 = WorkspaceMembership.objects.create(  # ← PRIDAJ Druhý membership pre usera
+            workspace=self.workspace3,
+            user=self.user,
+            role='editor'
         )
 
     def create_request(self, user=None):
@@ -200,20 +212,20 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
 
     def test_get_user_memberships_initial_cache_creation(self):
         """Test cache creation on first access."""
-        request = self.create_request()
+        request = self.create_request(user=self.user)
         
         self.assertFalse(hasattr(request, '_cached_user_memberships'))
         
         memberships = self.mixin._get_user_memberships(request)
         
         self.assertTrue(hasattr(request, '_cached_user_memberships'))
-        self.assertEqual(len(memberships), 2)
-        self.assertEqual(memberships[self.workspace1.id], 'admin')
+        self.assertEqual(len(memberships), 2)  # user má 2 memberships
         self.assertEqual(memberships[self.workspace2.id], 'viewer')
+        self.assertEqual(memberships[self.workspace3.id], 'editor')
 
     def test_get_user_memberships_cache_reuse(self):
         """Test cache reuse on subsequent calls."""
-        request = self.create_request()
+        request = self.create_request(user=self.user)
         
         with self.assertNumQueries(1):
             memberships1 = self.mixin._get_user_memberships(request)
@@ -222,32 +234,33 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
             memberships2 = self.mixin._get_user_memberships(request)
         
         self.assertEqual(memberships1, memberships2)
+        self.assertEqual(len(memberships1), 2)  # user má 2 memberships
 
     def test_get_user_memberships_select_related_optimization(self):
         """Test select_related optimization."""
-        request = self.create_request()
+        request = self.create_request(user=self.user)
         
         with self.assertNumQueries(1):
             memberships = self.mixin._get_user_memberships(request)
         
         self.assertIsInstance(memberships, dict)
-        self.assertEqual(memberships[self.workspace1.id], 'admin')
+        self.assertEqual(len(memberships), 2)  # user má 2 memberships
 
     @patch('finance.mixins.logger')
     def test_get_user_memberships_logging(self, mock_logger):
         """Test cache initialization logging."""
-        request = self.create_request()
+        request = self.create_request(user=self.user)
         
         self.mixin._get_user_memberships(request)
         
         mock_logger.debug.assert_called_once()
         call_args = mock_logger.debug.call_args
         self.assertEqual(call_args[1]['extra']['user_id'], self.user.id)
-        self.assertEqual(call_args[1]['extra']['cached_workspaces_count'], 2)
+        self.assertEqual(call_args[1]['extra']['cached_workspaces_count'], 2)  # user má 2 memberships
 
     def test_get_membership_for_workspace_existing_membership(self):
         """Test role retrieval for workspace membership."""
-        request = self.create_request()
+        request = self.create_request(user=self.other_user)
         
         role = self.mixin._get_membership_for_workspace(self.workspace1, request)
         
@@ -259,7 +272,7 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
             name='Other Workspace',
             owner=self.other_user
         )
-        request = self.create_request()
+        request = self.create_request(user=self.user)
         
         role = self.mixin._get_membership_for_workspace(other_workspace, request)
         
@@ -267,7 +280,7 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
 
     def test_get_membership_for_workspace_uses_cache(self):
         """Test cache usage in workspace role retrieval."""
-        request = self.create_request()
+        request = self.create_request(user=self.other_user)
         
         self.mixin._get_user_memberships(request)
         
@@ -279,7 +292,7 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
     @patch('finance.mixins.logger')
     def test_get_membership_for_workspace_logging_on_cache_hit(self, mock_logger):
         """Test logging for cache hits."""
-        request = self.create_request()
+        request = self.create_request(user=self.other_user)
         
         self.mixin._get_user_memberships(request)
         self.mixin._get_membership_for_workspace(self.workspace1, request)
@@ -292,12 +305,12 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
                 break
         
         self.assertIsNotNone(cache_hit_call)
-        self.assertEqual(cache_hit_call[1]['extra']['user_id'], self.user.id)
+        self.assertEqual(cache_hit_call[1]['extra']['user_id'], self.other_user.id)
         self.assertEqual(cache_hit_call[1]['extra']['workspace_id'], self.workspace1.id)
 
     def test_get_membership_for_workspace_no_logging_on_cache_miss(self):
         """Test no logging for cache misses."""
-        request = self.create_request()
+        request = self.create_request(user=self.user)
         other_workspace = Workspace.objects.create(
             name='Other Workspace',
             owner=self.other_user
@@ -320,8 +333,8 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
         memberships1 = self.mixin._get_user_memberships(request1)
         memberships2 = self.mixin._get_user_memberships(request2)
         
-        self.assertEqual(len(memberships1), 2)
-        self.assertEqual(len(memberships2), 0)
+        self.assertEqual(len(memberships1), 2)  # user má 2 memberships
+        self.assertEqual(len(memberships2), 1)  # other_user má 1 membership
         self.assertNotEqual(id(request1._cached_user_memberships), id(request2._cached_user_memberships))
 
     def test_integration_with_serializer(self):
@@ -333,7 +346,7 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
                     return self._get_membership_for_workspace(obj, request)
                 return None
         
-        request = self.create_request()
+        request = self.create_request(user=self.other_user)
         context = {'request': request}
         serializer = TestSerializer(context=context)
         
@@ -571,6 +584,8 @@ class TestMixinsIntegration(TestCase, BaseTestMixin):
             username='targetuser'
         )
         
+        WorkspaceMembership.objects.all().delete()
+
         self.workspace = Workspace.objects.create(
             name='Test Workspace',
             owner=self.user
@@ -610,7 +625,7 @@ class TestMixinsIntegration(TestCase, BaseTestMixin):
         self.assertEqual(data_with_user['user'], self.target_user)
         
         role = serializer.get_user_role(self.workspace)
-        self.assertEqual(role, 'admin')
+        self.assertEqual(role, 'owner')
         
         result_data = serializer.validate({'version': self.category_version})
         self.assertEqual(result_data['version'], self.category_version)

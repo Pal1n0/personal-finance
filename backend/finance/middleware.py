@@ -259,7 +259,7 @@ class AdminImpersonationMiddleware(MiddlewareMixin):
 
     def _validate_superuser_email(self, user):
         """Check if user can be superuser based on email"""
-        if user.is_superuser and user.email not in self.PROTECTED_SUPERUSER_EMAILS:
+        if user.is_superuser and user.email not in self.ALLOWED_SUPERUSER_EMAILS:
             logger.critical(
                 "Security violation: Unauthorized superuser email",
                 extra={

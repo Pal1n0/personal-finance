@@ -7,6 +7,7 @@ with comprehensive validation, atomic operations, and proper error handling.
 
 import logging
 from django.db import transaction
+from finance.models import Transaction
 from django.core.exceptions import ValidationError
 
 # Get structured logger for this module
@@ -18,9 +19,9 @@ def check_category_usage(category_id, category_model):
     """
     
     if category_model.__name__ == 'ExpenseCategory':
-        return transaction.objects.filter(expense_category_id=category_id).exists()
+        return Transaction.objects.filter(expense_category_id=category_id).exists()
     elif category_model.__name__ == 'IncomeCategory':
-        return transaction.objects.filter(income_category_id=category_id).exists()
+        return Transaction.objects.filter(income_category_id=category_id).exists()
     return False
 
 
@@ -106,6 +107,14 @@ def _validate_single_category(category):
     Raises:
         ValidationError: If category constraints are violated
     """
+
+    # Root categories (level 1) must have no chilparentdren
+    parents = _get_parents_list(category)
+    if category.level == 1 and len(parents) > 0:
+        raise ValidationError(
+            f"Level 1 category '{category.name}' cannot have a parent"
+        )
+    
     # Leaf categories (level 5) must have no children
     if category.level == 5:
         children_count = _get_children_count(category)
@@ -118,7 +127,6 @@ def _validate_single_category(category):
     # They can exist without children (partial tree scenario)
     
     # Validate parent-child level relationships if parents exist
-    parents = _get_parents_list(category)
     for parent in parents:
         if parent.level != category.level - 1:
             raise ValidationError(
@@ -798,8 +806,8 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                 ).prefetch_related('children')
                 
                 for category in categories_to_validate:
-                    # Levels 2-5 must have at least one child (non-leaf validation)
-                    if category.level != 1 and not category.children.exists():
+                    # Levels 1-4 must have at least one child (non-leaf validation)
+                    if category.level != 5 and not category.children.exists():
                         logger.error(
                             "Category hierarchy validation failed",
                             extra={

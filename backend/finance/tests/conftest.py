@@ -138,23 +138,30 @@ def expense_category_property(db, expense_root_category):
     )
 
 @pytest.fixture
-def transaction_with_expense(expense_leaf_category, regular_user, workspace):
+def transaction_with_expense(db, expense_leaf_category, test_user, test_workspace):
     """Fixture pre transakciu s expense kategóriou"""
     return Transaction.objects.create(
-        amount=100.00,
-        description="Test transaction",
+        user=test_user,
+        workspace=test_workspace,
+        type='expense',
         expense_category=expense_leaf_category,
-        user=regular_user,
-        workspace=workspace
+        original_amount=100.00,
+        original_currency='EUR',
+        amount_domestic=100.00,
+        date=date(2025, 11, 8),
+        month=date(2025, 11, 1),
+        note_manual='Test transaction with leaf category',
+        tags=['test']
     )
 
 @pytest.fixture 
-def expense_leaf_category(expense_category_version):
+def expense_leaf_category(db, expense_category_version):
     """Fixture pre leaf kategóriu"""
     return ExpenseCategory.objects.create(
         name="Leaf Category",
         level=5,
-        version=expense_category_version
+        version=expense_category_version,
+        is_active=True
     )
 
 # =============================================================================
@@ -380,6 +387,20 @@ def exchange_rate_usd_2024():
         rate_to_eur=Decimal('0.85'),
         date=date(2024, 1, 15)
     )
+
+@pytest.fixture
+def exchange_rate_usd_nov_range(db):
+    """USD rates pre november 2025"""
+    dates = [date(2025, 11, i) for i in range(1, 9)]  # 1-8 november
+    rates = []
+    for day_date in dates:
+        rate = ExchangeRate.objects.create(
+            currency='USD',
+            rate_to_eur=Decimal('0.85'),
+            date=day_date
+        )
+        rates.append(rate)
+    return rates
 
 @pytest.fixture
 def exchange_rate_gbp_2024():

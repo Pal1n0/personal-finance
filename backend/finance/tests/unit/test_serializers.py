@@ -16,6 +16,7 @@ Test Structure:
 """
 
 import pytest
+from datetime import date
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from unittest.mock import Mock, patch
@@ -255,8 +256,8 @@ class TestWorkspaceSerializer(TestCase):
         self.assertEqual(serializer.validated_data['name'], 'Test Workspace')
 
     @patch('finance.serializers.logger')
-    def test_workspace_creation(self, mock_logger):
-        """Test workspace creation with automatic owner assignment."""
+    def test_workspace_creation_without_owner_membership(self, mock_logger):
+        """Test workspace creation WITHOUT owner in membership."""
         self.request.user = self.owner
         serializer = WorkspaceSerializer(
             data={'name': 'New Workspace'},
@@ -269,35 +270,13 @@ class TestWorkspaceSerializer(TestCase):
         self.assertEqual(workspace.name, 'New Workspace')
         self.assertEqual(workspace.owner, self.owner)
         
-        # Check that membership was created
-        membership = WorkspaceMembership.objects.get(
-            workspace=workspace,
-            user=self.owner
-        )
-        self.assertEqual(membership.role, 'admin')
-
-    @patch('finance.serializers.logger')
-    def test_workspace_creation_owner_not_in_membership(self, mock_logger):
-        """Test workspace creation without duplicate owner membership."""
-        self.request.user = self.owner
-        serializer = WorkspaceSerializer(
-            data={'name': 'New Workspace'},
-            context={'request': self.request}
-        )
-        
-        self.assertTrue(serializer.is_valid())
-        workspace = serializer.save()
-        
-        self.assertEqual(workspace.name, 'New Workspace')
-        self.assertEqual(workspace.owner, self.owner)
-        
-        # ✅ KRITICKÁ ZMENA: Owner should NOT be in membership table
+        # ✅ Owner should NOT be in WorkspaceMembership
         with self.assertRaises(WorkspaceMembership.DoesNotExist):
             WorkspaceMembership.objects.get(workspace=workspace, user=self.owner)
         
-        # ✅ Ale owner SHOULD be in members M2M
-        self.assertTrue(workspace.members.filter(pk=self.owner.pk).exists())
-
+        # ✅ Owner je započítaný v member_count (cez serializer)
+        serialized_data = serializer.data
+        self.assertEqual(serialized_data['member_count'], 1)  # ← Oprava: serializer.data
 
 class TestWorkspaceMembershipSerializer(TestCase):
     """
@@ -354,17 +333,6 @@ class TestWorkspaceMembershipSerializer(TestCase):
         self.assertEqual(data['user_username'], 'member')
         self.assertEqual(data['workspace_name'], 'Test Workspace')
 
-    def test_ownership_check(self):
-        """Test detection of workspace ownership in membership context."""
-        owner_membership = WorkspaceMembership.objects.get(
-            workspace=self.workspace,
-            user=self.owner
-        )
-        serializer = WorkspaceMembershipSerializer(instance=owner_membership)
-        
-        is_owner = serializer.get_is_workspace_owner(owner_membership)
-        self.assertTrue(is_owner)
-
     def test_valid_role_validation(self):
         """Test validation of permitted role assignments."""
         serializer = WorkspaceMembershipSerializer(
@@ -380,21 +348,6 @@ class TestWorkspaceMembershipSerializer(TestCase):
         serializer = WorkspaceMembershipSerializer(
             instance=self.membership,
             data={'role': 'invalid_role'},
-            context={'request': self.request}
-        )
-        
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('role', serializer.errors)
-
-    def test_owner_role_change_blocked(self):
-        """Test prevention of owner role modification attempts."""
-        owner_membership = WorkspaceMembership.objects.get(
-            workspace=self.workspace,
-            user=self.owner
-        )
-        serializer = WorkspaceMembershipSerializer(
-            instance=owner_membership,
-            data={'role': 'viewer'},
             context={'request': self.request}
         )
         
@@ -578,13 +531,7 @@ class TestTransactionSerializer(TestCase):
             context={'request': self.request}
         )
 
-        print(f"DEBUG: request.target_user = {getattr(self.request, 'target_user', 'NOT SET')}")
-        print(f"DEBUG: request.workspace = {getattr(self.request, 'workspace', 'NOT SET')}")
-
         self.assertTrue(serializer.is_valid())
-
-        print(f"DEBUG: validated_data = {serializer.validated_data}")
-
         
         # Vytvor transaction a over že má správneho usera a workspace
         transaction = serializer.save()
@@ -845,16 +792,17 @@ class TestTransactionListSerializer(TestCase):
             type='expense',
             original_amount=100.00,
             original_currency='EUR',
-            amount_domestic=100.00
+            amount_domestic=100.00,
+            date=date(2023, 1, 1)
         )
 
     def test_lightweight_serialization(self):
         """Test minimal field serialization for performance optimization."""
         serializer = TransactionListSerializer(instance=self.transaction)
-        
+
         data = serializer.data
         self.assertEqual(data['type'], 'expense')
-        self.assertEqual(data['original_amount'], '100.00')
+        self.assertEqual(float(data['original_amount']), 100.00)  # ← Konvertuj na float
         self.assertEqual(data['workspace'], self.workspace.id)
 
     def test_category_name_for_expense(self):
@@ -950,7 +898,11 @@ class TestCategorySerializers(TestCase):
     def test_expense_category_validation(self):
         """Test validation and whitespace stripping for expense category names."""
         serializer = ExpenseCategorySerializer(
-            data={'name': '  New Expense  '},
+            data={
+                'name': '  New Expense  ',
+                'level': 1,
+                'version': self.expense_version.id
+            },
             context={'request': self.request}
         )
         
@@ -960,7 +912,9 @@ class TestCategorySerializers(TestCase):
     def test_income_category_validation(self):
         """Test validation and whitespace stripping for income category names."""
         serializer = IncomeCategorySerializer(
-            data={'name': '  New Income  '},
+            data={'name': '  New Income  ',
+                'level': 1,
+                'version': self.income_version.id},
             context={'request': self.request}
         )
         

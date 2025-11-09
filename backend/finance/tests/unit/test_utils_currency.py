@@ -35,16 +35,16 @@ class TestGetExchangeRatesForRange:
     """Testy pre get_exchange_rates_for_range funkciu"""
     
     @pytest.mark.django_db
-    def test_get_exchange_rates_basic(self, exchange_rate_usd, exchange_rate_eur):
-        """Test získania exchange rates pre rozsah dátumov"""
-        currencies = ['USD', 'EUR']
-        date_from = timezone.now().date() - timedelta(days=7)
-        date_to = timezone.now().date()
+    def test_get_exchange_rates_basic(self, exchange_rate_usd_nov_range):
+        """Test základného získania výmenných kurzov"""
+        start_date = date(2025, 11, 1)
+        end_date = date(2025, 11, 8)
+        currencies = ['USD']
         
-        rates = get_exchange_rates_for_range(currencies, date_from, date_to)
+        rates = get_exchange_rates_for_range(currencies, start_date, end_date)
         
         assert 'USD' in rates
-        assert len(rates['USD']) > 0
+        assert len(rates['USD']) == 8  # Máme 8 dátumov od 1.11 do 8.11
         # EUR by nemalo byť v rates, lebo je to base currency
         assert 'EUR' not in rates
     

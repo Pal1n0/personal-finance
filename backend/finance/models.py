@@ -127,9 +127,6 @@ class Workspace(models.Model):
         """Ensure owner is always in members."""
         super().save(*args, **kwargs)
         
-        if not self.members.filter(pk=self.owner.pk).exists():
-            self.members.add(self.owner)
-
     @staticmethod
     def get_user_role_in_workspace(user, workspace):
         """
@@ -139,15 +136,7 @@ class Workspace(models.Model):
         if user == workspace.owner:
             return 'owner'
         
-        # 2. Check if user is workspace admin
-        if WorkspaceAdmin.objects.filter(
-            user=user, 
-            workspace=workspace, 
-            is_active=True
-        ).exists():
-            return 'admin'
-        
-        # 3. Check if user is regular member
+        # 2. Check if user is regular member
         try:
             membership = WorkspaceMembership.objects.get(
                 workspace=workspace, 
@@ -156,6 +145,18 @@ class Workspace(models.Model):
             return membership.role  # 'editor' or 'viewer'
         except WorkspaceMembership.DoesNotExist:
             return None
+        
+    @staticmethod
+    def is_workspace_admin(user, workspace):
+        """
+        Check if user is workspace admin (superuser ktorý spravuje workspacy).
+        Toto je SEPARÁTNY koncept od member role.
+        """
+        return WorkspaceAdmin.objects.filter(
+            user=user, 
+            workspace=workspace, 
+            is_active=True
+        ).exists()
 
     @staticmethod
     @transaction.atomic

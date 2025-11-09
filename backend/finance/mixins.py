@@ -95,6 +95,22 @@ class WorkspaceMembershipMixin:
         Returns:
             str or None: User's role in the workspace
         """
+
+        # 1. Check if user is owner of this workspace
+        if request.user == obj.owner:
+            logger.debug(
+                "Workspace role: user is owner",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": obj.id,
+                    "user_role": 'owner',
+                    "action": "workspace_owner_role",
+                    "component": "WorkspaceMembershipMixin",
+                },
+            )
+            return 'owner'
+
+        # 2. Check membership in WorkspaceMembership 
         memberships = self._get_user_memberships(request)
         role = memberships.get(obj.id)
         

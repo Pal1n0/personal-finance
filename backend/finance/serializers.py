@@ -143,18 +143,23 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
     def get_member_count(self, obj):
         """
         Get total number of members in the workspace.
+        Includes owner + regular members.
         
         Args:
             obj: Workspace instance
-            
+                
         Returns:
-            int: Number of workspace members
+            int: Number of workspace members (owner + members)
         """
         # Use annotate count if available, otherwise calculate
         if hasattr(obj, 'member_count'):
             count = obj.member_count
         else:
+            # Owner + regular members
             count = obj.members.count()
+            # Add owner if not already in members
+            if not obj.members.filter(pk=obj.owner.pk).exists():
+                count += 1
         
         logger.debug(
             "Member count calculated for workspace",
@@ -661,9 +666,9 @@ class ExpenseCategorySerializer(CategoryWorkspaceMixin, serializers.ModelSeriali
     class Meta:
         model = ExpenseCategory
         fields = [
-            'id', 'name', 'description', 'property', 'level', 'version', 'children', 'is_active'
+            'id', 'name', 'description', 'level', 'version', 'children', 'is_active'
         ]
-        read_only_fields = ['version']  # Prevent direct version modification
+        read_only_fields = ['version', 'property']  # Prevent direct version modification
 
     def validate_name(self, value):
         """
@@ -696,9 +701,9 @@ class IncomeCategorySerializer(CategoryWorkspaceMixin, serializers.ModelSerializ
     class Meta:
         model = IncomeCategory
         fields = [
-            'id', 'name', 'description', 'property', 'level', 'version', 'children', 'is_active'
+            'id', 'name', 'description', 'level', 'version', 'children', 'is_active'
         ]
-        read_only_fields = ['version']  # Prevent direct version modification
+        read_only_fields = ['version', 'property']  # Prevent direct version modification
 
     def validate_name(self, value):
         """
@@ -813,6 +818,10 @@ class TransactionSerializer(TargetUserMixin, serializers.ModelSerializer):
         """
         Validate transaction data consistency and business rules.
         """
+
+        data = super().validate(data)
+
+
         logger.debug(
             "Transaction validation started",
             extra={
@@ -983,7 +992,7 @@ class TransactionListSerializer(serializers.ModelSerializer):
         model = Transaction
         fields = [
             'id', 'type', 'expense_category', 'income_category', 'amount_domestic', 'original_amount', 'original_currency',
-            'date', 'month', 'workspace', 'note_manual', 'note_auto', 'tags'
+            'date', 'month', 'workspace', 'note_manual', 'note_auto', 'tags', 'workspace_name', 'category_name'
         ]
         read_only_fields = fields  # All fields are read-only for list view
 
