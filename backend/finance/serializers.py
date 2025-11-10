@@ -159,7 +159,7 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
             count = obj.members.count()
             # Add owner if not already in members
             if not obj.members.filter(pk=obj.owner.pk).exists():
-                count += 1
+                count
         
         logger.debug(
             "Member count calculated for workspace",
@@ -375,6 +375,7 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
         Returns:
             Workspace: Created workspace instance
         """
+
         request = self.context.get('request')
         
         logger.info(

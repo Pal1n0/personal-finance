@@ -70,8 +70,9 @@ class WorkspaceMembershipMixin:
         """
         if not hasattr(request, '_cached_user_memberships'):
             target_user = getattr(request, 'target_user', request.user)
+            user_id = target_user.id
             memberships = WorkspaceMembership.objects.filter(
-                user=target_user
+                user_id=user_id 
             ).select_related('workspace') 
             
             request._cached_user_memberships = {m.workspace_id: m.role for m in memberships}
@@ -79,7 +80,7 @@ class WorkspaceMembershipMixin:
             logger.debug(
                 "Membership cache initialized from database",
                 extra={
-                    "user_id": request.user.id,
+                    "user_id": user_id ,
                     "cached_workspaces_count": len(request._cached_user_memberships),
                     "action": "membership_cache_initialized",
                     "component": "WorkspaceMembershipMixin",
@@ -96,21 +97,7 @@ class WorkspaceMembershipMixin:
             str or None: User's role in the workspace
         """
 
-        # 1. Check if user is owner of this workspace
-        if request.user == obj.owner:
-            logger.debug(
-                "Workspace role: user is owner",
-                extra={
-                    "user_id": request.user.id,
-                    "workspace_id": obj.id,
-                    "user_role": 'owner',
-                    "action": "workspace_owner_role",
-                    "component": "WorkspaceMembershipMixin",
-                },
-            )
-            return 'owner'
-
-        # 2. Check membership in WorkspaceMembership 
+        # Check membership in WorkspaceMembership 
         memberships = self._get_user_memberships(request)
         role = memberships.get(obj.id)
         

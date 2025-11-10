@@ -260,7 +260,7 @@ class TestIsWorkspaceEditor(BasePermissionTest):
 
 
 class TestIsWorkspaceOwner(BasePermissionTest):
-    """Comprehensive tests for IsWorkspaceOwner permission"""
+    """Comprehensive tests for IsWorkspaceOwner permission with cache optimization"""
 
     def test_superuser_has_ownership_access(self):
         permission = IsWorkspaceOwner()
@@ -269,9 +269,11 @@ class TestIsWorkspaceOwner(BasePermissionTest):
         
         self.assertTrue(permission.has_permission(request, view))
 
-    def test_actual_workspace_owner_has_access(self):
+    def test_actual_workspace_owner_has_access_via_role(self):
+        """Test owner access via membership role (new primary method)"""
         permission = IsWorkspaceOwner()
         request = self.create_request(self.workspace_owner, workspace_id=self.workspace.id)
+        request.user_permissions['workspace_role'] = 'owner'  # ← Owner role from membership
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
         
         self.assertTrue(permission.has_permission(request, view))
@@ -322,31 +324,85 @@ class TestIsWorkspaceOwner(BasePermissionTest):
 
     @patch('finance.permissions.cache')
     @patch('finance.permissions.Workspace')
-    def test_ownership_check_with_caching(self, mock_workspace, mock_cache):
+    def test_ownership_fallback_cache_hit_owner(self, mock_workspace, mock_cache):
+        """Test fallback check with cache hit for owner"""
         permission = IsWorkspaceOwner()
         request = self.create_request(self.workspace_owner, workspace_id=self.workspace.id)
+        request.user_permissions['workspace_role'] = None  # Simulate cache issue
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
         
-        # Test cache hit
+        # Cache hit with owner ID
         mock_cache.get.return_value = self.workspace_owner.id
+        
         self.assertTrue(permission.has_permission(request, view))
-        mock_cache.get.assert_called_once()
+        mock_cache.get.assert_called_once_with(f"workspace_owner_{self.workspace.id}")
 
     @patch('finance.permissions.cache')
     @patch('finance.permissions.Workspace')
-    def test_ownership_check_with_cache_miss(self, mock_workspace, mock_cache):
+    def test_ownership_fallback_cache_hit_non_owner(self, mock_workspace, mock_cache):
+        """Test fallback check with cache hit for non-owner"""
         permission = IsWorkspaceOwner()
-        request = self.create_request(self.workspace_owner, workspace_id=self.workspace.id)
+        request = self.create_request(self.regular_user, workspace_id=self.workspace.id)
+        request.user_permissions['workspace_role'] = None
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
         
-        # Test cache miss
+        # Cache hit with different owner ID
+        mock_cache.get.return_value = self.workspace_owner.id  # Different user
+        
+        self.assertFalse(permission.has_permission(request, view))
+
+    @patch('finance.permissions.cache')
+    @patch('finance.permissions.Workspace')
+    def test_ownership_fallback_cache_miss_owner(self, mock_workspace, mock_cache):
+        """Test fallback check with cache miss for actual owner"""
+        permission = IsWorkspaceOwner()
+        request = self.create_request(self.workspace_owner, workspace_id=self.workspace.id)
+        request.user_permissions['workspace_role'] = None  # Simulate stale cache
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+        
+        # Cache miss
         mock_cache.get.return_value = None
         mock_workspace.objects.filter.return_value.only.return_value.first.return_value = Mock(
             owner_id=self.workspace_owner.id
         )
         
         self.assertTrue(permission.has_permission(request, view))
-        mock_cache.set.assert_called_once()
+        mock_cache.set.assert_called_once_with(
+            f"workspace_owner_{self.workspace.id}", 
+            self.workspace_owner.id, 
+            600
+        )
+
+    @patch('finance.permissions.cache')
+    @patch('finance.permissions.Workspace')
+    def test_ownership_fallback_cache_miss_non_owner(self, mock_workspace, mock_cache):
+        """Test fallback check with cache miss for non-owner"""
+        permission = IsWorkspaceOwner()
+        request = self.create_request(self.regular_user, workspace_id=self.workspace.id)
+        request.user_permissions['workspace_role'] = None
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+        
+        # Cache miss with different owner
+        mock_cache.get.return_value = None
+        mock_workspace.objects.filter.return_value.only.return_value.first.return_value = Mock(
+            owner_id=self.workspace_owner.id  # Different user
+        )
+        
+        self.assertFalse(permission.has_permission(request, view))
+
+    @patch('finance.permissions.cache')
+    @patch('finance.permissions.Workspace')
+    def test_ownership_fallback_workspace_not_found(self, mock_workspace, mock_cache):
+        """Test fallback check when workspace doesn't exist"""
+        permission = IsWorkspaceOwner()
+        request = self.create_request(self.workspace_owner, workspace_id=9999)
+        request.user_permissions['workspace_role'] = None
+        view = self.create_view_with_kwargs(workspace_pk=9999)
+        
+        mock_cache.get.return_value = None
+        mock_workspace.objects.filter.return_value.only.return_value.first.return_value = None
+        
+        self.assertFalse(permission.has_permission(request, view))
 
     @patch('finance.permissions.logger')
     def test_ownership_access_denied_logging(self, mock_logger):
@@ -357,7 +413,59 @@ class TestIsWorkspaceOwner(BasePermissionTest):
         
         permission.has_permission(request, view)
         
-        mock_logger.warning.assert_called_once()
+        # Should log warning for denied access
+        mock_logger.warning.assert_called()
+
+    @patch('finance.permissions.logger')
+    def test_stale_cache_detection_logging(self, mock_logger):
+        """Test logging when stale cache is detected"""
+        permission = IsWorkspaceOwner()
+        request = self.create_request(self.workspace_owner, workspace_id=self.workspace.id)
+        request.user_permissions['workspace_role'] = None  # Stale cache - no role
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+
+        # Mock fallback to return True (user is actually owner)
+        with patch.object(permission, '_check_owner_fallback', return_value=True):
+            permission.has_permission(request, view)
+
+            # Should log warning about stale cache
+            mock_logger.warning.assert_called()
+            
+            # Find the stale cache warning in call arguments
+            stale_cache_found = False
+            for call in mock_logger.warning.call_args_list:
+                call_kwargs = call[1]  # Get the kwargs from call
+                if 'extra' in call_kwargs and 'action' in call_kwargs['extra']:
+                    if 'stale' in call_kwargs['extra']['action'] or 'fallback' in call_kwargs['extra']['action']:
+                        stale_cache_found = True
+                        break
+            
+            self.assertTrue(stale_cache_found, "Stale cache warning not found in logs")
+
+    def test_workspace_admin_without_impersonation_denied(self):
+        """Test workspace admin without impersonation cannot access"""
+        permission = IsWorkspaceOwner()
+        request = self.create_request(self.admin_user, workspace_id=self.workspace.id)
+        request.user_permissions['is_workspace_admin'] = True
+        request.is_admin_impersonation = False  # No impersonation
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+        
+        self.assertFalse(permission.has_permission(request, view))
+
+    def test_workspace_admin_impersonation_wrong_workspace_denied(self):
+        """Test workspace admin impersonation denied for wrong workspace"""
+        permission = IsWorkspaceOwner()
+        request = self.create_request(
+            self.admin_user,
+            workspace_id=self.workspace.id,
+            is_impersonation=True,
+            target_user=self.workspace_owner
+        )
+        request.user_permissions['is_workspace_admin'] = True
+        request.impersonation_workspace_ids = [9999]  # Different workspace
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+        
+        self.assertFalse(permission.has_permission(request, view))
 
 
 class TestIsWorkspaceAdmin(BasePermissionTest):

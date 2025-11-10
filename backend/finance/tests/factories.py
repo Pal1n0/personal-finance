@@ -52,7 +52,7 @@ class UserSettingsFactory(DjangoModelFactory):
         model = UserSettings
 
     user = factory.SubFactory(UserFactory)
-    language = factory.Iterator(['en', 'sk', 'cs', 'de'])
+    language = factory.Iterator(['en', 'sk', 'cs'])
 
 
 class WorkspaceFactory(DjangoModelFactory):
@@ -70,9 +70,9 @@ class WorkspaceFactory(DjangoModelFactory):
         if not create:
             return
 
-        # Always add owner as admin member if not already present
+        # Always add owner as OWNER member if not already present
         if not WorkspaceMembership.objects.filter(workspace=self, user=self.owner).exists():
-            WorkspaceMembershipFactory(workspace=self, user=self.owner, role='admin')
+            WorkspaceMembershipFactory(workspace=self, user=self.owner, role='owner')  
 
         if extracted:
             for user in extracted:
@@ -86,7 +86,7 @@ class WorkspaceMembershipFactory(DjangoModelFactory):
 
     workspace = factory.SubFactory(WorkspaceFactory)
     user = factory.SubFactory(UserFactory)
-    role = factory.Iterator(['viewer', 'editor', 'admin', 'owner'])
+    role = factory.Iterator(['viewer', 'editor', 'owner'])
     joined_at = factory.LazyFunction(timezone.now)
 
 

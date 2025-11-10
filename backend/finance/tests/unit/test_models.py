@@ -93,49 +93,55 @@ class TestWorkspaceMembership:
         assert workspace_member.role == 'editor'
         assert str(workspace_member) == f"{test_user2.username} in {test_workspace.name} as editor"
     
-    def test_membership_default_role(self, test_workspace, test_user):
+    def test_membership_default_role(self, test_workspace, test_user2):
         """Test predvolenej role"""
+        # test_user2 by nemal byť owner workspace, takže môžeš vytvoriť membership
         membership = WorkspaceMembership.objects.create(
             workspace=test_workspace,
-            user=test_user
+            user=test_user2
         )
+        
         assert membership.role == 'viewer'
     
-    def test_membership_unique_constraint(self, test_workspace, test_user):
+    def test_membership_unique_constraint(self, test_workspace, test_user2):
         """Test unikátnosti členstva"""
         # Prvé členstvo
         WorkspaceMembership.objects.create(
             workspace=test_workspace,
-            user=test_user,
+            user=test_user2,
             role='viewer'
         )
         
         # Pokus o duplicitné členstvo by malo spôsobiť IntegrityError
         with pytest.raises(IntegrityError):
-            WorkspaceMembership.objects.create(
-                workspace=test_workspace,
-                user=test_user,
-                role='editor'
-            )
+            with transaction.atomic():
+                WorkspaceMembership.objects.create(
+                    workspace=test_workspace,
+                    user=test_user2,
+                    role='editor'
+                )
     
     def test_membership_role_choices(self, workspace_member):
         """Test platných rolí"""
         valid_roles = ['editor', 'viewer']  # Iba editor a viewer
         assert workspace_member.role in valid_roles
 
-    def test_owner_has_access_without_membership(self, test_workspace, test_user):
-        """Test že owner má prístup k workspace bez členstva"""
-        # Owner by mal mať prístup cez ownership, nie cez WorkspaceMembership
+    def test_owner_has_automatic_membership(self, test_workspace, test_user):
+        """Test že owner má automaticky vytvorené členstvo"""
+        # Owner by mal mať automaticky vytvorené členstvo s rolou 'owner'
         has_membership = WorkspaceMembership.objects.filter(
-            workspace=test_workspace, 
+            workspace=test_workspace,
             user=test_user
         ).exists()
+
+        assert has_membership == True, "Owner should have automatic workspace membership"
         
-        assert has_membership == False, "Owner should not have workspace membership"
-        
-        # Owner má prístup k workspace
-        assert test_workspace.owner == test_user
-        assert test_user == test_workspace.owner
+        # Over rolu
+        membership = WorkspaceMembership.objects.get(
+            workspace=test_workspace,
+            user=test_user
+        )
+        assert membership.role == 'owner'
 
     def test_membership_role_choices_only_editor_viewer(self, workspace_member):
         """Test že sú povolené iba role editor a viewer"""

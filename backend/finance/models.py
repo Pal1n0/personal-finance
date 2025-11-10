@@ -123,34 +123,53 @@ class Workspace(models.Model):
             },
         )
 
+    def _validate_owner_consistency(self):
+        """Validate that owner has correct role in membership."""
+        try:
+            owner_membership = WorkspaceMembership.objects.get(
+                workspace=self,
+                user=self.owner
+            )
+            if owner_membership.role != 'owner':
+                raise ValidationError({
+                    'owner': "Workspace owner must have 'owner' role in membership."
+                })
+        except WorkspaceMembership.DoesNotExist:
+            raise ValidationError({
+                'owner': "Workspace owner must exist in workspace membership."
+            })
+
     def save(self, *args, **kwargs):
-        """Ensure owner is always in members."""
+        """Save workspace and ensure owner synchronization."""
+        is_new = self.pk is None
         super().save(*args, **kwargs)
+        self._sync_owner_to_membership(is_new)
         
     @staticmethod
     def get_user_role_in_workspace(user, workspace):
         """
         Get user's role in workspace considering owner, admin, and regular members.
         """
-        # 1. Check if user is owner
-        if user == workspace.owner:
-            return 'owner'
-        
-        # 2. Check if user is regular member
         try:
             membership = WorkspaceMembership.objects.get(
                 workspace=workspace, 
                 user=user
             )
-            return membership.role  # 'editor' or 'viewer'
+            return membership.role 
         except WorkspaceMembership.DoesNotExist:
             return None
         
     @staticmethod
     def is_workspace_admin(user, workspace):
         """
-        Check if user is workspace admin (superuser ktorý spravuje workspacy).
-        Toto je SEPARÁTNY koncept od member role.
+        Check if user is workspace admin.
+        
+        Args:
+            user: User to check
+            workspace: Workspace to check
+            
+        Returns:
+            bool: True if user is workspace admin
         """
         return WorkspaceAdmin.objects.filter(
             user=user, 
@@ -158,96 +177,174 @@ class Workspace(models.Model):
             is_active=True
         ).exists()
 
-    @staticmethod
     @transaction.atomic
-    def change_workspace_owner(workspace, new_owner, changed_by):
+    def change_owner(self, new_owner, changed_by, old_owner_action='editor'):
         """
-        Atomically change workspace owner.
+        Atomically change workspace owner with configurable old owner handling.
+        
+        Args:
+            new_owner: User to become the new owner
+            changed_by: User initiating the change
+            old_owner_action: What to do with old owner - 'editor', 'viewer', or 'remove'
+            
+        Raises:
+            PermissionError: If user cannot change ownership
+            ValidationError: If ownership change is invalid
         """
-        if not WorkspaceService._can_change_ownership(workspace, changed_by):
+        # Validate permission to change ownership
+        if not self._can_change_ownership(changed_by):
             raise PermissionError("User cannot change workspace ownership.")
         
-        old_owner = workspace.owner
+        # Validate new owner
+        if new_owner == self.owner:
+            raise ValidationError("New owner cannot be the same as current owner.")
         
-        # Update workspace owner
-        workspace.owner = new_owner
-        workspace.save()
+        if not self.members.filter(id=new_owner.id).exists():
+            raise ValidationError("New owner must be a member of the workspace.")
         
-        # Remove old owner from all role tables
-        WorkspaceMembership.objects.filter(
-            workspace=workspace, 
-            user=old_owner
-        ).delete()
+        # Validate old_owner_action
+        valid_actions = ['editor', 'viewer', 'remove']
+        if old_owner_action not in valid_actions:
+            raise ValidationError(f"old_owner_action must be one of: {', '.join(valid_actions)}")
         
-        WorkspaceAdmin.objects.filter(
-            workspace=workspace, 
-            user=old_owner
-        ).update(is_active=False)
+        old_owner = self.owner
         
-        # Ensure new owner is not in any role tables (clean state)
-        WorkspaceMembership.objects.filter(
-            workspace=workspace, 
-            user=new_owner
-        ).delete()
+        try:
+            # 1. Update workspace owner
+            self.owner = new_owner
+            self.save()  # This will trigger _sync_owner_to_membership
+            
+            # 2. Handle old owner based on action parameter
+            if old_owner_action == 'remove':
+                # Remove old owner completely from workspace
+                WorkspaceMembership.objects.filter(
+                    workspace=self,
+                    user=old_owner
+                ).delete()
+                WorkspaceAdmin.objects.filter(
+                    workspace=self,
+                    user=old_owner
+                ).update(is_active=False)
+                new_role = None
+                
+            else:  # 'editor' or 'viewer'
+                # Change old owner's role to specified role
+                WorkspaceMembership.objects.filter(
+                    workspace=self,
+                    user=old_owner
+                ).update(role=old_owner_action)
+                new_role = old_owner_action
+            
+            logger.info(
+                "Workspace ownership changed successfully",
+                extra={
+                    "workspace_id": self.id,
+                    "old_owner_id": old_owner.id,
+                    "new_owner_id": new_owner.id,
+                    "changed_by_id": changed_by.id,
+                    "old_owner_action": old_owner_action,
+                    "old_owner_new_role": new_role,
+                    "action": "workspace_ownership_changed",
+                    "component": "Workspace",
+                },
+            )
+            
+        except Exception as e:
+            logger.error(
+                "Workspace ownership change failed",
+                extra={
+                    "workspace_id": self.id,
+                    "old_owner_id": old_owner.id,
+                    "new_owner_id": new_owner.id,
+                    "error": str(e),
+                    "action": "workspace_ownership_change_failed",
+                    "component": "Workspace",
+                    "severity": "high",
+                },
+            )
+            raise
         
-        logger.info(
-            "Workspace ownership changed",
-            extra={
-                "workspace_id": workspace.id,
-                "old_owner_id": old_owner.id,
-                "new_owner_id": new_owner.id,
-                "changed_by_id": changed_by.id,
-                "action": "workspace_ownership_changed",
-                "component": "WorkspaceService",
-            },
-        )
+    def _sync_owner_to_membership(self, is_new):
+        """
+        Synchronize workspace owner to membership table.
+        """
+        try:
+            WorkspaceMembership.objects.update_or_create(
+                workspace=self,
+                user=self.owner,
+                defaults={'role': 'owner'}
+            )
+            logger.debug(
+                "Owner synchronized to membership",
+                extra={
+                    "workspace_id": self.id,
+                    "owner_id": self.owner.id,
+                    "is_new_workspace": is_new,
+                    "action": "owner_sync_completed",
+                    "component": "Workspace",
+                },
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to sync owner to membership",
+                extra={
+                    "workspace_id": self.id,
+                    "owner_id": self.owner.id,
+                    "error": str(e),
+                    "action": "owner_sync_failed",
+                    "component": "Workspace",
+                    "severity": "high",
+                },
+            )
+            raise
+        
+    def _can_change_ownership(self, user):
+        """
+        Check if user can change workspace ownership.
+        """
+        # Superusers can always change ownership
+        if user.is_superuser:
+            return True
+        
+        # Current owner can transfer ownership
+        if user == self.owner:
+            return True
+        
+        # Workspace admins can change ownership
+        return WorkspaceAdmin.objects.filter(
+            user=user,
+            workspace=self,
+            is_active=True,
+            can_manage_users=True
+        ).exists()
     
-    @staticmethod
-    def get_all_workspace_users_with_roles(workspace):
-        """
-        Get all users with their roles in workspace.
-        """
-        users_data = []
-        
-        # 1. Add owner
-        users_data.append({
-            'user': workspace.owner,
-            'role': 'owner',
-            'is_owner': True,
-            'is_admin': False,
-            'joined_at': workspace.created_at
-        })
-        
-        # 2. Add workspace admins
-        admins = WorkspaceAdmin.objects.filter(
-            workspace=workspace, 
-            is_active=True
-        ).select_related('user')
-        
-        for admin in admins:
-            users_data.append({
-                'user': admin.user,
-                'role': 'admin',
-                'is_owner': False,
-                'is_admin': True,
-                'joined_at': admin.assigned_at
-            })
-        
-        # 3. Add regular members
-        memberships = WorkspaceMembership.objects.filter(
-            workspace=workspace
-        ).select_related('user')
-        
-        for membership in memberships:
-            users_data.append({
-                'user': membership.user,
-                'role': membership.role,  # 'editor' or 'viewer'
-                'is_owner': False,
-                'is_admin': False,
-                'joined_at': membership.joined_at
-            })
-        
-        return users_data
+    def get_all_workspace_users_with_roles(self):
+            """
+            Get all users with their roles in workspace from membership.
+            
+            Returns:
+                list: List of user data with roles
+            """
+            # Get all data from membership in one query
+            memberships = WorkspaceMembership.objects.filter(
+                workspace=self
+            ).select_related('user')
+            
+            users_data = []
+            for membership in memberships:
+                users_data.append({
+                    'user': membership.user,
+                    'role': membership.role,
+                    'is_owner': membership.role == 'owner',
+                    'is_admin': WorkspaceAdmin.objects.filter(
+                        user=membership.user,
+                        workspace=self,
+                        is_active=True
+                    ).exists(),
+                    'joined_at': membership.joined_at
+                })
+            
+            return users_data
 
 # -------------------------------------------------------------------
 # WORKSPACE ADMIN MANAGEMENT
@@ -362,6 +459,7 @@ class WorkspaceMembership(models.Model):
     """
     
     ROLE_CHOICES = [
+        ('owner', 'Owner'),
         ('editor', 'Editor'), 
         ('viewer', 'Viewer'),
     ]
@@ -378,6 +476,14 @@ class WorkspaceMembership(models.Model):
             models.Index(fields=['user', 'role']),
             models.Index(fields=['workspace', 'role']),
             models.Index(fields=['joined_at']),
+        ]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=['workspace'],
+                condition=models.Q(role='owner'),
+                name='unique_owner_per_workspace'
+            )
         ]
     
     def __str__(self):

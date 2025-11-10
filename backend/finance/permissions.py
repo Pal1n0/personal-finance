@@ -261,47 +261,59 @@ class IsWorkspaceEditor(permissions.BasePermission):
 
 class IsWorkspaceOwner(permissions.BasePermission):
     """
-    Ownership-level authorization with comprehensive security controls.
+    Ownership-level authorization - allows owners AND higher roles (admins, superusers).
+    Consistent with other permission classes where higher roles inherit lower permissions.
     
-    Access is restricted to:
-    - Superusers (full administrative privileges with audit compliance)
-    - Workspace admins during authorized impersonation sessions
-    - Users with explicit owner role in validated workspaces
-    - Direct workspace owners (fallback validation for edge cases)
-    
-    Security Enforcement:
-    - Multi-layer ownership verification
-    - Workspace existence validation
-    - Comprehensive audit logging for ownership transfers
-    - Defense in depth with multiple validation mechanisms
+    Access granted to:
+    - Superusers (system-wide access)
+    - Workspace admins (delegated administrative access) 
+    - Workspace owners (direct ownership)
     """
     
     def has_permission(self, request, view):
         """
-        Validate ownership-level authorization with security compliance.
+        Validate ownership or higher-level authorization.
         
         Args:
-            request: HTTP request containing ownership context
+            request: HTTP request with security context
             view: Target view requiring ownership privileges
             
         Returns:
-            bool: True if ownership access is securely verified
+            bool: True if user has owner role or higher privileges
         """
+        # Safe methods always allowed
+        if request.method in permissions.SAFE_METHODS:
+            return True
+            
         workspace_id = self._get_workspace_id(view)
         if not workspace_id:
-            # No specific workspace - apply strict ownership policy
+            logger.debug(
+                "Ownership check skipped - no workspace context",
+                extra={
+                    "user_id": request.user.id,
+                    "action": "ownership_check_no_workspace",
+                    "component": "IsWorkspaceOwner",
+                },
+            )
             return False
             
         permissions_data = getattr(request, 'user_permissions', {})
-
-        if permissions_data.get('is_superuser') or permissions_data.get('is_workspace_admin'):
-            logger.debug("Admin bypass for ownership permission")
-            return True
         
+        # Log permission check for audit trail
+        logger.debug(
+            "Ownership authorization check initiated",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace_id,
+                "action": "ownership_check_start",
+                "component": "IsWorkspaceOwner",
+            },
+        )
+
         # Critical security: Validate workspace existence
         if not permissions_data.get('workspace_exists', False):
             logger.warning(
-                "Ownership access attempt to non-existent workspace blocked",
+                "Ownership access attempt to non-existent workspace",
                 extra={
                     "user_id": request.user.id,
                     "workspace_id": workspace_id,
@@ -312,64 +324,37 @@ class IsWorkspaceOwner(permissions.BasePermission):
             )
             return False
         
-        # Superusers have inherent ownership rights with compliance logging
-        if permissions_data.get('is_superuser'):
+        # ✅ OWNER OR HIGHER: Superusers and workspace admins automatically have owner rights
+        if permissions_data.get('is_superuser') or permissions_data.get('is_workspace_admin'):
             logger.debug(
-                "Superuser ownership access granted",
+                "Ownership access granted via admin/superuser privileges",
                 extra={
                     "user_id": request.user.id,
                     "workspace_id": workspace_id,
-                    "action": "superuser_ownership_access",
-                    "component": "IsWorkspaceOwner",
-                },
-            )
-            return True
-            
-        # Workspace admins assume ownership during authorized impersonation
-        if (permissions_data.get('is_workspace_admin') and 
-            getattr(request, 'is_admin_impersonation', False) and
-            workspace_id in getattr(request, 'impersonation_workspace_ids', [])):
-            logger.debug(
-                "Admin impersonation ownership access granted",
-                extra={
-                    "admin_id": request.user.id,
-                    "target_user_id": getattr(request.target_user, 'id', None),
-                    "workspace_id": workspace_id,
-                    "action": "admin_impersonation_ownership_access",
+                    "is_superuser": permissions_data.get('is_superuser'),
+                    "is_workspace_admin": permissions_data.get('is_workspace_admin'),
+                    "action": "admin_ownership_access_granted",
                     "component": "IsWorkspaceOwner",
                 },
             )
             return True
         
-        # Primary ownership check using cached role data
+        # Primary ownership check using cached role from middleware
         user_role = permissions_data.get('workspace_role')
-        if user_role == 'owner':
+        is_owner = user_role == 'owner'
+        
+        if is_owner:
             logger.debug(
-                "Ownership access granted via role",
+                "Ownership access granted via direct ownership",
                 extra={
                     "user_id": request.user.id,
                     "workspace_id": workspace_id,
-                    "action": "role_based_ownership_access",
+                    "user_role": user_role,
+                    "action": "direct_ownership_access_granted",
                     "component": "IsWorkspaceOwner",
                 },
             )
-            return True
-            
-        # Fallback validation for direct workspace ownership with caching
-        cache_key = f"workspace_owner_{workspace_id}"
-        cached_owner_id = cache.get(cache_key)
-        
-        if cached_owner_id is not None:
-            is_owner = cached_owner_id == request.user.id
         else:
-            workspace = Workspace.objects.filter(id=workspace_id).only('owner').first()
-            is_owner = workspace and workspace.owner_id == request.user.id
-            
-            # Cache owner ID for 10 minutes to reduce database load
-            if workspace:
-                cache.set(cache_key, workspace.owner_id, 600)
-        
-        if not is_owner:
             logger.warning(
                 "Ownership-level access denied",
                 extra={
@@ -383,6 +368,20 @@ class IsWorkspaceOwner(permissions.BasePermission):
             )
             
         return is_owner
+
+    def has_object_permission(self, request, view, obj):
+        """
+        Object-level ownership permission.
+        
+        Args:
+            request: HTTP request with security context
+            view: Target view being accessed
+            obj: Target object for permission check
+            
+        Returns:
+            bool: True if ownership access is granted for specific object
+        """
+        return self.has_permission(request, view)
 
     def _get_workspace_id(self, view):
         """
@@ -411,7 +410,6 @@ class IsWorkspaceOwner(permissions.BasePermission):
                     },
                 )
         return None
-
 
 class IsWorkspaceAdmin(permissions.BasePermission):
     """

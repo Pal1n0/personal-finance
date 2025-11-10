@@ -9,7 +9,7 @@ from .models import WorkspaceAdmin, WorkspaceMembership, Workspace
 
 logger = logging.getLogger(__name__)
 
-class AdminImpersonationMiddleware(MiddlewareMixin):
+class AdminImpersonationMiddleware():
     """
     Enterprise-grade middleware for secure admin impersonation and permission caching.
     
@@ -20,6 +20,36 @@ class AdminImpersonationMiddleware(MiddlewareMixin):
     - Rate limiting and audit logging for compliance
     - Circuit breaker pattern for database failure scenarios
     """
+
+    def __init__(self, get_response=None):
+        """
+        Initialize middleware with Django's get_response callable.
+        
+        Args:
+            get_response: Django callable that takes request and returns response
+        """
+        self.get_response = get_response
+        
+        logger.debug(
+            "AdminImpersonationMiddleware initialized",
+            extra={
+                "action": "middleware_initialized", 
+                "component": "AdminImpersonationMiddleware",
+                "max_impersonations_per_minute": self.MAX_IMPERSONATIONS_PER_MINUTE,
+                "impersonation_cache_timeout": self.IMPERSONATION_CACHE_TIMEOUT,
+            },
+        )
+
+    def __call__(self, request):
+        """
+        Main middleware entry point - called for each request.
+        """
+        # Zavolaj tvoj process_view logic
+        self.process_view(request, None, None, None)
+        
+        if hasattr(self, 'get_response') and self.get_response:
+            return self.get_response(request)
+        return None
     
     # Security constants
     MAX_IMPERSONATIONS_PER_MINUTE = 10
@@ -458,8 +488,7 @@ class AdminImpersonationMiddleware(MiddlewareMixin):
 
     def _can_admin_impersonate_in_workspace(self, admin_user, target_user, workspace_id):
         """Check if admin can impersonate target user in specific workspace."""
-        return (self._is_workspace_admin(admin_user, workspace_id) and
-                self._is_user_workspace_member(target_user, workspace_id))
+        return self._is_workspace_admin(admin_user, workspace_id)
 
     def _is_workspace_admin(self, user, workspace_id):
         """Check if user is admin of specific workspace with caching."""

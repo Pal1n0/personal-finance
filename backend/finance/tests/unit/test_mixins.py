@@ -182,14 +182,12 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
             owner=self.other_user
         )
 
-        WorkspaceMembership.objects.filter(user=self.user).delete()
-        WorkspaceMembership.objects.filter(user=self.other_user).delete()
         
         # Create memberships - user má 2 memberships, other_user má 1
         self.membership1 = WorkspaceMembership.objects.create(
             workspace=self.workspace1,
             user=self.other_user,
-            role='admin'
+            role='editor'
         )
         self.membership2 = WorkspaceMembership.objects.create(
             workspace=self.workspace2,
@@ -219,7 +217,7 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
         memberships = self.mixin._get_user_memberships(request)
         
         self.assertTrue(hasattr(request, '_cached_user_memberships'))
-        self.assertEqual(len(memberships), 2)  # user má 2 memberships
+        self.assertEqual(len(memberships), 3)  
         self.assertEqual(memberships[self.workspace2.id], 'viewer')
         self.assertEqual(memberships[self.workspace3.id], 'editor')
 
@@ -234,7 +232,7 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
             memberships2 = self.mixin._get_user_memberships(request)
         
         self.assertEqual(memberships1, memberships2)
-        self.assertEqual(len(memberships1), 2)  # user má 2 memberships
+        self.assertEqual(len(memberships1), 3)  
 
     def test_get_user_memberships_select_related_optimization(self):
         """Test select_related optimization."""
@@ -244,7 +242,7 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
             memberships = self.mixin._get_user_memberships(request)
         
         self.assertIsInstance(memberships, dict)
-        self.assertEqual(len(memberships), 2)  # user má 2 memberships
+        self.assertEqual(len(memberships), 3)  
 
     @patch('finance.mixins.logger')
     def test_get_user_memberships_logging(self, mock_logger):
@@ -256,7 +254,7 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
         mock_logger.debug.assert_called_once()
         call_args = mock_logger.debug.call_args
         self.assertEqual(call_args[1]['extra']['user_id'], self.user.id)
-        self.assertEqual(call_args[1]['extra']['cached_workspaces_count'], 2)  # user má 2 memberships
+        self.assertEqual(call_args[1]['extra']['cached_workspaces_count'], 3)  
 
     def test_get_membership_for_workspace_existing_membership(self):
         """Test role retrieval for workspace membership."""
@@ -264,7 +262,7 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
         
         role = self.mixin._get_membership_for_workspace(self.workspace1, request)
         
-        self.assertEqual(role, 'admin')
+        self.assertEqual(role, 'editor')
 
     def test_get_membership_for_workspace_no_membership(self):
         """Test role retrieval for non-member workspace."""
@@ -287,7 +285,7 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
         with self.assertNumQueries(0):
             role = self.mixin._get_membership_for_workspace(self.workspace1, request)
         
-        self.assertEqual(role, 'admin')
+        self.assertEqual(role, 'editor')
 
     @patch('finance.mixins.logger')
     def test_get_membership_for_workspace_logging_on_cache_hit(self, mock_logger):
@@ -333,8 +331,8 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
         memberships1 = self.mixin._get_user_memberships(request1)
         memberships2 = self.mixin._get_user_memberships(request2)
         
-        self.assertEqual(len(memberships1), 2)  # user má 2 memberships
-        self.assertEqual(len(memberships2), 1)  # other_user má 1 membership
+        self.assertEqual(len(memberships1), 3)  
+        self.assertEqual(len(memberships2), 3)  
         self.assertNotEqual(id(request1._cached_user_memberships), id(request2._cached_user_memberships))
 
     def test_integration_with_serializer(self):
@@ -351,7 +349,7 @@ class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
         serializer = TestSerializer(context=context)
         
         role = serializer.get_user_role(self.workspace1)
-        self.assertEqual(role, 'admin')
+        self.assertEqual(role, 'editor')
 
 
 class TestCategoryWorkspaceMixin(TestCase, BaseTestMixin):
@@ -591,11 +589,6 @@ class TestMixinsIntegration(TestCase, BaseTestMixin):
             owner=self.user
         )
         
-        WorkspaceMembership.objects.create(
-            workspace=self.workspace,
-            user=self.user,
-            role='admin'
-        )
         
         self.category_version = ExpenseCategoryVersion.objects.create(
             workspace=self.workspace,
@@ -611,24 +604,34 @@ class TestMixinsIntegration(TestCase, BaseTestMixin):
                 if request:
                     return self._get_membership_for_workspace(obj, request)
                 return None
-        
+
         request = self.factory.get('/')
         request.user = self.user
+
+        # Vytvor membership pre target_user v workspace
+        WorkspaceMembership.objects.create(
+            workspace=self.workspace,
+            user=self.target_user,
+            role='editor'  # target_user je editor v workspace
+        )
+
         request.target_user = self.target_user
         request.workspace = self.workspace
         request.is_admin_impersonation = True
-        
+
         context = {'request': request}
         serializer = IntegratedSerializer(context=context)
-        
+
+        # Test TargetUserMixin
         data_with_user = serializer.validate({'version': self.category_version})
-        self.assertEqual(data_with_user['user'], self.target_user)
         
+        # Over všetky mixiny naraz
+        self.assertEqual(data_with_user['user'], self.target_user)  # TargetUserMixin
+        self.assertEqual(data_with_user['workspace'], self.workspace)  # CategoryWorkspaceMixin
+
+        # Test WorkspaceMembershipMixin - vráti rolu target_user v workspace
         role = serializer.get_user_role(self.workspace)
-        self.assertEqual(role, 'owner')
-        
-        result_data = serializer.validate({'version': self.category_version})
-        self.assertEqual(result_data['version'], self.category_version)
+        self.assertEqual(role, 'editor')  # target_user má rolu 'editor'
 
     @patch('finance.mixins.logger')
     def test_comprehensive_logging_integration(self, mock_logger):

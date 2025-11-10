@@ -256,8 +256,8 @@ class TestWorkspaceSerializer(TestCase):
         self.assertEqual(serializer.validated_data['name'], 'Test Workspace')
 
     @patch('finance.serializers.logger')
-    def test_workspace_creation_without_owner_membership(self, mock_logger):
-        """Test workspace creation WITHOUT owner in membership."""
+    def test_workspace_creation_with_owner_membership(self, mock_logger):
+        """Test workspace creation WITH owner automatically added to membership."""
         self.request.user = self.owner
         serializer = WorkspaceSerializer(
             data={'name': 'New Workspace'},
@@ -270,13 +270,16 @@ class TestWorkspaceSerializer(TestCase):
         self.assertEqual(workspace.name, 'New Workspace')
         self.assertEqual(workspace.owner, self.owner)
         
-        # ✅ Owner should NOT be in WorkspaceMembership
-        with self.assertRaises(WorkspaceMembership.DoesNotExist):
-            WorkspaceMembership.objects.get(workspace=workspace, user=self.owner)
+        # ✅ Owner SHOULD be in WorkspaceMembership (new behavior)
+        membership = WorkspaceMembership.objects.get(workspace=workspace, user=self.owner)
+        self.assertEqual(membership.role, 'owner')
         
         # ✅ Owner je započítaný v member_count (cez serializer)
         serialized_data = serializer.data
-        self.assertEqual(serialized_data['member_count'], 1)  # ← Oprava: serializer.data
+        self.assertEqual(serialized_data['member_count'], 1)
+        
+        # ✅ Verify logging
+        mock_logger.debug.assert_called()
 
 class TestWorkspaceMembershipSerializer(TestCase):
     """

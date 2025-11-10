@@ -435,6 +435,7 @@ class WorkspaceViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
         Create workspace with admin impersonation support.
         Admin can create workspace for target user.
         """
+
         target_user = self.request.target_user
         
         logger.info(
@@ -453,12 +454,6 @@ class WorkspaceViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
             instance = serializer.save(owner=target_user)
         else:
             instance = serializer.save()
-        
-        WorkspaceMembership.objects.create(
-            workspace=instance,
-            user=target_user,
-            role='owner'
-        )
         
         logger.info(
             "Workspace created successfully",
@@ -1242,10 +1237,16 @@ class WorkspaceViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
     @transaction.atomic
     def change_owner(self, request, pk=None):
         """
-        Change workspace owner.
+        Change workspace owner with configurable old owner handling.
         
-        Only workspace admins or superusers can change ownership.
+        Only workspace admins, owners or superusers can change ownership.
         The new owner must be an existing workspace member.
+        
+        Request body:
+        {
+            "new_owner_id": 123,
+            "old_owner_action": "editor"  # Optional: "editor", "viewer", or "remove"
+        }
         """
         workspace = self.get_object()
         
@@ -1253,14 +1254,13 @@ class WorkspaceViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
             "Workspace ownership change initiated",
             extra={
                 "request_user_id": request.user.id,
-                "target_user_id": request.target_user.id,
                 "workspace_id": workspace.id,
                 "action": "workspace_ownership_change_start",
                 "component": "WorkspaceViewSet",
             },
         )
         
-        # Check permissions - only admins or superusers can change ownership
+        # Check permissions - only admins, owners or superusers can change ownership
         memberships = self._get_user_memberships(request)
         user_membership = memberships.get(workspace.id)
         
@@ -1293,6 +1293,15 @@ class WorkspaceViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Get old owner action with default to 'editor'
+        old_owner_action = request.data.get('old_owner_action', 'editor')
+        valid_actions = ['editor', 'viewer', 'remove']
+        if old_owner_action not in valid_actions:
+            return Response(
+                {"error": f"old_owner_action must be one of: {', '.join(valid_actions)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         try:
             new_owner = User.objects.get(pk=new_owner_id)
         except User.DoesNotExist:
@@ -1308,39 +1317,87 @@ class WorkspaceViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Change ownership
-        old_owner = workspace.owner
-        workspace.owner = new_owner
-        workspace.save()
+        # Prevent self-ownership change
+        if new_owner == workspace.owner:
+            return Response(
+                {"error": "New owner cannot be the same as current owner."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
-        # Update membership roles
-        WorkspaceMembership.objects.filter(
-            workspace=workspace, 
-            user=old_owner
-        ).update(role='admin')  # Old owner becomes admin
-        
-        WorkspaceMembership.objects.filter(
-            workspace=workspace, 
-            user=new_owner
-        ).update(role='owner')  # New owner becomes owner
-        
-        logger.info(
-            "Workspace ownership changed successfully",
-            extra={
-                "request_user_id": request.user.id,
-                "workspace_id": workspace.id,
-                "old_owner_id": old_owner.id,
+        try:
+            # Use the model method for atomic ownership change
+            workspace.change_owner(new_owner, request.user, old_owner_action)
+            
+            logger.info(
+                "Workspace ownership changed successfully via API",
+                extra={
+                    "request_user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "old_owner_id": workspace.owner.id,  # Note: owner is already changed
+                    "new_owner_id": new_owner.id,
+                    "old_owner_action": old_owner_action,
+                    "action": "workspace_ownership_changed_api",
+                    "component": "WorkspaceViewSet",
+                },
+            )
+            
+            return Response({
+                "message": f"Workspace ownership transferred to {new_owner.username}.",
                 "new_owner_id": new_owner.id,
-                "action": "workspace_ownership_changed",
-                "component": "WorkspaceViewSet",
-            },
+                "new_owner_username": new_owner.username,
+                "old_owner_action": old_owner_action
+            })
+            
+        except PermissionError as e:
+            logger.warning(
+                "Permission denied for workspace ownership change",
+                extra={
+                    "request_user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "error": str(e),
+                    "action": "workspace_ownership_change_permission_denied",
+                    "component": "WorkspaceViewSet",
+                    "severity": "high",
+                },
+            )
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        except ValidationError as e:
+            logger.warning(
+                "Validation failed for workspace ownership change",
+                extra={
+                    "request_user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "error": str(e),
+                    "action": "workspace_ownership_change_validation_failed",
+                    "component": "WorkspaceViewSet",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except Exception as e:
+            logger.error(
+                "Workspace ownership change failed unexpectedly",
+                extra={
+                    "request_user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "error": str(e),
+                    "action": "workspace_ownership_change_failed",
+                    "component": "WorkspaceViewSet",
+                    "severity": "high",
+                },
+            )
+            return Response(
+                {"error": "An unexpected error occurred during ownership change."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-        
-        return Response({
-            "message": f"Workspace ownership transferred to {new_owner.username}.",
-            "new_owner_id": new_owner.id,
-            "new_owner_username": new_owner.username
-        })
     
     @action(detail=True, methods=['post'])
     def update_member_role(self, request, pk=None):
