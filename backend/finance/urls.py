@@ -79,17 +79,18 @@ router.register(
     views.WorkspaceAdminViewSet, 
     basename='workspaceadmin'
 )
+
+router.register(
+    r'category-sync', 
+    views.CategorySyncViewSet, 
+    basename='category-sync'
+)
+
+
 # Custom API endpoints for bulk operations and synchronization
 urlpatterns = [
     # Include all router-generated URLs
     path('', include(router.urls)),
-    
-    # Category synchronization endpoint
-    path(
-        'workspaces/<int:workspace_id>/categories/<str:category_type>/sync/', 
-        views.sync_categories_api, 
-        name='sync-categories'
-    ),
     
     # Workspace members endpoint
     path(

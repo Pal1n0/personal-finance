@@ -7,13 +7,14 @@ in the financial management application.
 """
 
 import logging
-from datetime import date, timezone
+from datetime import date
 from django.db import transaction, models
+from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, mixins, serializers, status
 from rest_framework.decorators import api_view, action
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError  
 from .permissions import IsWorkspaceMember, IsWorkspaceEditor, IsWorkspaceAdmin, IsWorkspaceOwner, IsSuperuser
 from rest_framework.response import Response
 
@@ -33,39 +34,49 @@ from .serializers import (
 from .services.transaction_service import TransactionService
 from .services.currency_service import CurrencyService
 from .utils.category_utils import sync_categories_tree
-from .mixins import WorkspaceMembershipMixin
+from .mixins import WorkspaceMembershipMixin, WorkspaceContextMixin 
 
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
+
+class BaseWorkspaceViewSet(WorkspaceContextMixin , viewsets.ModelViewSet):
+    """
+    Base ViewSet for ALL workspace-related views.
+    Automatically adds workspace permissions to every view.
+    """
+
+    def initialize_request(self, request, *args, **kwargs):
+        """
+        Initialize workspace permissions when request is created - 
+        runs BEFORE any other view processing
+        """
+        # 1. First get the DRF request object
+        request = super().initialize_request(request, *args, **kwargs)
+        
+        # 2. Initialize our permission system IMMEDIATELY
+        self._process_workspace_permissions(request)
+        
+        # 3. Return request with permissions initialized
+        return request
 
 # -------------------------------------------------------------------
 # WORKSPACE ADMIN MANAGEMENT
 # -------------------------------------------------------------------
 
-class WorkspaceAdminViewSet(viewsets.ModelViewSet):
+class WorkspaceAdminViewSet(BaseWorkspaceViewSet, viewsets.ModelViewSet):
     """
-    ViewSet for managing workspace administrator assignments.
-    
-    Security Rules:
-    - Only superusers can assign/deactivate workspace admins
-    - Workspace admins can deactivate themselves via business logic
-    - Uses request.target_user for proper impersonation handling
+    Workspace Administrator Management API
+    Security: Superuser-only access with comprehensive audit logging
     """
     
     serializer_class = None
-    permission_classes = [IsAuthenticated, IsSuperuser]  # Default to superuser only
+    permission_classes = [IsAuthenticated, IsSuperuser]
 
     def get_queryset(self):
-        """Get workspace admin assignments - only for superusers."""
-        logger.debug(
-            "Retrieving workspace admin assignments",
-            extra={
-                "user_id": getattr(self.request.target_user, 'id', None),
-                "action": "workspace_admin_retrieval",
-            },
-        )
-        
-        # Use target_user for proper impersonation handling
+        """
+        Retrieve workspace admin assignments with optimized query patterns
+        Returns empty queryset for non-superusers to prevent information leakage
+        """
         if not self.request.user.is_superuser:
             return WorkspaceAdmin.objects.none()
         
@@ -74,132 +85,84 @@ class WorkspaceAdminViewSet(viewsets.ModelViewSet):
         ).order_by('-assigned_at')
 
     def get_permissions(self):
-        """All actions require superuser except custom actions with their own checks."""
+        """Enforce superuser requirement for all administrative actions"""
         return [IsAuthenticated(), IsSuperuser()]
 
     @action(detail=False, methods=['post'])
     def assign_admin(self, request, workspace_pk=None):
-        """Assign a user as workspace administrator - SUPERUSER ONLY"""
-        # Permission is handled by IsSuperuser, but double-check for security
-        if not request.user.is_superuser:
-            return Response(
-                {"error": "Only superusers can assign workspace administrators."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
+        """
+        Assign workspace administrator privileges
+        Requires: Superuser authentication, valid workspace, target user membership
+        """
         workspace = get_object_or_404(Workspace, pk=workspace_pk)
         user_id = request.data.get('user_id')
         
         if not user_id:
             return Response(
-                {"error": "User ID is required."},
+                {"error": "User ID is required for admin assignment"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         try:
-            user = User.objects.get(pk=user_id)
+            target_user = User.objects.get(pk=user_id)
         except User.DoesNotExist:
             return Response(
-                {"error": "User not found."},
+                {"error": "Specified user not found in system"},
                 status=status.HTTP_404_NOT_FOUND
             )
-        
-        # Use target_user context if in impersonation
-        effective_user = getattr(request, 'target_user', request.user)
-        
-        if not WorkspaceMembership.objects.filter(workspace=workspace, user=user).exists():
+
+        if not self._validate_user_membership(target_user, workspace.id):
             return Response(
-                {"error": "User must be a workspace member before admin assignment."},
+                {"error": "User must be workspace member before admin assignment"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         admin_assignment, created = WorkspaceAdmin.objects.get_or_create(
-            user=user,
+            user=target_user,
             workspace=workspace,
             defaults={
-                'assigned_by': effective_user,  # Use effective user (impersonation aware)
+                'assigned_by': request.user,
                 'is_active': True
             }
         )
-        
+
         if not created:
             admin_assignment.is_active = True
-            admin_assignment.assigned_by = effective_user
+            admin_assignment.assigned_by = request.user
             admin_assignment.save()
-        
-        logger.info(
-            "Workspace admin assigned successfully",
-            extra={
-                "assigned_by": effective_user.id,
-                "assigned_user_id": user.id,
-                "workspace_id": workspace.id,
-                "action": "workspace_admin_assigned",
-            },
-        )
-        
+
+        self._invalidate_admin_cache(target_user.id, workspace.id)
+
         return Response({
-            "message": f"User {user.username} assigned as workspace admin.",
+            "message": f"Administrator privileges assigned to {target_user.username}",
             "admin_assignment_id": admin_assignment.id,
             "assigned_at": admin_assignment.assigned_at
         }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
-    @action(detail=True, methods=['post'])
-    def deactivate_admin(self, request, pk=None):
-        """
-        Deactivate a workspace admin assignment.
+    def _validate_user_membership(self, user, workspace_id):
+        """Validate user workspace membership using cached data where available"""
+        cache_key = f"workspace_member_{user.id}_{workspace_id}"
+        cached_membership = cache.get(cache_key)
         
-        Business Rules:
-        - Superusers can deactivate any admin
-        - Workspace admins can only deactivate themselves
-        - Uses impersonation context properly
-        """
-        admin_assignment = get_object_or_404(WorkspaceAdmin, pk=pk)
-        effective_user = getattr(request, 'target_user', request.user)
+        if cached_membership is not None:
+            return cached_membership
+            
+        membership_exists = WorkspaceMembership.objects.filter(
+            user=user,
+            workspace_id=workspace_id
+        ).exists()
         
-        # Business logic: superuser OR self-deactivation
-        is_self_deactivation = admin_assignment.user_id == effective_user.id
-        
-        if not request.user.is_superuser and not is_self_deactivation:
-            logger.warning(
-                "Unauthorized admin deactivation attempt",
-                extra={
-                    "user_id": effective_user.id,
-                    "target_admin_id": admin_assignment.user_id,
-                    "action": "admin_deactivation_denied",
-                    "severity": "high",
-                },
-            )
-            return Response(
-                {"error": "You can only deactivate your own admin assignments."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if not admin_assignment.is_active:
-            return Response(
-                {"error": "Admin assignment is already inactive."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        admin_assignment.is_active = False
-        admin_assignment.deactivated_at = timezone.now()
-        admin_assignment.save()
-        
-        logger.info(
-            "Workspace admin deactivated",
-            extra={
-                "deactivated_by": effective_user.id,
-                "admin_user_id": admin_assignment.user_id,
-                "workspace_id": admin_assignment.workspace.id,
-                "is_self_deactivation": is_self_deactivation,
-                "action": "workspace_admin_deactivated",
-            },
-        )
-        
-        return Response({
-            "message": f"Admin assignment for {admin_assignment.user.username} deactivated.",
-            "deactivated_at": timezone.now(),
-            "deactivated_by": effective_user.id
-        })
+        cache.set(cache_key, membership_exists, 300)
+        return membership_exists
+
+    def _invalidate_admin_cache(self, user_id, workspace_id):
+        """Invalidate cached admin permissions after privilege changes"""
+        cache_keys = [
+            f"workspace_admin_{user_id}_{workspace_id}",
+            f"user_workspaces_{user_id}",
+        ]
+        for key in cache_keys:
+            cache.delete(key)
 
 # -------------------------------------------------------------------
 # WORKSPACE MANAGEMENT
@@ -207,7 +170,7 @@ class WorkspaceAdminViewSet(viewsets.ModelViewSet):
 # Workspace CRUD operations and membership management
 
 
-class WorkspaceViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
+class WorkspaceViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing workspaces and workspace memberships.
     
@@ -295,7 +258,7 @@ class WorkspaceViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
         # Apply role-based visibility rules
         memberships = self._get_user_memberships(self.request)
         has_admin_owner_role = any(
-            m.role in ['admin', 'owner'] for m in memberships.values()
+            role in ['admin', 'owner'] for role in memberships.values()
         )
         
         if not has_admin_owner_role:
@@ -1497,7 +1460,7 @@ class WorkspaceViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
 # Workspace configuration with atomic currency changes
 
 
-class WorkspaceSettingsViewSet(WorkspaceMembershipMixin, mixins.RetrieveModelMixin,
+class WorkspaceSettingsViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, mixins.RetrieveModelMixin,
                               mixins.UpdateModelMixin, viewsets.GenericViewSet):
     """
     ViewSet for managing workspace-specific settings with atomic currency changes
@@ -1711,7 +1674,7 @@ class WorkspaceSettingsViewSet(WorkspaceMembershipMixin, mixins.RetrieveModelMix
 # User preferences and personalization
 
 
-class UserSettingsViewSet(mixins.RetrieveModelMixin,
+class UserSettingsViewSet(BaseWorkspaceViewSet, mixins.RetrieveModelMixin,
                          mixins.UpdateModelMixin,
                          viewsets.GenericViewSet):
     """
@@ -1835,7 +1798,7 @@ class UserSettingsViewSet(mixins.RetrieveModelMixin,
 # Read-only access to expense category hierarchies
 
 
-class ExpenseCategoryViewSet(viewsets.ReadOnlyModelViewSet):
+class ExpenseCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for retrieving expense categories with admin impersonation support.
     
@@ -2022,7 +1985,7 @@ class ExpenseCategoryViewSet(viewsets.ReadOnlyModelViewSet):
 # Read-only access to income category hierarchies
 
 
-class IncomeCategoryViewSet(viewsets.ReadOnlyModelViewSet):
+class IncomeCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for retrieving income categories with admin impersonation support.
     
@@ -2202,12 +2165,223 @@ class IncomeCategoryViewSet(viewsets.ReadOnlyModelViewSet):
         return response
     
 # -------------------------------------------------------------------
+# CATEGORY SYNCHRONIZATION MANAGEMENT
+# -------------------------------------------------------------------
+
+class CategorySyncViewSet(BaseWorkspaceViewSet):
+    """
+    ViewSet for synchronizing expense and income category hierarchies.
+    
+    Provides bulk synchronization of category trees within specific workspaces
+    with automatic permission handling, admin impersonation support, and
+    comprehensive audit logging.
+    
+    Features:
+    - Unified endpoint for both expense and income category synchronization
+    - Automatic workspace validation and permission enforcement
+    - Admin impersonation support with proper context preservation
+    - Comprehensive audit logging for compliance and debugging
+    - Atomic operations to prevent data corruption
+    
+    Security:
+    - Workspace membership validation using BaseWorkspaceViewSet permissions
+    - Editor-level permissions required for category modifications
+    - Automatic workspace existence validation
+    - Admin impersonation context preservation
+    """
+    
+    permission_classes = [IsAuthenticated, IsWorkspaceEditor]
+
+    @action(detail=False, methods=['post'], url_path='workspaces/(?P<workspace_id>[^/.]+)/(?P<category_type>expense|income)')
+    def sync_categories(self, request, workspace_id=None, category_type=None):
+        """
+        Synchronize category hierarchies for specific workspace and type.
+        
+        Handles bulk synchronization of expense or income category trees
+        with comprehensive validation and error handling.
+        
+        Args:
+            request: HTTP request with category data
+            workspace_id: ID of the workspace for category synchronization
+            category_type: Type of categories ('expense' or 'income')
+            
+        Returns:
+            Response: Category synchronization results with admin context
+            
+        Raises:
+            PermissionDenied: If user lacks workspace access or editor permissions
+            ValidationError: If category type is invalid or data format is incorrect
+        """
+        logger.info(
+            "Category synchronization initiated via ViewSet",
+            extra={
+                "user_id": request.user.id,
+                "target_user_id": request.target_user.id,
+                "workspace_id": workspace_id,
+                "category_type": category_type,
+                "category_count": len(request.data) if isinstance(request.data, list) else 0,
+                "is_admin_impersonation": request.is_admin_impersonation,
+                "action": "category_sync_start",
+                "component": "CategorySyncViewSet",
+            },
+        )
+        
+        try:
+            # Validate workspace existence using BaseWorkspaceViewSet permissions
+            if not request.user_permissions.get('workspace_exists'):
+                logger.warning(
+                    "Workspace not found during category synchronization",
+                    extra={
+                        "user_id": request.user.id,
+                        "target_user_id": request.target_user.id,
+                        "workspace_id": workspace_id,
+                        "category_type": category_type,
+                        "action": "workspace_not_found",
+                        "component": "CategorySyncViewSet",
+                        "severity": "medium",
+                    },
+                )
+                return Response(
+                    {'error': 'Workspace not found'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Get workspace instance (already validated to exist)
+            workspace = Workspace.objects.get(id=workspace_id)
+            
+            # Validate and resolve category type
+            if category_type == 'expense':
+                version = get_object_or_404(
+                    ExpenseCategoryVersion.objects.select_related('workspace'), 
+                    workspace=workspace, 
+                    is_active=True
+                )
+                category_model = ExpenseCategory
+            elif category_type == 'income':
+                version = get_object_or_404(
+                    IncomeCategoryVersion.objects.select_related('workspace'), 
+                    workspace=workspace, 
+                    is_active=True
+                )
+                category_model = IncomeCategory
+            else:
+                logger.warning(
+                    "Invalid category type provided",
+                    extra={
+                        "user_id": request.user.id,
+                        "target_user_id": request.target_user.id,
+                        "workspace_id": workspace_id,
+                        "category_type": category_type,
+                        "action": "invalid_category_type",
+                        "component": "CategorySyncViewSet",
+                        "severity": "medium",
+                    },
+                )
+                return Response(
+                    {'error': 'Invalid category type. Must be "expense" or "income".'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Execute category synchronization
+            results = sync_categories_tree(request.data, version, category_model)
+            
+            # Prepare response with admin impersonation context if applicable
+            response_data = results
+            
+            if request.is_admin_impersonation:
+                response_data['admin_impersonation'] = {
+                    'target_user_id': request.target_user.id,
+                    'target_username': request.target_user.username,
+                    'requested_by_admin_id': request.user.id
+                }
+            
+            logger.info(
+                "Category synchronization completed successfully",
+                extra={
+                    "user_id": request.user.id,
+                    "target_user_id": request.target_user.id,
+                    "workspace_id": workspace_id,
+                    "category_type": category_type,
+                    "results": results,
+                    "is_admin_impersonation": request.is_admin_impersonation,
+                    "action": "category_sync_success",
+                    "component": "CategorySyncViewSet",
+                },
+            )
+            
+            return Response(response_data)
+            
+        except PermissionDenied:
+            # Re-raise permission exceptions for proper handling
+            logger.warning(
+                "Permission denied for category synchronization",
+                extra={
+                    "user_id": request.user.id,
+                    "target_user_id": request.target_user.id,
+                    "workspace_id": workspace_id,
+                    "category_type": category_type,
+                    "action": "category_sync_permission_denied",
+                    "component": "CategorySyncViewSet",
+                    "severity": "high",
+                },
+            )
+            raise
+            
+        except ValidationError as e:
+            # Handle validation errors with detailed logging
+            logger.warning(
+                "Validation error during category synchronization",
+                extra={
+                    "user_id": request.user.id,
+                    "target_user_id": request.target_user.id,
+                    "workspace_id": workspace_id,
+                    "category_type": category_type,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "action": "category_sync_validation_error",
+                    "component": "CategorySyncViewSet",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except Exception as e:
+            # Comprehensive error handling for unexpected failures
+            logger.error(
+                "Category synchronization failed unexpectedly",
+                extra={
+                    "user_id": request.user.id,
+                    "target_user_id": request.target_user.id,
+                    "workspace_id": workspace_id,
+                    "category_type": category_type,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "is_admin_impersonation": request.is_admin_impersonation,
+                    "action": "category_sync_failure",
+                    "component": "CategorySyncViewSet",
+                    "severity": "high",
+                },
+                exc_info=True,
+            )
+            return Response(
+                {
+                    'error': 'Category synchronization failed',
+                    'code': 'sync_operation_failed',
+                    'detail': str(e)
+                }, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+# -------------------------------------------------------------------
 # TRANSACTION MANAGEMENT
 # -------------------------------------------------------------------
 # Financial transaction CRUD with filtering and bulk operations
 
 
-class TransactionViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
+class TransactionViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing financial transactions with role-based permissions.
     
@@ -2914,9 +3088,7 @@ class TransactionViewSet(WorkspaceMembershipMixin, viewsets.ModelViewSet):
 # Currency exchange rate retrieval and filtering
 
 
-class ExchangeRateViewSet(viewsets.GenericViewSet,
-                          mixins.ListModelMixin,
-                          mixins.RetrieveModelMixin):
+class ExchangeRateViewSet(BaseWorkspaceViewSet, viewsets.GenericViewSet):
     """
     ViewSet for retrieving exchange rate information.
     
@@ -3007,111 +3179,13 @@ class ExchangeRateViewSet(viewsets.GenericViewSet,
         return qs
 
 
-@api_view(['POST'])
-def sync_categories_api(request, workspace_id, category_type):
-    """
-    API endpoint for synchronizing category hierarchies.
-    
-    Handles bulk synchronization of expense or income category trees
-    within a specific workspace.
-    
-    Args:
-        request: HTTP request with category data
-        workspace_id: ID of the workspace
-        category_type: Type of categories ('expense' or 'income')
-        
-    Returns:
-        Response: Results of category synchronization
-    """
-    logger.info(
-        "Category synchronization initiated",
-        extra={
-            "user_id": request.user.id,
-            "workspace_id": workspace_id,
-            "category_type": category_type,
-            "category_count": len(request.data) if isinstance(request.data, list) else 0,
-            "action": "category_sync_start",
-            "component": "sync_categories_api",
-        },
-    )
-    
-    try:
-        workspace = get_object_or_404(Workspace.objects.select_related('owner'), id=workspace_id, members=request.user.id)
-        
-        if category_type == 'expense':
-            version = get_object_or_404(
-                ExpenseCategoryVersion.objects.select_related('workspace'), 
-                workspace=workspace, 
-                is_active=True
-            )
-            category_model = ExpenseCategory
-        elif category_type == 'income':
-            version = get_object_or_404(
-                IncomeCategoryVersion.objects.select_related('workspace'), 
-                workspace=workspace, 
-                is_active=True
-            )
-            category_model = IncomeCategory
-        else:
-            logger.warning(
-                "Invalid category type provided",
-                extra={
-                    "user_id": request.user.id,
-                    "workspace_id": workspace_id,
-                    "category_type": category_type,
-                    "action": "invalid_category_type",
-                    "component": "sync_categories_api",
-                    "severity": "medium",
-                },
-            )
-            return Response(
-                {'error': 'Invalid category type'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        results = sync_categories_tree(request.data, version, category_model)
-        
-        logger.info(
-            "Category synchronization completed successfully",
-            extra={
-                "user_id": request.user.id,
-                "workspace_id": workspace_id,
-                "category_type": category_type,
-                "results": results,
-                "action": "category_sync_success",
-                "component": "sync_categories_api",
-            },
-        )
-        
-        return Response(results)
-        
-    except Exception as e:
-        logger.error(
-            "Category synchronization failed",
-            extra={
-                "user_id": request.user.id,
-                "workspace_id": workspace_id,
-                "category_type": category_type,
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-                "action": "category_sync_failure",
-                "component": "sync_categories_api",
-                "severity": "high",
-            },
-            exc_info=True,
-        )
-        return Response(
-            {'error': str(e)}, 
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
 # -------------------------------------------------------------------
 # TRANSACTION DRAFTS MANAGEMENT - OPTIMIZED
 # -------------------------------------------------------------------
 # Single draft operations per workspace with atomic replacement and cached permissions
 
 
-class TransactionDraftViewSet(viewsets.ModelViewSet):
+class TransactionDraftViewSet(BaseWorkspaceViewSet, viewsets.ModelViewSet):
     """
     OPTIMIZED ViewSet for transaction draft management.
     

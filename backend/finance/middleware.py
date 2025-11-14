@@ -3,7 +3,6 @@ import logging
 from django.core.cache import cache
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.utils.deprecation import MiddlewareMixin
 from django.db import DatabaseError
 from .models import WorkspaceAdmin, WorkspaceMembership, Workspace
 
@@ -45,7 +44,7 @@ class AdminImpersonationMiddleware():
         Main middleware entry point - called for each request.
         """
         # Zavolaj tvoj process_view logic
-        self.process_view(request, None, None, None)
+        # self.process_view(request, None, None, None)
         
         if hasattr(self, 'get_response') and self.get_response:
             return self.get_response(request)
@@ -69,6 +68,7 @@ class AdminImpersonationMiddleware():
         Returns:
             None: Always returns None to continue request processing
         """
+
         try:
             # Initialize secure defaults for all requests
             self._initialize_request_defaults(request)
@@ -129,6 +129,8 @@ class AdminImpersonationMiddleware():
             )
             # Fail securely
             self._reset_impersonation(request)
+
+ 
         
         return None
 
@@ -177,56 +179,95 @@ class AdminImpersonationMiddleware():
         """
         Extract and validate workspace ID with existence check.
         
+        Unified workspace validation - single source of truth for workspace existence.
+        Handles workspace ID extraction from both URL path parameters and query parameters.
+        
         Args:
-            request: HTTP request object
-            view_kwargs: View keyword arguments
+            request: HTTP request object with user context
+            view_kwargs: View keyword arguments containing URL parameters
             
         Returns:
-            int or None: Validated workspace ID if exists, None otherwise
+            int or None: Valid workspace ID if exists and validated, None otherwise
+            
+        Security Features:
+        - Workspace existence validation to prevent ID enumeration attacks
+        - Comprehensive input validation and type checking
+        - Reset of permission state for request isolation
+        - Audit logging for security compliance
         """
+        # Extract workspace ID from all supported sources
         workspace_id = (view_kwargs.get('workspace_pk') or
-                       view_kwargs.get('workspace_id') or
-                       view_kwargs.get('pk') or
-                       request.GET.get('workspace_id'))
+                    view_kwargs.get('workspace_id') or
+                    view_kwargs.get('pk') or
+                    request.GET.get('workspace_id'))
         
-        if workspace_id:
-            try:
-                workspace_id = int(workspace_id)
-                
-                # Critical security enhancement: Validate workspace existence
-                workspace_exists = Workspace.objects.filter(id=workspace_id).exists()
-                request.user_permissions['workspace_exists'] = workspace_exists
-                request.user_permissions['current_workspace_id'] = workspace_id
-                
-                if workspace_exists:
-                    request.workspace = Workspace.objects.get(id=workspace_id)
-
-                else:
-                    logger.warning(
-                        "Access attempt to non-existent workspace",
-                        extra={
-                            "user_id": request.user.id,
-                            "workspace_id": workspace_id,
-                            "action": "workspace_not_found",
-                            "component": "AdminImpersonationMiddleware",
-                            "severity": "medium",
-                        },
-                    )
-                    return None
-                    
-                return workspace_id
-                
-            except (ValueError, TypeError):
-                logger.warning(
-                    "Invalid workspace ID format",
+        # Reset permission state for request isolation
+        request.user_permissions['workspace_exists'] = False
+        request.user_permissions['current_workspace_id'] = None
+        request.workspace = None
+        
+        # Early return if no workspace context
+        if not workspace_id:
+            logger.debug(
+                "No workspace ID provided in request",
+                extra={
+                    "user_id": request.user.id,
+                    "action": "workspace_id_not_provided",
+                    "component": "AdminImpersonationMiddleware",
+                },
+            )
+            return None
+            
+        try:
+            # Type safety: Ensure workspace ID is integer
+            workspace_id = int(workspace_id)
+            
+            # Critical security: Validate workspace existence
+            workspace_exists = Workspace.objects.filter(id=workspace_id).exists()
+            request.user_permissions['workspace_exists'] = workspace_exists
+            request.user_permissions['current_workspace_id'] = workspace_id
+            
+            if workspace_exists:
+                # Cache workspace object for subsequent access
+                request.workspace = Workspace.objects.get(id=workspace_id)
+                logger.debug(
+                    "Workspace validated successfully",
                     extra={
                         "user_id": request.user.id,
                         "workspace_id": workspace_id,
-                        "action": "invalid_workspace_id",
+                        "action": "workspace_validation_success",
                         "component": "AdminImpersonationMiddleware",
                     },
                 )
-        return None
+            else:
+                logger.warning(
+                    "Access attempt to non-existent workspace",
+                    extra={
+                        "user_id": request.user.id,
+                        "workspace_id": workspace_id,
+                        "action": "workspace_not_found",
+                        "component": "AdminImpersonationMiddleware",
+                        "severity": "medium",
+                    },
+                )
+            
+            # Return workspace ID only if it exists
+            # Permission classes use workspace_exists flag for access decisions
+            return workspace_id if workspace_exists else None
+                
+        except (ValueError, TypeError):
+            logger.warning(
+                "Invalid workspace ID format",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace_id,
+                    "action": "invalid_workspace_id",
+                    "component": "AdminImpersonationMiddleware",
+                },
+            )
+            # Ensure consistent permission state for invalid formats
+            request.user_permissions['workspace_exists'] = False
+            return None
 
     def _set_basic_permissions(self, request):
         """Set basic user permissions without database queries."""
@@ -532,13 +573,38 @@ class AdminImpersonationMiddleware():
         
         if cached_result is not None:
             return cached_result
-            
+        
+          # DEBUG: Log the query
+        logger.debug(
+            "Fetching role from database",
+            extra={
+                "user_id": user.id,
+                "workspace_id": workspace_id,
+                "action": "role_db_query",
+                "component": "AdminImpersonationMiddleware",
+            },
+        )
+                
         membership = WorkspaceMembership.objects.filter(
             user=user,
             workspace_id=workspace_id
         ).values('role').first()
         
         result = membership['role'] if membership else None
+
+        # DEBUG: Log the result
+        logger.debug(
+            "Role query result",
+            extra={
+                "user_id": user.id,
+                "workspace_id": workspace_id,
+                "membership_exists": bool(membership),
+                "role": result,
+                "action": "role_query_result",
+                "component": "AdminImpersonationMiddleware",
+            },
+        )
+
         cache.set(cache_key, result, 300)
         return result
 

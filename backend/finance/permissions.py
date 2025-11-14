@@ -1,7 +1,5 @@
 # permissions.py
 from rest_framework import permissions
-from django.core.cache import cache
-from .models import Workspace
 import logging
 
 logger = logging.getLogger(__name__)
@@ -9,265 +7,179 @@ logger = logging.getLogger(__name__)
 
 class IsWorkspaceMember(permissions.BasePermission):
     """
-    Enterprise-grade workspace membership validation with comprehensive security.
+    Production-grade workspace membership validation.
     
-    Access is granted to:
-    - Superusers (full system access with audit logging)
-    - Workspace admins during authorized impersonation sessions
-    - Authenticated users with validated membership in target workspace
+    Authorization granted to:
+    - Superusers (system-wide access)
+    - Workspace admins during authorized impersonation
+    - Authenticated workspace members
     
-    Features:
-    - Workspace existence validation to prevent ID enumeration attacks
-    - Cached permission resolution for optimal performance
-    - Comprehensive audit logging for compliance requirements
-    - Defense in depth with multiple validation layers
+    Security Features:
+    - Trusts middleware for workspace validation and role calculation
+    - Comprehensive audit logging for compliance
+    - Defense in depth with middleware validation
     """
     
     def has_permission(self, request, view):
         """
-        Determine workspace membership access with security validation.
+        Validate workspace membership using middleware-calculated permissions.
         
         Args:
-            request: HTTP request with enhanced security context
+            request: HTTP request with security context
             view: Target view being accessed
             
         Returns:
-            bool: True if secure access is granted, False otherwise
+            bool: True if user has workspace membership access
         """
-        workspace_id = self._get_workspace_id(view)
-        if not workspace_id:
-            # No workspace context - apply default authentication policy
-            return request.user.is_authenticated
-            
         permissions_data = getattr(request, 'user_permissions', {})
         
-        # Critical security: Validate workspace existence first
+        # Critical: Validate workspace existence via middleware
         if not permissions_data.get('workspace_exists', False):
             logger.warning(
-                "Access attempt to non-existent workspace blocked",
+                "Workspace access denied - workspace not found",
                 extra={
                     "user_id": request.user.id,
-                    "workspace_id": workspace_id,
-                    "action": "workspace_access_invalid",
+                    "action": "workspace_access_denied_not_found",
                     "component": "IsWorkspaceMember",
                     "severity": "medium",
                 },
             )
             return False
         
-        # Superusers bypass all permission checks with audit trail
-        if permissions_data.get('is_superuser'):
+        # Authorization hierarchy
+        is_authorized = (
+            permissions_data.get('is_superuser') or 
+            permissions_data.get('workspace_role') is not None or
+            (permissions_data.get('is_workspace_admin') and 
+             getattr(request, 'is_admin_impersonation', False))
+        )
+        
+        if is_authorized:
             logger.debug(
-                "Superuser workspace access granted",
+                "Workspace membership access granted",
                 extra={
                     "user_id": request.user.id,
-                    "workspace_id": workspace_id,
-                    "action": "superuser_workspace_access",
+                    "workspace_id": permissions_data.get('current_workspace_id'),
+                    "user_role": permissions_data.get('workspace_role'),
+                    "is_superuser": permissions_data.get('is_superuser'),
+                    "is_admin_impersonation": getattr(request, 'is_admin_impersonation', False),
+                    "action": "workspace_membership_granted",
                     "component": "IsWorkspaceMember",
                 },
             )
-            return True
-            
-        # Workspace admins can access during authorized impersonation
-        if (permissions_data.get('is_workspace_admin') and 
-            getattr(request, 'is_admin_impersonation', False) and
-            workspace_id in getattr(request, 'impersonation_workspace_ids', [])):
-            logger.debug(
-                "Workspace admin impersonation access granted",
-                extra={
-                    "admin_id": request.user.id,
-                    "target_user_id": getattr(request.target_user, 'id', None),
-                    "workspace_id": workspace_id,
-                    "action": "admin_impersonation_workspace_access",
-                    "component": "IsWorkspaceMember",
-                },
-            )
-            return True
-        
-        # Membership validation with cached role data
-        has_access = permissions_data.get('workspace_role') is not None
-        
-        if not has_access:
+        else:
             logger.warning(
                 "Workspace membership access denied",
                 extra={
                     "user_id": request.user.id,
-                    "workspace_id": workspace_id,
+                    "workspace_id": permissions_data.get('current_workspace_id'),
+                    "user_role": permissions_data.get('workspace_role'),
                     "action": "workspace_membership_denied",
                     "component": "IsWorkspaceMember",
                     "severity": "medium",
                 },
             )
             
-        return has_access
-
-    def _get_workspace_id(self, view):
-        """
-        Securely extract workspace identifier from view parameters.
-        
-        Args:
-            view: The view instance containing URL parameters
-            
-        Returns:
-            int or None: Workspace ID if present and valid, None otherwise
-        """
-        workspace_id = (view.kwargs.get('workspace_pk') or 
-                       view.kwargs.get('workspace_id') or
-                       view.kwargs.get('pk'))
-        
-        if workspace_id:
-            try:
-                return int(workspace_id)
-            except (ValueError, TypeError):
-                logger.warning(
-                    "Invalid workspace ID in permission check",
-                    extra={
-                        "workspace_id": workspace_id,
-                        "action": "invalid_workspace_id_permission",
-                        "component": "IsWorkspaceMember",
-                    },
-                )
-        return None
+        return is_authorized
 
 
 class IsWorkspaceEditor(permissions.BasePermission):
     """
-    Advanced write-level authorization with security enforcement.
+    Enterprise-grade write-level authorization.
     
-    Access is granted to:
-    - Superusers (unrestricted system access with compliance logging)
-    - Workspace admins during authorized impersonation sessions
-    - Users with writer or owner roles in validated workspaces
+    Authorization granted to:
+    - Superusers (unrestricted system access)
+    - Workspace admins during authorized impersonation
+    - Users with editor, admin, or owner roles
     
     Security Features:
     - Role-based access control with principle of least privilege
-    - Workspace existence validation to prevent privilege escalation
-    - Comprehensive audit trail for all write operations
-    - Cached permission resolution for high-performance applications
+    - Comprehensive audit trail for write operations
+    - Trusts middleware for workspace validation and role calculation
     """
     
-    # Define authorized write roles
-    WRITE_ROLES = ['editor', 'owner']
+    # Authorized write roles
+    WRITE_ROLES = ['editor', 'admin', 'owner']
     
     def has_permission(self, request, view):
         """
-        Verify write-level authorization with security validation.
+        Verify write-level authorization using middleware data.
         
         Args:
             request: HTTP request with security context
             view: Target view requiring write access
             
         Returns:
-            bool: True if write access is securely authorized
+            bool: True if write access is authorized
         """
-        workspace_id = self._get_workspace_id(view)
-        if not workspace_id:
-            # No specific workspace - apply default write policy
-            return request.user.is_authenticated
-            
         permissions_data = getattr(request, 'user_permissions', {})
         
-        # Validate workspace existence as first security layer
+        # Critical: Validate workspace existence via middleware
         if not permissions_data.get('workspace_exists', False):
             logger.warning(
-                "Write access attempt to non-existent workspace blocked",
+                "Write access denied - workspace not found",
                 extra={
                     "user_id": request.user.id,
-                    "workspace_id": workspace_id,
-                    "action": "write_access_invalid_workspace",
-                    "component": "IsWorkspaceWriter",
+                    "action": "write_access_denied_not_found",
+                    "component": "IsWorkspaceEditor",
                     "severity": "medium",
                 },
             )
             return False
         
-        # Superusers have implicit write access with audit logging
-        if permissions_data.get('is_superuser'):
+        user_role = permissions_data.get('workspace_role')
+        
+        # Authorization hierarchy for write operations
+        is_authorized = (
+            permissions_data.get('is_superuser') or 
+            (permissions_data.get('is_workspace_admin') and 
+             getattr(request, 'is_admin_impersonation', False)) or
+            user_role in self.WRITE_ROLES
+        )
+        
+        if is_authorized:
             logger.debug(
-                "Superuser write access granted",
+                "Write-level access granted",
                 extra={
                     "user_id": request.user.id,
-                    "workspace_id": workspace_id,
-                    "action": "superuser_write_access",
-                    "component": "IsWorkspaceWriter",
+                    "workspace_id": permissions_data.get('current_workspace_id'),
+                    "user_role": user_role,
+                    "is_superuser": permissions_data.get('is_superuser'),
+                    "is_admin_impersonation": getattr(request, 'is_admin_impersonation', False),
+                    "action": "write_access_granted",
+                    "component": "IsWorkspaceEditor",
                 },
             )
-            return True
-            
-        # Workspace admins inherit write permissions during authorized impersonation
-        if (permissions_data.get('is_workspace_admin') and 
-            getattr(request, 'is_admin_impersonation', False) and
-            workspace_id in getattr(request, 'impersonation_workspace_ids', [])):
-            logger.debug(
-                "Admin impersonation write access granted",
-                extra={
-                    "admin_id": request.user.id,
-                    "target_user_id": getattr(request.target_user, 'id', None),
-                    "workspace_id": workspace_id,
-                    "action": "admin_impersonation_write_access",
-                    "component": "IsWorkspaceWriter",
-                },
-            )
-            return True
-        
-        # Validate writer or owner role from cached permissions
-        user_role = permissions_data.get('workspace_role')
-        has_write_access = user_role in self.WRITE_ROLES if user_role else False
-        
-        if not has_write_access:
+        else:
             logger.warning(
                 "Write-level access denied",
                 extra={
                     "user_id": request.user.id,
-                    "workspace_id": workspace_id,
+                    "workspace_id": permissions_data.get('current_workspace_id'),
                     "user_role": user_role,
                     "required_roles": self.WRITE_ROLES,
                     "action": "write_access_denied",
-                    "component": "IsWorkspaceWriter",
+                    "component": "IsWorkspaceEditor",
                     "severity": "medium",
                 },
             )
             
-        return has_write_access
-
-    def _get_workspace_id(self, view):
-        """
-        Extract and validate workspace identifier from view context.
-        
-        Args:
-            view: Target view instance with URL parameters
-            
-        Returns:
-            int or None: Valid workspace identifier if available
-        """
-        workspace_id = (view.kwargs.get('workspace_pk') or 
-                       view.kwargs.get('workspace_id') or
-                       view.kwargs.get('pk'))
-        
-        if workspace_id:
-            try:
-                return int(workspace_id)
-            except (ValueError, TypeError):
-                logger.warning(
-                    "Invalid workspace ID in write permission check",
-                    extra={
-                        "workspace_id": workspace_id,
-                        "action": "invalid_workspace_id_write_permission",
-                        "component": "IsWorkspaceWriter",
-                    },
-                )
-        return None
+        return is_authorized
 
 
 class IsWorkspaceOwner(permissions.BasePermission):
     """
-    Ownership-level authorization - allows owners AND higher roles (admins, superusers).
-    Consistent with other permission classes where higher roles inherit lower permissions.
+    Production-ready ownership-level authorization.
     
-    Access granted to:
-    - Superusers (system-wide access)
-    - Workspace admins (delegated administrative access) 
-    - Workspace owners (direct ownership)
+    Authorization Hierarchy (highest to lowest):
+    - Superusers (system-wide administrative access)
+    - Workspace admins (delegated administrative privileges)
+    - Workspace owners (direct ownership rights)
+    
+    Security Features:
+    - Role inheritance - higher roles include lower role permissions
+    - Comprehensive audit logging for ownership-level operations
+    - Trusts middleware for workspace validation and role calculation
     """
     
     def has_permission(self, request, view):
@@ -279,78 +191,42 @@ class IsWorkspaceOwner(permissions.BasePermission):
             view: Target view requiring ownership privileges
             
         Returns:
-            bool: True if user has owner role or higher privileges
+            bool: True if user has owner-level access
         """
-        # Safe methods always allowed
-        if request.method in permissions.SAFE_METHODS:
-            return True
-            
-        workspace_id = self._get_workspace_id(view)
-        if not workspace_id:
-            logger.debug(
-                "Ownership check skipped - no workspace context",
-                extra={
-                    "user_id": request.user.id,
-                    "action": "ownership_check_no_workspace",
-                    "component": "IsWorkspaceOwner",
-                },
-            )
-            return False
-            
         permissions_data = getattr(request, 'user_permissions', {})
         
-        # Log permission check for audit trail
-        logger.debug(
-            "Ownership authorization check initiated",
-            extra={
-                "user_id": request.user.id,
-                "workspace_id": workspace_id,
-                "action": "ownership_check_start",
-                "component": "IsWorkspaceOwner",
-            },
-        )
-
-        # Critical security: Validate workspace existence
+        # Critical: Validate workspace existence via middleware
         if not permissions_data.get('workspace_exists', False):
             logger.warning(
-                "Ownership access attempt to non-existent workspace",
+                "Ownership access denied - workspace not found",
                 extra={
                     "user_id": request.user.id,
-                    "workspace_id": workspace_id,
-                    "action": "ownership_access_invalid_workspace",
+                    "action": "ownership_access_denied_not_found",
                     "component": "IsWorkspaceOwner",
-                    "severity": "high",
+                    "severity": "medium",
                 },
             )
             return False
         
-        # ✅ OWNER OR HIGHER: Superusers and workspace admins automatically have owner rights
-        if permissions_data.get('is_superuser') or permissions_data.get('is_workspace_admin'):
+        user_role = permissions_data.get('workspace_role')
+        
+        # Ownership authorization hierarchy
+        is_authorized = (
+            permissions_data.get('is_superuser') or 
+            permissions_data.get('is_workspace_admin') or 
+            user_role == 'owner'
+        )
+        
+        if is_authorized:
             logger.debug(
-                "Ownership access granted via admin/superuser privileges",
+                "Ownership-level access granted",
                 extra={
                     "user_id": request.user.id,
-                    "workspace_id": workspace_id,
+                    "workspace_id": permissions_data.get('current_workspace_id'),
+                    "user_role": user_role,
                     "is_superuser": permissions_data.get('is_superuser'),
                     "is_workspace_admin": permissions_data.get('is_workspace_admin'),
-                    "action": "admin_ownership_access_granted",
-                    "component": "IsWorkspaceOwner",
-                },
-            )
-            return True
-        
-        # Primary ownership check using cached role from middleware
-        user_role = permissions_data.get('workspace_role')
-        is_owner = user_role == 'owner'
-        
-        if is_owner:
-            logger.debug(
-                "Ownership access granted via direct ownership",
-                extra={
-                    "user_id": request.user.id,
-                    "workspace_id": workspace_id,
-                    "user_role": user_role,
-                    "action": "direct_ownership_access_granted",
+                    "action": "ownership_access_granted",
                     "component": "IsWorkspaceOwner",
                 },
             )
@@ -359,19 +235,20 @@ class IsWorkspaceOwner(permissions.BasePermission):
                 "Ownership-level access denied",
                 extra={
                     "user_id": request.user.id,
-                    "workspace_id": workspace_id,
+                    "workspace_id": permissions_data.get('current_workspace_id'),
                     "user_role": user_role,
+                    "required_role": "owner",
                     "action": "ownership_access_denied",
                     "component": "IsWorkspaceOwner",
                     "severity": "high",
                 },
             )
             
-        return is_owner
+        return is_authorized
 
     def has_object_permission(self, request, view, obj):
         """
-        Object-level ownership permission.
+        Object-level ownership permission validation.
         
         Args:
             request: HTTP request with security context
@@ -381,41 +258,15 @@ class IsWorkspaceOwner(permissions.BasePermission):
         Returns:
             bool: True if ownership access is granted for specific object
         """
+        # Trust middleware for object-level permissions
         return self.has_permission(request, view)
 
-    def _get_workspace_id(self, view):
-        """
-        Extract workspace identifier from view routing context.
-        
-        Args:
-            view: Target view instance with URL parameters
-            
-        Returns:
-            int or None: Workspace ID if present in routing context
-        """
-        workspace_id = (view.kwargs.get('workspace_pk') or 
-                       view.kwargs.get('workspace_id') or
-                       view.kwargs.get('pk'))
-        
-        if workspace_id:
-            try:
-                return int(workspace_id)
-            except (ValueError, TypeError):
-                logger.warning(
-                    "Invalid workspace ID in ownership permission check",
-                    extra={
-                        "workspace_id": workspace_id,
-                        "action": "invalid_workspace_id_ownership_permission",
-                        "component": "IsWorkspaceOwner",
-                    },
-                )
-        return None
 
 class IsWorkspaceAdmin(permissions.BasePermission):
     """
     System-level workspace administration authorization.
     
-    Authorization is exclusively granted to:
+    Authorization exclusively granted to:
     - Superusers (full system administration rights)
     - Designated workspace admins (delegated system-level privileges)
     
@@ -423,7 +274,7 @@ class IsWorkspaceAdmin(permissions.BasePermission):
     - Gatekeeps sensitive administrative operations
     - Controls workspace assignment management
     - Manages system-wide configurations
-    - Enforces separation of duties between workspace and system administration
+    - Enforces separation of duties
     """
     
     def has_permission(self, request, view):
@@ -439,96 +290,78 @@ class IsWorkspaceAdmin(permissions.BasePermission):
         """
         permissions_data = getattr(request, 'user_permissions', {})
         
-        # Superusers have unconditional system administration rights
-        if permissions_data.get('is_superuser'):
+        # System administration authorization
+        is_authorized = (
+            permissions_data.get('is_superuser') or 
+            permissions_data.get('is_workspace_admin')
+        )
+        
+        if is_authorized:
             logger.debug(
-                "Superuser system administration access granted",
+                "System administration access granted",
                 extra={
                     "user_id": request.user.id,
-                    "action": "superuser_system_admin_access",
+                    "is_superuser": permissions_data.get('is_superuser'),
+                    "is_workspace_admin": permissions_data.get('is_workspace_admin'),
+                    "action": "system_admin_access_granted",
                     "component": "IsWorkspaceAdmin",
                 },
             )
-            return True
-            
-        # Workspace admins have delegated system-level administrative access
-        is_workspace_admin = bool(permissions_data.get('is_workspace_admin'))
-        
-        # For workspace-specific actions, validate admin has access to target workspace
-        workspace_id = self._get_workspace_id(view)
-        if workspace_id and is_workspace_admin:
-            has_workspace_access = workspace_id in getattr(request, 'impersonation_workspace_ids', [])
-            
-            if not has_workspace_access:
-                logger.warning(
-                    "Workspace admin access denied for specific workspace",
-                    extra={
-                        "user_id": request.user.id,
-                        "workspace_id": workspace_id,
-                        "available_workspaces": getattr(request, 'impersonation_workspace_ids', []),
-                        "action": "workspace_admin_access_denied",
-                        "component": "IsWorkspaceAdmin",
-                        "severity": "medium",
-                    },
-                )
-                return False
-            
-            logger.debug(
-                "Workspace admin access granted for specific workspace",
-                extra={
-                    "user_id": request.user.id,
-                    "workspace_id": workspace_id,
-                    "action": "workspace_admin_access_granted",
-                    "component": "IsWorkspaceAdmin",
-                },
-            )
-        
-        if not is_workspace_admin:
+        else:
             logger.warning(
                 "System administration access denied",
                 extra={
                     "user_id": request.user.id,
-                    "workspace_id": workspace_id,
+                    "is_superuser": permissions_data.get('is_superuser'),
+                    "is_workspace_admin": permissions_data.get('is_workspace_admin'),
                     "action": "system_admin_access_denied",
                     "component": "IsWorkspaceAdmin",
                     "severity": "high",
                 },
             )
             
-        return is_workspace_admin
+        return is_authorized
 
-    def _get_workspace_id(self, view):
-        """
-        Extract workspace identifier from view context for targeted admin validation.
-        
-        Args:
-            view: Target view instance with URL parameters
-            
-        Returns:
-            int or None: Workspace ID if present in routing context
-        """
-        workspace_id = (view.kwargs.get('workspace_pk') or 
-                       view.kwargs.get('workspace_id') or
-                       view.kwargs.get('pk'))
-        
-        if workspace_id:
-            try:
-                return int(workspace_id)
-            except (ValueError, TypeError):
-                logger.warning(
-                    "Invalid workspace ID in admin permission check",
-                    extra={
-                        "workspace_id": workspace_id,
-                        "action": "invalid_workspace_id_admin_permission",
-                        "component": "IsWorkspaceAdmin",
-                    },
-                )
-        return None
 
 class IsSuperuser(permissions.IsAdminUser):
     """
-    Permission that checks if user is superuser.
-    Simple and clean - no business logic in permissions.
+    Enterprise superuser authorization with enhanced logging.
+    
+    Authorization exclusively granted to authenticated superusers.
+    Provides comprehensive audit trail for superuser operations.
     """
+    
     def has_permission(self, request, view):
-        return bool(request.user and request.user.is_superuser)
+        """
+        Verify superuser authorization with audit logging.
+        
+        Args:
+            request: HTTP request with security context
+            view: Target view requiring superuser access
+            
+        Returns:
+            bool: True if user is authenticated superuser
+        """
+        is_superuser = bool(request.user and request.user.is_superuser)
+        
+        if is_superuser:
+            logger.debug(
+                "Superuser access granted",
+                extra={
+                    "user_id": request.user.id,
+                    "action": "superuser_access_granted",
+                    "component": "IsSuperuser",
+                },
+            )
+        else:
+            logger.warning(
+                "Superuser access denied",
+                extra={
+                    "user_id": getattr(request.user, 'id', 'anonymous'),
+                    "action": "superuser_access_denied",
+                    "component": "IsSuperuser",
+                    "severity": "high",
+                },
+            )
+            
+        return is_superuser
