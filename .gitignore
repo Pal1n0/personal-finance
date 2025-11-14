@@ -1,50 +1,72 @@
-# Django
+Django
+
 *.log
 *.pot
 *.pyc
-__pycache__/
+pycache/
 db.sqlite3
 media/
 staticfiles/
 
-# Environment
-.env
-.env.docker
-.env.local
-.env.production
+Environment
+
+--- Environment Files ---
+
+1. Ignore all files that start with .env (e.g., .env, .env.dev, .env.docker.dev, etc.)
+
+.env*
+
+2. Exception: Ensures that .env.example will be TRACKED by Git
+
+!.env.example
+
+3. Add ignore for the specific file .dev
+
+.dev
+
+-------------------------
+
 .venv
 venv/
 env/
 
-# IDE
+IDE
+
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
+OS
+
 .DS_Store
 Thumbs.db
 Desktop.ini
 
-# Database migrations (optional - careful!)
-# !/users/migrations/
-# /users/migrations/*.py
-# !/users/migrations/__init__.py
+Database migrations (optional - careful!)
 
-# Coverage reports
+!/users/migrations/
+
+/users/migrations/*.py
+
+!/users/migrations/init.py
+
+Coverage reports
+
 htmlcov/
 .coverage
 .coverage.*
 coverage.xml
 
-# Pytest
+Pytest
+
 .pytest_cache/
 .cache
 nosetests.xml
 
-# Package management
+Package management
+
 *.egg
 *.egg-info/
 dist/
@@ -58,27 +80,34 @@ develop-eggs/
 lib/
 lib64/
 
-# Virtual environments
+Virtual environments
+
 venv*/
 ENV*/
 
-# Jupyter Notebook
+Jupyter Notebook
+
 .ipynb_checkpoints
 
-# PyCharm
+PyCharm
+
 .idea/
 
-# macOS
+macOS
+
 ._*
 
-# Windows
+Windows
+
 [Tt]humbs.db
 ehthumbs.db
 
-# Backup files
+Backup files
+
 *.bak
 *.backup
 
-# Logs
+Logs
+
 logs/
 *.log
