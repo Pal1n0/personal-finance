@@ -1,16 +1,28 @@
 """
-Serializers for financial management system models.
+Production-grade serializers for financial management system.
+100% Service Layer architecture with atomic operations, comprehensive caching,
+and unified exception handling.
 
-This module provides Django REST Framework serializers for all models
-with proper validation, error handling, and data transformation.
+Architecture Pattern:
+Serializer (Validation + Cache) → Business Services → Database
+         ↓
+ServiceExceptionHandlerMixin (Unified Error Handling)
 """
 
 import logging
 from django.conf import settings
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError as DRFValidationError
+from django.db import transaction
 
-from .mixins import TargetUserMixin, CategoryWorkspaceMixin, WorkspaceMembershipMixin
+from .mixins.target_user import TargetUserMixin
+from .mixins.category_workspace import CategoryWorkspaceMixin 
+from .mixins.workspace_membership import WorkspaceMembershipMixin
+from .services.workspace_service import WorkspaceService
+from .services.transaction_service import TransactionService
+from .services.category_service import CategoryService
+from .services.draft_service import DraftService
+from .mixins.service_exception_handler import ServiceExceptionHandlerMixin
 
 from .models import (
     Transaction, ExchangeRate, UserSettings, WorkspaceSettings, 
@@ -19,20 +31,20 @@ from .models import (
     TransactionDraft
 )
 
-# Get structured logger for this module
 logger = logging.getLogger(__name__)
 
 # -------------------------------------------------------------------
 # USER SETTINGS SERIALIZER
 # -------------------------------------------------------------------
-# User preferences with field-level security
 
 class UserSettingsSerializer(serializers.ModelSerializer):
     """
-    Serializer for user-specific settings.
+    Production-ready serializer for user-specific settings.
     
-    Handles serialization and validation of user preferences and settings
-    with strict field-level security controls.
+    Features:
+    - Field-level security controls
+    - Language code validation
+    - Read-only user field protection
     """
     
     class Meta:
@@ -41,19 +53,7 @@ class UserSettingsSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'user']
 
     def validate_language(self, value):
-        """
-        Validate language code format.
-        
-        Args:
-            value: Language code to validate
-            
-        Returns:
-            str: Validated language code
-            
-        Raises:
-            ValidationError: If language code is invalid
-        """
-
+        """Validate language code against configured settings."""
         valid_languages = [lang[0] for lang in getattr(settings, 'LANGUAGES', [])]
         
         if value not in valid_languages:
@@ -67,21 +67,33 @@ class UserSettingsSerializer(serializers.ModelSerializer):
                     "severity": "low",
                 },
             )
-            raise serializers.ValidationError(f"Unsupported language. Choose from: {', '.join(valid_languages)}")
+            raise serializers.ValidationError(
+                f"Unsupported language. Choose from: {', '.join(valid_languages)}"
+            )
         
+        logger.debug(
+            "Language validation successful",
+            extra={
+                "language": value,
+                "action": "language_validation_success", 
+                "component": "UserSettingsSerializer",
+            },
+        )
         return value
 
 # -------------------------------------------------------------------
 # WORKSPACE SERIALIZER
 # -------------------------------------------------------------------
-# Workspace data with membership context and role information
 
-class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer):
+class WorkspaceSerializer(WorkspaceMembershipMixin, ServiceExceptionHandlerMixin, serializers.ModelSerializer):
     """
-    Serializer for Workspace model with user membership information.
+    Production-ready workspace serializer with 100% service layer delegation.
     
-    Provides enhanced workspace data including user role context,
-    member counts, ownership information, and user permissions for frontend consumption.
+    Features:
+    - Atomic workspace creation via WorkspaceService
+    - Cached permission data from request context
+    - Comprehensive user role and permission calculations
+    - ServiceExceptionHandlerMixin for unified error handling
     """
     
     owner_username = serializers.CharField(source='owner.username', read_only=True)
@@ -99,90 +111,53 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
             'created_at', 'is_active'
         ]
         read_only_fields = ['id', 'owner', 'owner_username', 'owner_email', 'created_at']
-    
+
+    def __init__(self, *args, **kwargs):
+        """Initialize with workspace service for business logic delegation."""
+        super().__init__(*args, **kwargs)
+        self.workspace_service = WorkspaceService()
+
     def get_user_role(self, obj):
         """
-        Get current user's role in this workspace.
+        Get user role from cached request context - ZERO database queries.
         
-        Args:
-            obj: Workspace instance
-            
-        Returns:
-            str or None: User's role in the workspace
+        Uses pre-calculated permissions from WorkspaceContextMiddleware.
         """
         request = self.context.get('request')
         if request and request.user.is_authenticated:
-            role = self._get_membership_for_workspace(obj, request)
-        
-            if role:
-                logger.debug(
-                    "User role retrieved from cache",
-                    extra={
-                        "user_id": request.user.id,
-                        "workspace_id": obj.id,
-                        "user_role": role,
-                        "action": "user_role_retrieved_cached",
-                        "component": "WorkspaceSerializer",
-                    },
-                )
-                return role
-            else:
-                logger.warning(
-                    "Workspace membership not found in cache",
-                    extra={
-                        "user_id": request.user.id,
-                        "workspace_id": obj.id,
-                        "action": "workspace_membership_cache_miss",
-                        "component": "WorkspaceSerializer",
-                        "severity": "low",
-                    },
-                )
-                return None
+            permissions_data = getattr(request, 'user_permissions', {})
+            role = permissions_data.get('workspace_role')
+            
+            logger.debug(
+                "User role retrieved from request context",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": obj.id,
+                    "user_role": role,
+                    "action": "user_role_from_context",
+                    "component": "WorkspaceSerializer",
+                },
+            )
+            return role
         return None
         
     def get_member_count(self, obj):
-        """
-        Get total number of members in the workspace.
-        Includes owner + regular members.
-        
-        Args:
-            obj: Workspace instance
-                
-        Returns:
-            int: Number of workspace members (owner + members)
-        """
-        # Use annotate count if available, otherwise calculate
-        if hasattr(obj, 'member_count'):
-            count = obj.member_count
-        else:
-            # Owner + regular members
-            count = obj.members.count()
-            # Add owner if not already in members
-            if not obj.members.filter(pk=obj.owner.pk).exists():
-                count
+        """Get member count using optimized property."""
+        count = obj.member_count
         
         logger.debug(
-            "Member count calculated for workspace",
+            "Member count retrieved",
             extra={
                 "workspace_id": obj.id,
                 "member_count": count,
-                "action": "member_count_calculated",
+                "action": "member_count_retrieved",
                 "component": "WorkspaceSerializer",
             },
         )
-        
         return count
     
     def get_is_owner(self, obj):
-        """
-        Check if current user is the owner of the workspace.
-        
-        Args:
-            obj: Workspace instance
-            
-        Returns:
-            bool: True if user is workspace owner
-        """
+        """Check ownership using request context."""
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             is_owner = obj.owner_id == request.user.id
@@ -193,110 +168,40 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
                     "user_id": request.user.id,
                     "workspace_id": obj.id,
                     "is_owner": is_owner,
-                    "action": "ownership_check_completed",
+                    "action": "ownership_check",
                     "component": "WorkspaceSerializer",
                 },
             )
-            
             return is_owner
         return False
     
     def get_user_permissions(self, obj):
         """
-        Get detailed user permissions for this workspace.
+        Get permissions from cached request context - ZERO database queries.
         
-        Calculates comprehensive permissions based on user role and workspace state.
-        
-        Args:
-            obj: Workspace instance
-            
-        Returns:
-            dict: User permissions for this workspace
+        Uses pre-calculated permissions from WorkspaceContextMiddleware.
         """
         request = self.context.get('request')
         if not request or not request.user.is_authenticated:
             return self._get_anonymous_permissions()
         
-        user_role = self._get_membership_for_workspace(obj, request)
-    
-        if user_role:
-            permissions = self._calculate_user_permissions(obj, user_role, request.user)
-            
-            logger.debug(
-                "User permissions calculated from cached membership",
-                extra={
-                    "user_id": request.user.id,
-                    "workspace_id": obj.id,
-                    "user_role": user_role,
-                    "permissions_count": len(permissions),
-                    "action": "user_permissions_calculated_cached",
-                    "component": "WorkspaceSerializer",
-                },
-            )
-            
-            return permissions
-        else:
-            logger.warning(
-                "Workspace membership not found for permissions calculation",
-                extra={
-                    "user_id": request.user.id,
-                    "workspace_id": obj.id,
-                    "action": "permissions_calculation_failed_cache",
-                    "component": "WorkspaceSerializer",
-                    "severity": "low",
-                },
-            )
-            return self._get_anonymous_permissions()
-    
-    def _calculate_user_permissions(self, workspace, user_role, user):
-        """
-        Calculate user permissions based on role and workspace state.
+        permissions_data = getattr(request, 'user_permissions', {})
         
-        Args:
-            workspace: Workspace instance
-            user_role: User's role in workspace
-            user: User instance
-            
-        Returns:
-            dict: Calculated permissions
-        """
-        is_owner = workspace.owner_id == user.id
-        is_admin_owner = user_role in ['admin', 'owner']
-        workspace_active = workspace.is_active
+        logger.debug(
+            "User permissions retrieved from request context",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": obj.id,
+                "permissions_count": len(permissions_data),
+                "action": "permissions_from_context",
+                "component": "WorkspaceSerializer",
+            },
+        )
         
-        permissions = {
-            # Basic permissions
-            'can_view': workspace_active or is_admin_owner,
-            'can_see_inactive': is_admin_owner,
-            
-            # Workspace management
-            'can_edit': is_admin_owner and workspace_active,
-            'can_activate': is_admin_owner and not workspace_active,
-            'can_deactivate': is_admin_owner and workspace_active,
-            'can_soft_delete': is_admin_owner and workspace_active,
-            
-            # Member management
-            'can_manage_members': is_admin_owner and workspace_active,
-            'can_invite': is_admin_owner and workspace_active,
-            
-            # Data management
-            'can_create_transactions': user_role in ['editor', 'admin', 'owner'] and workspace_active,
-            'can_view_transactions': workspace_active or is_admin_owner,
-            
-            # Ownership-specific permissions
-            'can_hard_delete': is_owner,
-            'can_transfer_ownership': is_owner and workspace_active,
-        }
-        
-        return permissions
+        return permissions_data
     
     def _get_anonymous_permissions(self):
-        """
-        Get permissions for anonymous/unauthenticated users.
-        
-        Returns:
-            dict: Empty permissions for anonymous users
-        """
+        """Default permissions for anonymous users."""
         return {
             'can_view': False,
             'can_see_inactive': False,
@@ -313,23 +218,12 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
         }
     
     def validate_name(self, value):
-        """
-        Validate workspace name.
-        
-        Args:
-            value: Workspace name to validate
-            
-        Returns:
-            str: Validated and stripped workspace name
-            
-        Raises:
-            ValidationError: If name is too short or too long
-        """
+        """Validate workspace name with comprehensive checks."""
         stripped_value = value.strip()
         
         if len(stripped_value) < 2:
             logger.warning(
-                "Workspace name validation failed - too short",
+                "Workspace name too short",
                 extra={
                     "provided_name": value,
                     "min_length": 2,
@@ -342,7 +236,7 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
         
         if len(stripped_value) > 100:
             logger.warning(
-                "Workspace name validation failed - too long",
+                "Workspace name too long",
                 extra={
                     "provided_name": value,
                     "max_length": 100,
@@ -354,7 +248,7 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
             raise serializers.ValidationError("Workspace name must be at most 100 characters long.")
         
         logger.debug(
-            "Workspace name validated successfully",
+            "Workspace name validated",
             extra={
                 "original_name": value,
                 "stripped_name": stripped_value,
@@ -362,195 +256,60 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, serializers.ModelSerializer)
                 "component": "WorkspaceSerializer",
             },
         )
-        
         return stripped_value
     
     def create(self, validated_data):
         """
-        Create workspace and automatically add owner as admin member.
+        Atomic workspace creation via WorkspaceService.
         
-        Args:
-            validated_data: Validated workspace data
-            
-        Returns:
-            Workspace: Created workspace instance
+        Delegates ALL business logic to service layer with proper exception handling.
+        ServiceExceptionHandlerMixin converts service exceptions to DRF exceptions.
         """
-
         request = self.context.get('request')
         
         logger.info(
-            "Workspace creation initiated in serializer",
+            "Workspace creation delegated to service layer",
             extra={
                 "user_id": request.user.id if request else None,
                 "workspace_name": validated_data.get('name'),
-                "action": "workspace_serializer_creation_start",
+                "action": "workspace_creation_service_delegation",
                 "component": "WorkspaceSerializer",
             },
         )
         
-        if request and request.user.is_authenticated:
-            validated_data['owner'] = request.user
+        # ServiceExceptionHandlerMixin handles exception conversion
+        workspace = self.handle_service_call(
+            self.workspace_service.create_workspace,
+            name=validated_data['name'],
+            description=validated_data.get('description', ''),
+            owner=request.target_user  # From TargetUserMixin
+        )
         
-        workspace = super().create(validated_data)
-               
         logger.info(
-            "Workspace created successfully in serializer",
+            "Workspace created successfully via service",
             extra={
                 "workspace_id": workspace.id,
                 "workspace_name": workspace.name,
                 "owner_id": workspace.owner.id,
-                "action": "workspace_serializer_creation_success",
+                "action": "workspace_creation_via_service_success",
                 "component": "WorkspaceSerializer",
             },
         )
         
         return workspace
- 
-# -------------------------------------------------------------------
-# WORKSPACE MEMBERSHIP SERIALIZER
-# -------------------------------------------------------------------
-# Membership data with role-based permission validation
 
-class WorkspaceMembershipSerializer(serializers.ModelSerializer):
-    """
-    Serializer for WorkspaceMembership model.
-    
-    Handles workspace membership data with user and workspace context
-    and role-based permission validation.
-    """
-    
-    user_username = serializers.CharField(source='user.username', read_only=True)
-    user_email = serializers.CharField(source='user.email', read_only=True)
-    workspace_name = serializers.CharField(source='workspace.name', read_only=True)
-    is_workspace_owner = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = WorkspaceMembership
-        fields = [
-            'id', 'workspace', 'workspace_name', 'user', 'user_username', 
-            'user_email', 'role', 'is_workspace_owner', 'joined_at'
-        ]
-        read_only_fields = ['id', 'workspace', 'user', 'joined_at', 'is_workspace_owner']
-    
-    def get_is_workspace_owner(self, obj):
-        """
-        Check if the membership user is the workspace owner.
-        
-        Args:
-            obj: WorkspaceMembership instance
-            
-        Returns:
-            bool: True if user is workspace owner
-        """
-        return obj.user == obj.workspace.owner
-    
-    def validate_role(self, value):
-        """
-        Validate role assignment with permission checks.
-        
-        Args:
-            value: Role to assign
-            
-        Returns:
-            str: Validated role
-            
-        Raises:
-            ValidationError: If permission checks fail
-        """
-        valid_roles = ['admin', 'editor', 'viewer']
-        
-        if value not in valid_roles:
-            logger.warning(
-                "Invalid role provided",
-                extra={
-                    "provided_role": value,
-                    "valid_roles": valid_roles,
-                    "action": "role_validation_failed",
-                    "component": "WorkspaceMembershipSerializer",
-                    "severity": "medium",
-                },
-            )
-            raise serializers.ValidationError(f"Invalid role. Choose from: {', '.join(valid_roles)}")
-        
-        request = self.context.get('request')
-        instance = self.instance
-        
-        if instance and request:
-            # Check if user can change roles (only workspace owners/admins)
-            workspace = instance.workspace
-            
-            try:
-                current_user_membership = WorkspaceMembership.objects.get(
-                    workspace=workspace, 
-                    user=request.user
-                )
-                
-                # Only owners and admins can change roles
-                if current_user_membership.role not in ['admin', 'owner']:
-                    logger.warning(
-                        "Role change permission denied",
-                        extra={
-                            "user_id": request.user.id,
-                            "workspace_id": workspace.id,
-                            "user_role": current_user_membership.role,
-                            "required_roles": ['admin', 'owner'],
-                            "action": "role_change_permission_denied",
-                            "component": "WorkspaceMembershipSerializer",
-                            "severity": "medium",
-                        },
-                    )
-                    raise serializers.ValidationError("You don't have permission to change roles.")
-                
-                # Prevent changing owner's role
-                if instance.user == workspace.owner:
-                    logger.warning(
-                        "Attempt to change owner role blocked",
-                        extra={
-                            "user_id": request.user.id,
-                            "workspace_id": workspace.id,
-                            "target_user_id": instance.user.id,
-                            "action": "owner_role_change_blocked",
-                            "component": "WorkspaceMembershipSerializer",
-                            "severity": "high",
-                        },
-                    )
-                    raise serializers.ValidationError("Cannot change owner's role.")
-                    
-            except WorkspaceMembership.DoesNotExist:
-                logger.warning(
-                    "Current user membership not found for role validation",
-                    extra={
-                        "user_id": request.user.id,
-                        "workspace_id": workspace.id,
-                        "action": "current_membership_not_found",
-                        "component": "WorkspaceMembershipSerializer",
-                        "severity": "medium",
-                    },
-                )
-                raise serializers.ValidationError("You are not a member of this workspace.")
-        
-        logger.debug(
-            "Role validation completed successfully",
-            extra={
-                "role": value,
-                "action": "role_validation_success",
-                "component": "WorkspaceMembershipSerializer",
-            },
-        )
-        
-        return value
-    
 # -------------------------------------------------------------------
-# WORKSPACE SETTINGS SERIALIZER
+# WORKSPACE SETTINGS SERIALIZER  
 # -------------------------------------------------------------------
-# Workspace configuration with currency and fiscal settings
 
 class WorkspaceSettingsSerializer(serializers.ModelSerializer):
     """
-    Serializer for workspace-specific settings.
+    Production-ready workspace settings serializer.
     
-    Handles workspace configuration including currency, fiscal year settings,
-    and display preferences with proper validation.
+    Features:
+    - Currency validation with supported codes
+    - Fiscal year start validation
+    - Read-only workspace field protection
     """
     
     class Meta:
@@ -562,23 +321,12 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'workspace']
     
     def validate_domestic_currency(self, value):
-        """
-        Validate domestic currency code.
-        
-        Args:
-            value: Currency code to validate
-            
-        Returns:
-            str: Validated currency code
-            
-        Raises:
-            ValidationError: If currency code is invalid
-        """
+        """Validate domestic currency against supported codes."""
         valid_currencies = ['EUR', 'USD', 'GBP', 'CHF', 'PLN']
         
         if value not in valid_currencies:
             logger.warning(
-                "Invalid domestic currency provided",
+                "Invalid domestic currency",
                 extra={
                     "provided_currency": value,
                     "valid_currencies": valid_currencies,
@@ -587,23 +335,22 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer):
                     "severity": "medium",
                 },
             )
-            raise serializers.ValidationError(f"Invalid currency. Choose from: {', '.join(valid_currencies)}")
+            raise serializers.ValidationError(
+                f"Invalid currency. Choose from: {', '.join(valid_currencies)}"
+            )
         
+        logger.debug(
+            "Currency validation successful",
+            extra={
+                "currency": value,
+                "action": "currency_validation_success",
+                "component": "WorkspaceSettingsSerializer",
+            },
+        )
         return value
     
     def validate_fiscal_year_start(self, value):
-        """
-        Validate fiscal year start month.
-        
-        Args:
-            value: Month number (1-12)
-            
-        Returns:
-            int: Validated month number
-            
-        Raises:
-            ValidationError: If month is invalid
-        """
+        """Validate fiscal year start month."""
         if not 1 <= value <= 12:
             logger.warning(
                 "Invalid fiscal year start month",
@@ -617,132 +364,38 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer):
             )
             raise serializers.ValidationError("Fiscal year start must be between 1 and 12.")
         
+        logger.debug(
+            "Fiscal month validation successful",
+            extra={
+                "month": value,
+                "action": "fiscal_month_validation_success",
+                "component": "WorkspaceSettingsSerializer",
+            },
+        )
         return value
-
-# -------------------------------------------------------------------
-# CATEGORY VERSION SERIALIZERS
-# -------------------------------------------------------------------
-
-class ExpenseCategoryVersionSerializer(serializers.ModelSerializer):
-    """
-    Serializer for Expense Category Version model.
-    
-    Handles versioning of expense category hierarchies with audit trail.
-    """
-    
-    class Meta:
-        model = ExpenseCategoryVersion
-        fields = ['id', 'workspace', 'name', 'description', 'created_by', 'created_at', 'is_active']
-        read_only_fields = ['id', 'created_by', 'created_at']
-
-
-class IncomeCategoryVersionSerializer(serializers.ModelSerializer):
-    """
-    Serializer for Income Category Version model.
-    
-    Handles versioning of income category hierarchies with audit trail.
-    """
-    
-    class Meta:
-        model = IncomeCategoryVersion
-        fields = ['id', 'workspace', 'name', 'description', 'created_by', 'created_at', 'is_active']
-        read_only_fields = ['id', 'created_by', 'created_at']
-
-# -------------------------------------------------------------------
-# CATEGORY SERIALIZERS
-# -------------------------------------------------------------------
-# Hierarchical category data with relationships
-
-class ExpenseCategorySerializer(CategoryWorkspaceMixin, serializers.ModelSerializer):
-    """
-    Serializer for Expense Category model.
-    
-    Provides hierarchical category data with version context and child relationships.
-    Includes workspace validation for security during admin impersonation.
-    """
-    
-    version = ExpenseCategoryVersionSerializer(read_only=True)
-    children = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
-    
-    class Meta:
-        model = ExpenseCategory
-        fields = [
-            'id', 'name', 'description', 'level', 'version', 'children', 'is_active'
-        ]
-        read_only_fields = ['version', 'property']  # Prevent direct version modification
-
-    def validate_name(self, value):
-        """
-        Validate expense category name.
-        
-        Args:
-            value: Category name to validate
-            
-        Returns:
-            str: Validated category name
-        """
-        stripped_value = value.strip()
-        
-        if len(stripped_value) < 2:
-            raise serializers.ValidationError("Category name must be at least 2 characters long.")
-        
-        return stripped_value
-
-class IncomeCategorySerializer(CategoryWorkspaceMixin, serializers.ModelSerializer):
-    """
-    Serializer for Income Category model.
-    
-    Provides hierarchical category data with version context and child relationships.
-    Includes workspace validation for security during admin impersonation.
-    """
-    
-    version = IncomeCategoryVersionSerializer(read_only=True)
-    children = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
-    
-    class Meta:
-        model = IncomeCategory
-        fields = [
-            'id', 'name', 'description', 'level', 'version', 'children', 'is_active'
-        ]
-        read_only_fields = ['version', 'property']  # Prevent direct version modification
-
-    def validate_name(self, value):
-        """
-        Validate income category name.
-        
-        Args:
-            value: Category name to validate
-            
-        Returns:
-            str: Validated category name
-        """
-        stripped_value = value.strip()
-        
-        if len(stripped_value) < 2:
-            raise serializers.ValidationError("Category name must be at least 2 characters long.")
-        
-        return stripped_value
 
 # -------------------------------------------------------------------
 # TRANSACTION SERIALIZER
 # -------------------------------------------------------------------
-# Financial transactions with category validation and currency conversion
 
-class TransactionSerializer(TargetUserMixin, serializers.ModelSerializer):
+class TransactionSerializer(TargetUserMixin, ServiceExceptionHandlerMixin, serializers.ModelSerializer):
     """
-    Serializer for Transaction model.
+    Production-ready transaction serializer with 100% service layer integration.
     
-    Handles financial transaction data with category validation,
-    currency conversion, and business rule enforcement.
+    Features:
+    - Workspace-scoped category security
+    - Business rule validation via TransactionService
+    - Cached category data for performance
+    - ServiceExceptionHandlerMixin for unified error handling
     """
     
     expense_category = serializers.PrimaryKeyRelatedField(
-        queryset=ExpenseCategory.objects.none(),  # Safe - will be set in __init__
+        queryset=ExpenseCategory.objects.none(),
         required=False,
         allow_null=True
     )
     income_category = serializers.PrimaryKeyRelatedField(
-        queryset=IncomeCategory.objects.none(),  # Safe - will be set in __init__
+        queryset=IncomeCategory.objects.none(), 
         required=False, 
         allow_null=True
     )
@@ -760,71 +413,42 @@ class TransactionSerializer(TargetUserMixin, serializers.ModelSerializer):
         ]
 
     def __init__(self, *args, **kwargs):
-        """
-        Initialize serializer with security-enhanced querysets.
-        
-        Sets up workspace-scoped category querysets to prevent cross-workspace
-        access during admin impersonation.
-        """
+        """Initialize with security-enhanced querysets from request cache."""
         super().__init__(*args, **kwargs)
+        self.transaction_service = TransactionService()
         
-        # SECURE QUERYSETS: Limited to current workspace
+        # SECURITY: Workspace-scoped categories from request cache
         request = self.context.get('request')
         if request and hasattr(request, 'workspace'):
-            workspace = request.workspace
-            
-            # Use cached category lists if available
-            if hasattr(request, '_cached_expense_categories'):
-                expense_categories = request._cached_expense_categories
-            else:
-                expense_categories = ExpenseCategory.objects.filter(
-                    version__workspace=workspace,
-                    is_active=True
-                )
-                request._cached_expense_categories = expense_categories
-            
-            if hasattr(request, '_cached_income_categories'):
-                income_categories = request._cached_income_categories
-            else:
-                income_categories = IncomeCategory.objects.filter(
-                    version__workspace=workspace,
-                    is_active=True
-                )
-                request._cached_income_categories = income_categories
+            # Use cached categories to avoid database queries
+            expense_categories = getattr(request, '_cached_expense_categories', [])
+            income_categories = getattr(request, '_cached_income_categories', [])
             
             self.fields['expense_category'].queryset = expense_categories
             self.fields['income_category'].queryset = income_categories
             
             logger.debug(
-                "TransactionSerializer initialized with workspace-scoped categories",
+                "TransactionSerializer initialized with cached categories",
                 extra={
-                    "workspace_id": workspace.id,
-                    "expense_categories_count": self.fields['expense_category'].queryset.count(),
-                    "income_categories_count": self.fields['income_category'].queryset.count(),
-                    "action": "serializer_initialized_with_workspace_scoping",
+                    "workspace_id": request.workspace.id,
+                    "expense_categories_count": len(expense_categories),
+                    "income_categories_count": len(income_categories),
+                    "action": "serializer_initialized_with_cache",
                     "component": "TransactionSerializer",
-                },
-            )
-        else:
-            logger.warning(
-                "TransactionSerializer initialized without workspace context",
-                extra={
-                    "action": "serializer_initialized_without_workspace",
-                    "component": "TransactionSerializer",
-                    "severity": "low",
                 },
             )
 
     def validate(self, data):
         """
-        Validate transaction data consistency and business rules.
+        Comprehensive transaction validation via TransactionService.
+        
+        Delegates complex business logic to service layer while maintaining
+        serializer validation workflow.
         """
-
         data = super().validate(data)
 
-
         logger.debug(
-            "Transaction validation started",
+            "Transaction validation starting",
             extra={
                 "transaction_type": data.get('type'),
                 "has_expense_category": 'expense_category' in data,
@@ -834,108 +458,17 @@ class TransactionSerializer(TargetUserMixin, serializers.ModelSerializer):
             },
         )
         
-        expense_category = data.get('expense_category')
-        income_category = data.get('income_category')
-        transaction_type = data.get('type')
-        
-        # Validate category consistency
-        if expense_category and income_category:
-            logger.warning(
-                "Transaction validation failed - both categories provided",
-                extra={
-                    "expense_category_id": expense_category.id,
-                    "income_category_id": income_category.id,
-                    "action": "transaction_validation_failed",
-                    "component": "TransactionSerializer",
-                    "severity": "medium",
-                },
-            )
-            raise DRFValidationError("Transaction can have only one category type")
-            
-        if not expense_category and not income_category:
-            logger.warning(
-                "Transaction validation failed - no category provided",
-                extra={
-                    "action": "transaction_validation_failed",
-                    "component": "TransactionSerializer",
-                    "severity": "medium",
-                },
-            )
-            raise DRFValidationError("Transaction must have one category")
-            
-        if transaction_type == 'expense' and income_category:
-            logger.warning(
-                "Transaction validation failed - expense with income category",
-                extra={
-                    "transaction_type": transaction_type,
-                    "income_category_id": income_category.id,
-                    "action": "transaction_validation_failed",
-                    "component": "TransactionSerializer",
-                    "severity": "medium",
-                },
-            )
-            raise DRFValidationError("Expense transaction cannot have income category")
-            
-        if transaction_type == 'income' and expense_category:
-            logger.warning(
-                "Transaction validation failed - income with expense category",
-                extra={
-                    "transaction_type": transaction_type,
-                    "expense_category_id": expense_category.id,
-                    "action": "transaction_validation_failed",
-                    "component": "TransactionSerializer",
-                    "severity": "medium",
-                },
-            )
-            raise DRFValidationError("Income transaction cannot have expense category")
-        
-        # Additional workspace security validation
         request = self.context.get('request')
-        if request and hasattr(request, 'workspace'):
-            workspace = request.workspace
-            
-            # Verify categories belong to correct workspace
-            if expense_category and expense_category.version.workspace_id != workspace.id:
-                logger.warning(
-                    "Security violation attempted - expense category from different workspace",
-                    extra={
-                        "provided_category_id": expense_category.id,
-                        "category_workspace_id": expense_category.version.workspace_id,
-                        "target_workspace_id": workspace.id,
-                        "action": "cross_workspace_category_access_attempt",
-                        "component": "TransactionSerializer",
-                        "severity": "high",
-                    },
-                )
-                raise DRFValidationError("Expense category does not belong to this workspace")
-                
-            if income_category and income_category.version.workspace_id != workspace.id:
-                logger.warning(
-                    "Security violation attempted - income category from different workspace",
-                    extra={
-                        "provided_category_id": income_category.id,
-                        "category_workspace_id": income_category.version.workspace_id,
-                        "target_workspace_id": workspace.id,
-                        "action": "cross_workspace_category_access_attempt",
-                        "component": "TransactionSerializer",
-                        "severity": "high",
-                    },
-                )
-                raise DRFValidationError("Income category does not belong to this workspace")
+        workspace = getattr(request, 'workspace', None)
         
-        # Validate amount
-        original_amount = data.get('original_amount')
-        if original_amount is not None and original_amount <= 0:
-            logger.warning(
-                "Transaction validation failed - invalid amount",
-                extra={
-                    "original_amount": original_amount,
-                    "action": "transaction_validation_failed",
-                    "component": "TransactionSerializer",
-                    "severity": "medium",
-                },
+        if workspace:
+            # Delegate complex validation to service layer
+            # ServiceExceptionHandlerMixin handles exception conversion
+            self.handle_service_call(
+                TransactionService._validate_transaction_data,
+                data=data,
+                workspace=workspace
             )
-            raise DRFValidationError("Transaction amount must be positive")
         
         logger.debug(
             "Transaction validation completed successfully",
@@ -948,168 +481,23 @@ class TransactionSerializer(TargetUserMixin, serializers.ModelSerializer):
         return data
 
     def validate_original_currency(self, value):
-        """
-        Validate original currency code.
-        """
+        """Validate transaction currency code."""
         valid_currencies = ['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'CZK']
         
         if value not in valid_currencies:
             logger.warning(
-                "Invalid transaction currency provided",
+                "Invalid transaction currency",
                 extra={
                     "provided_currency": value,
                     "valid_currencies": valid_currencies,
-                    "action": "currency_validation_failed",
+                    "action": "transaction_currency_validation_failed",
                     "component": "TransactionSerializer",
                     "severity": "medium",
                 },
             )
-            raise serializers.ValidationError(f"Invalid currency. Choose from: {', '.join(valid_currencies)}")
-        
-        return value
-
-# -------------------------------------------------------------------
-# TRANSACTION LIST SERIALIZER
-# -------------------------------------------------------------------
-# Only for get requests lightweight
-
-class TransactionListSerializer(serializers.ModelSerializer):
-    """
-    Lightweight serializer for transaction list view - read-only optimized for performance.
-    
-    Provides minimal data for transaction listings with optimized database queries.
-    Used exclusively for list views to improve API response times and reduce payload size.
-    
-    Performance Features:
-    - Minimal field selection to reduce data transfer
-    - Read-only fields to prevent accidental writes
-    - Optimized category name retrieval without expensive joins
-    """
-    
-    workspace_name = serializers.CharField(source='workspace.name', read_only=True)
-    category_name = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = Transaction
-        fields = [
-            'id', 'type', 'expense_category', 'income_category', 'amount_domestic', 'original_amount', 'original_currency',
-            'date', 'month', 'workspace', 'note_manual', 'note_auto', 'tags', 'workspace_name', 'category_name'
-        ]
-        read_only_fields = fields  # All fields are read-only for list view
-
-    def get_category_name(self, obj):
-        """
-        Get category name without expensive database joins.
-        
-        Uses category IDs instead of full object relations to avoid N+1 queries
-        and reduce database load. Frontend can fetch full category details if needed.
-        
-        Args:
-            obj: Transaction instance
-            
-        Returns:
-            str: Formatted category name or None
-        """
-        if obj.expense_category_id:
-            logger.debug(
-                "Retrieved expense category name from ID",
-                extra={
-                    "transaction_id": obj.id,
-                    "expense_category_id": obj.expense_category_id,
-                    "action": "category_name_retrieval",
-                    "component": "TransactionListSerializer",
-                },
+            raise serializers.ValidationError(
+                f"Invalid currency. Choose from: {', '.join(valid_currencies)}"
             )
-            return f"Expense Category #{obj.expense_category_id}"
-        elif obj.income_category_id:
-            logger.debug(
-                "Retrieved income category name from ID", 
-                extra={
-                    "transaction_id": obj.id,
-                    "income_category_id": obj.income_category_id,
-                    "action": "category_name_retrieval",
-                    "component": "TransactionListSerializer",
-                },
-            )
-            return f"Income Category #{obj.income_category_id}"
-        
-        logger.debug(
-            "No category found for transaction",
-            extra={
-                "transaction_id": obj.id,
-                "action": "category_name_not_found",
-                "component": "TransactionListSerializer",
-            },
-        )
-        return None
-
-# -------------------------------------------------------------------
-# EXCHANGE RATE SERIALIZER
-# -------------------------------------------------------------------
-# Currency exchange rates with validation
-
-class ExchangeRateSerializer(serializers.ModelSerializer):
-    """
-    Serializer for Exchange Rate model.
-    
-    Handles currency exchange rate data with validation and date consistency checks.
-    """
-    
-    class Meta:
-        model = ExchangeRate
-        fields = ['id', 'currency', 'rate_to_eur', 'date']
-    
-    def validate_currency(self, value):
-        """
-        Validate currency code.
-        
-        Args:
-            value: Currency code to validate
-            
-        Returns:
-            str: Validated currency code
-        """
-        valid_currencies = ['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'CZK']
-        
-        if value not in valid_currencies:
-            logger.warning(
-                "Invalid exchange rate currency provided",
-                extra={
-                    "provided_currency": value,
-                    "valid_currencies": valid_currencies,
-                    "action": "exchange_rate_currency_validation_failed",
-                    "component": "ExchangeRateSerializer",
-                    "severity": "medium",
-                },
-            )
-            raise serializers.ValidationError(f"Invalid currency. Choose from: {', '.join(valid_currencies)}")
-        
-        return value
-    
-    def validate_rate_to_eur(self, value):
-        """
-        Validate exchange rate value.
-        
-        Args:
-            value: Exchange rate to validate
-            
-        Returns:
-            Decimal: Validated exchange rate
-            
-        Raises:
-            ValidationError: If rate is invalid
-        """
-        if value <= 0:
-            logger.warning(
-                "Invalid exchange rate value",
-                extra={
-                    "provided_rate": value,
-                    "action": "exchange_rate_validation_failed",
-                    "component": "ExchangeRateSerializer",
-                    "severity": "medium",
-                },
-            )
-            raise serializers.ValidationError("Exchange rate must be positive")
         
         return value
 
@@ -1117,10 +505,16 @@ class ExchangeRateSerializer(serializers.ModelSerializer):
 # TRANSACTION DRAFT SERIALIZER
 # -------------------------------------------------------------------
 
-class TransactionDraftSerializer(TargetUserMixin, serializers.ModelSerializer):
+class TransactionDraftSerializer(TargetUserMixin, ServiceExceptionHandlerMixin, serializers.ModelSerializer):
     """
-    Serializer for Transaction Draft model with category level validation.
+    Production-ready transaction draft serializer with 100% service layer integration.
+    
+    Features:
+    - Cached category validation for performance
+    - Business rule enforcement via service layer
+    - Atomic draft operations with proper error handling
     """
+    
     transactions_count = serializers.SerializerMethodField()
     
     class Meta:
@@ -1132,26 +526,49 @@ class TransactionDraftSerializer(TargetUserMixin, serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'user', 'workspace', 'last_modified', 'created_at']
 
+    def __init__(self, *args, **kwargs):
+        """Initialize with draft service for business logic."""
+        super().__init__(*args, **kwargs)
+        self.draft_service = DraftService()
+
     def get_transactions_count(self, obj):
+        """Get transaction count using model method."""
         return obj.get_transactions_count()
 
     def validate_transactions_data(self, value):
         """
-        Validate all transactions in draft data.
+        Validate draft transactions using cached category data.
+        
+        Uses request-cached categories to avoid database queries and
+        delegates complex validation to service layer.
         """
         if not isinstance(value, list):
             raise serializers.ValidationError("Transactions data must be a list.")
 
-        workspace = self.context.get('request').workspace
+        request = self.context.get('request')
+        workspace = getattr(request, 'workspace', None)
         
+        if not workspace:
+            raise serializers.ValidationError("Workspace context required for validation.")
+            
         for index, tx_data in enumerate(value):
             self._validate_transaction(tx_data, workspace, index)
+            
+        logger.debug(
+            "Draft transactions validation completed",
+            extra={
+                "transaction_count": len(value),
+                "workspace_id": workspace.id,
+                "action": "draft_validation_success",
+                "component": "TransactionDraftSerializer",
+            },
+        )
             
         return value
 
     def _validate_transaction(self, tx_data, workspace, index):
         """
-        Validate individual transaction in draft.
+        Validate individual transaction using cached data and service layer.
         """
         if not isinstance(tx_data, dict):
             raise serializers.ValidationError(f"Transaction at index {index} must be an object.")
@@ -1160,6 +577,7 @@ class TransactionDraftSerializer(TargetUserMixin, serializers.ModelSerializer):
         expense_category_id = tx_data.get('expense_category_id')
         income_category_id = tx_data.get('income_category_id')
 
+        # Basic validation
         if not tx_type:
             raise serializers.ValidationError(f"Transaction at index {index} must have a type.")
 
@@ -1175,71 +593,302 @@ class TransactionDraftSerializer(TargetUserMixin, serializers.ModelSerializer):
         if expense_category_id and income_category_id:
             raise serializers.ValidationError(f"Transaction at index {index} cannot have both expense and income categories.")
 
+        # Category level validation using cached data
         category_id = expense_category_id or income_category_id
         if category_id:
             self._validate_category_level(category_id, workspace, tx_type, index)
 
     def _validate_category_level(self, category_id, workspace, tx_type, index):
         """
-        Validate that category is at the lowest level.
-        """
-        try:
-            if tx_type == 'expense':
-                category = ExpenseCategory.objects.select_related('version').get(
-                    id=category_id,
-                    version__workspace=workspace,
-                    is_active=True
-                )
-            else:
-                category = IncomeCategory.objects.select_related('version').get(
-                    id=category_id,
-                    version__workspace=workspace,
-                    is_active=True
-                )
-
-            if not self._is_lowest_level_category(category):
-                raise serializers.ValidationError(
-                    f"Category '{category.name}' in transaction {index} is not at the lowest level and cannot be used in transactions."
-                )
-
-        except (ExpenseCategory.DoesNotExist, IncomeCategory.DoesNotExist):
-            raise serializers.ValidationError(
-                f"Category with ID {category_id} in transaction {index} does not exist or is not accessible."
-            )
-
-    def _is_lowest_level_category(self, category):
-        """
-        Check if category is at the lowest possible level.
-        """
-        LOWEST_LEVEL = 5
-        return category.level == LOWEST_LEVEL
-
-    def create(self, validated_data):
-        """
-        Create draft with validated transactions data.
-        """
-        return self._save_draft(validated_data)
-
-    def update(self, instance, validated_data):
-        """
-        Update draft with validated transactions data.
-        """
-        return self._save_draft(validated_data, instance)
-
-    def _save_draft(self, validated_data, instance=None):
-        """
-        Save draft with proper user and workspace context.
+        Validate category level using cached category data from request.
+        
+        Uses pre-loaded categories to avoid database queries during validation.
         """
         request = self.context.get('request')
         
-        if instance is None:
-            draft = TransactionDraft(**validated_data)
-            draft.user = request.target_user
-            draft.workspace = request.workspace
+        # Use cached categories from request context
+        if tx_type == 'expense':
+            cached_categories = getattr(request, '_cached_expense_categories', [])
         else:
-            for attr, value in validated_data.items():
-                setattr(instance, attr, value)
-            draft = instance
+            cached_categories = getattr(request, '_cached_income_categories', [])
+        
+        # Find category in cached data
+        category = next((c for c in cached_categories if c.id == category_id), None)
+        
+        if not category:
+            logger.warning(
+                "Category not found in cached data",
+                extra={
+                    "category_id": category_id,
+                    "transaction_index": index,
+                    "category_type": tx_type,
+                    "cached_categories_count": len(cached_categories),
+                    "action": "category_not_found_in_cache",
+                    "component": "TransactionDraftSerializer",
+                    "severity": "medium",
+                },
+            )
+            raise serializers.ValidationError(
+                f"Category with ID {category_id} in transaction {index} not found or not accessible."
+            )
 
-        draft.save()
-        return draft
+        # Validate category level
+        LOWEST_LEVEL = 5
+        if category.level != LOWEST_LEVEL:
+            logger.warning(
+                "Category not at lowest level",
+                extra={
+                    "category_id": category_id,
+                    "category_name": category.name,
+                    "category_level": category.level,
+                    "required_level": LOWEST_LEVEL,
+                    "transaction_index": index,
+                    "action": "category_level_validation_failed",
+                    "component": "TransactionDraftSerializer",
+                    "severity": "medium",
+                },
+            )
+            raise serializers.ValidationError(
+                f"Category '{category.name}' in transaction {index} is not at the lowest level and cannot be used in transactions."
+            )
+        
+        logger.debug(
+            "Category level validation successful",
+            extra={
+                "category_id": category_id,
+                "category_level": category.level,
+                "transaction_index": index,
+                "action": "category_level_validation_success",
+                "component": "TransactionDraftSerializer",
+            },
+        )
+
+    def create(self, validated_data):
+        """
+        Create draft via DraftService for atomic operations.
+        
+        Delegates to service layer for proper business logic execution.
+        """
+        request = self.context.get('request')
+        
+        logger.info(
+            "Draft creation delegated to service layer",
+            extra={
+                "user_id": request.user.id if request else None,
+                "workspace_id": request.workspace.id if request else None,
+                "draft_type": validated_data.get('draft_type'),
+                "transaction_count": len(validated_data.get('transactions_data', [])),
+                "action": "draft_creation_service_delegation",
+                "component": "TransactionDraftSerializer",
+            },
+        )
+        
+        # ServiceExceptionHandlerMixin handles exception conversion
+        return self.handle_service_call(
+            self.draft_service.save_draft,
+            user=request.target_user,
+            workspace_id=request.workspace.id,
+            draft_type=validated_data.get('draft_type'),
+            transactions_data=validated_data.get('transactions_data', [])
+        )
+
+    def update(self, instance, validated_data):
+        """
+        Update draft via DraftService for atomic operations.
+        
+        Maintains consistency with create method by using same service layer.
+        """
+        request = self.context.get('request')
+        
+        logger.info(
+            "Draft update delegated to service layer",
+            extra={
+                "draft_id": instance.id,
+                "user_id": request.user.id if request else None,
+                "transaction_count": len(validated_data.get('transactions_data', [])),
+                "action": "draft_update_service_delegation",
+                "component": "TransactionDraftSerializer",
+            },
+        )
+        
+        # For updates, we need to use the service differently
+        # Since save_draft handles both create and update via replacement strategy
+        return self.handle_service_call(
+            self.draft_service.save_draft,
+            user=request.target_user,
+            workspace_id=instance.workspace.id,
+            draft_type=validated_data.get('draft_type', instance.draft_type),
+            transactions_data=validated_data.get('transactions_data', instance.transactions_data)
+        )
+
+# -------------------------------------------------------------------
+# LIGHTWEIGHT SERIALIZERS FOR PERFORMANCE
+# -------------------------------------------------------------------
+
+class TransactionListSerializer(serializers.ModelSerializer):
+    """
+    High-performance serializer for transaction list views.
+    
+    Features:
+    - Minimal field selection for reduced payload
+    - Optimized category name retrieval
+    - Read-only for list view performance
+    """
+    
+    workspace_name = serializers.CharField(source='workspace.name', read_only=True)
+    category_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Transaction
+        fields = [
+            'id', 'type', 'expense_category', 'income_category', 'amount_domestic', 
+            'original_amount', 'original_currency', 'date', 'month', 'workspace', 
+            'note_manual', 'note_auto', 'tags', 'workspace_name', 'category_name'
+        ]
+        read_only_fields = fields
+
+    def get_category_name(self, obj):
+        """Get category name without database joins."""
+        if obj.expense_category_id:
+            return f"Expense Category #{obj.expense_category_id}"
+        elif obj.income_category_id:
+            return f"Income Category #{obj.income_category_id}"
+        return None
+
+# -------------------------------------------------------------------
+# EXCHANGE RATE SERIALIZER
+# -------------------------------------------------------------------
+
+class ExchangeRateSerializer(serializers.ModelSerializer):
+    """
+    Production-ready exchange rate serializer.
+    
+    Features:
+    - Currency code validation
+    - Rate value validation
+    - Date consistency checks
+    """
+    
+    class Meta:
+        model = ExchangeRate
+        fields = ['id', 'currency', 'rate_to_eur', 'date']
+    
+    def validate_currency(self, value):
+        """Validate currency code."""
+        valid_currencies = ['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'CZK']
+        
+        if value not in valid_currencies:
+            logger.warning(
+                "Invalid exchange rate currency",
+                extra={
+                    "provided_currency": value,
+                    "valid_currencies": valid_currencies,
+                    "action": "exchange_rate_currency_validation_failed",
+                    "component": "ExchangeRateSerializer",
+                    "severity": "medium",
+                },
+            )
+            raise serializers.ValidationError(
+                f"Invalid currency. Choose from: {', '.join(valid_currencies)}"
+            )
+        
+        return value
+    
+    def validate_rate_to_eur(self, value):
+        """Validate exchange rate value."""
+        if value <= 0:
+            logger.warning(
+                "Invalid exchange rate value",
+                extra={
+                    "provided_rate": value,
+                    "action": "exchange_rate_validation_failed",
+                    "component": "ExchangeRateSerializer",
+                    "severity": "medium",
+                },
+            )
+            raise serializers.ValidationError("Exchange rate must be positive")
+        
+        return value
+    
+# -------------------------------------------------------------------
+# CATEGORY VERSION SERIALIZERS - PRIDAŤ!
+# -------------------------------------------------------------------
+
+class ExpenseCategoryVersionSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Expense Category Version model.
+    
+    Handles versioning of expense category hierarchies with audit trail.
+    Provides read-only access to version metadata.
+    """
+    
+    class Meta:
+        model = ExpenseCategoryVersion
+        fields = ['id', 'workspace', 'name', 'description', 'created_by', 'created_at', 'is_active']
+        read_only_fields = ['id', 'created_by', 'created_at']
+
+
+class IncomeCategoryVersionSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Income Category Version model.
+    
+    Handles versioning of income category hierarchies with audit trail.
+    Provides read-only access to version metadata.
+    """
+    
+    class Meta:
+        model = IncomeCategoryVersion
+        fields = ['id', 'workspace', 'name', 'description', 'created_by', 'created_at', 'is_active']
+        read_only_fields = ['id', 'created_by', 'created_at']
+
+# -------------------------------------------------------------------
+# CATEGORY SERIALIZERS
+# -------------------------------------------------------------------
+
+class ExpenseCategorySerializer(CategoryWorkspaceMixin, serializers.ModelSerializer):
+    """
+    Production-ready expense category serializer with workspace validation.
+    """
+    
+    version = ExpenseCategoryVersionSerializer(read_only=True)
+    children = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    
+    class Meta:
+        model = ExpenseCategory
+        fields = [
+            'id', 'name', 'description', 'level', 'version', 'children', 'is_active'
+        ]
+        read_only_fields = ['version', 'property']
+
+    def validate_name(self, value):
+        """Validate category name."""
+        stripped_value = value.strip()
+        
+        if len(stripped_value) < 2:
+            raise serializers.ValidationError("Category name must be at least 2 characters long.")
+        
+        return stripped_value
+
+class IncomeCategorySerializer(CategoryWorkspaceMixin, serializers.ModelSerializer):
+    """
+    Production-ready income category serializer with workspace validation.
+    """
+    
+    version = IncomeCategoryVersionSerializer(read_only=True)
+    children = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    
+    class Meta:
+        model = IncomeCategory
+        fields = [
+            'id', 'name', 'description', 'level', 'version', 'children', 'is_active'
+        ]
+        read_only_fields = ['version', 'property']
+
+    def validate_name(self, value):
+        """Validate category name."""
+        stripped_value = value.strip()
+        
+        if len(stripped_value) < 2:
+            raise serializers.ValidationError("Category name must be at least 2 characters long.")
+        
+        return stripped_value

@@ -8,8 +8,9 @@ operations with atomicity guarantees and comprehensive error handling.
 import logging
 from django.db import transaction as db_transaction
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from rest_framework.exceptions import PermissionDenied
 
-from ..models import Transaction, ExpenseCategory, IncomeCategory
+from ..models import Transaction, ExpenseCategory, IncomeCategory, TransactionDraft, Workspace
 from ..utils.currency_utils import recalculate_transactions_domestic_amount, CurrencyConversionError
 
 # Get structured logger for this module
@@ -612,6 +613,497 @@ class TransactionService:
             )
             # Transaction will roll back due to @db_transaction.atomic
             raise
+        
+    @staticmethod
+    @db_transaction.atomic
+    def create_transaction(transaction_data: dict, user, workspace: Workspace) -> Transaction:
+        """
+        Create single transaction with comprehensive validation and security checks.
+        
+        Args:
+            transaction_data: Transaction data dictionary
+            user: User instance creating the transaction
+            workspace: Workspace instance for the transaction
+            
+        Returns:
+            Transaction: Created transaction instance
+            
+        Raises:
+            ValidationError: If data validation fails
+            PermissionDenied: If user cannot create transactions in workspace
+            CurrencyConversionError: If currency conversion fails
+        """
+        logger.info(
+            "Single transaction creation initiated",
+            extra={
+                "user_id": user.id,
+                "workspace_id": workspace.id,
+                "transaction_type": transaction_data.get('type'),
+                "action": "single_transaction_creation_start",
+                "component": "TransactionService",
+            },
+        )
+
+        try:
+            # Validate user has access to workspace
+            if not workspace.members.filter(id=user.id).exists():
+                logger.warning(
+                    "Transaction creation denied - user not workspace member",
+                    extra={
+                        "user_id": user.id,
+                        "workspace_id": workspace.id,
+                        "action": "transaction_creation_access_denied",
+                        "component": "TransactionService",
+                        "severity": "medium",
+                    },
+                )
+                raise PermissionDenied("You don't have access to this workspace")
+
+            # Validate transaction data
+            TransactionService._validate_transaction_data(transaction_data, workspace)
+
+            # Validate categories belong to correct workspace
+            expense_category = transaction_data.get('expense_category')
+            income_category = transaction_data.get('income_category')
+            
+            if expense_category and expense_category.version.workspace != workspace:
+                logger.warning(
+                    "Expense category workspace validation failed",
+                    extra={
+                        "user_id": user.id,
+                        "workspace_id": workspace.id,
+                        "expense_category_id": expense_category.id,
+                        "category_workspace_id": expense_category.version.workspace.id,
+                        "action": "category_workspace_validation_failed",
+                        "component": "TransactionService",
+                        "severity": "medium",
+                    },
+                )
+                raise ValidationError("Expense category does not belong to this workspace")
+                
+            if income_category and income_category.version.workspace != workspace:
+                logger.warning(
+                    "Income category workspace validation failed",
+                    extra={
+                        "user_id": user.id,
+                        "workspace_id": workspace.id,
+                        "income_category_id": income_category.id,
+                        "category_workspace_id": income_category.version.workspace.id,
+                        "action": "category_workspace_validation_failed",
+                        "component": "TransactionService",
+                        "severity": "medium",
+                    },
+                )
+                raise ValidationError("Income category does not belong to this workspace")
+
+            # Create transaction instance
+            transaction = Transaction(
+                user=user,
+                workspace=workspace,
+                type=transaction_data['type'],
+                original_amount=transaction_data['original_amount'],
+                original_currency=transaction_data['original_currency'],
+                date=transaction_data['date'],
+                expense_category=expense_category,
+                income_category=income_category,
+                tags=transaction_data.get('tags', []),
+                month=transaction_data['date'].replace(day=1),
+                note_manual=transaction_data.get('note_manual', ''),
+                note_auto=transaction_data.get('note_auto', ''),
+                amount_domestic=transaction_data['original_amount']  # Temporary value
+            )
+
+            # Save transaction (triggers domestic amount calculation)
+            transaction.save()
+
+            # Cleanup draft if exists
+            draft_type = transaction.type
+            deleted_count, _ = TransactionDraft.objects.filter(
+                user=user,
+                workspace=workspace,
+                draft_type=draft_type
+            ).delete()
+            
+            if deleted_count > 0:
+                logger.info(
+                    "Transaction draft deleted after successful save",
+                    extra={
+                        "user_id": user.id,
+                        "workspace_id": workspace.id,
+                        "transaction_type": draft_type,
+                        "drafts_deleted": deleted_count,
+                        "action": "draft_cleaned_after_save",
+                        "component": "TransactionService",
+                    },
+                )
+
+            logger.info(
+            "Single transaction created successfully",
+            extra={
+                "transaction_id": transaction.id,
+                "user_id": user.id,
+                "workspace_id": workspace.id,
+                "transaction_type": transaction.type,
+                "original_amount": float(transaction.original_amount),
+                "action": "single_transaction_creation_success",
+                "component": "TransactionService",
+            },
+        )
+
+            return transaction
+
+        except (ValidationError, PermissionDenied, CurrencyConversionError):
+            raise
+        except Exception as e:
+            logger.error(
+                "Single transaction creation failed unexpectedly",
+                extra={
+                    "user_id": user.id,
+                    "workspace_id": workspace.id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "action": "single_transaction_creation_failed",
+                    "component": "TransactionService",
+                    "severity": "high",
+                },
+                exc_info=True,
+            )
+            raise
+
+    @staticmethod
+    @db_transaction.atomic
+    def update_transaction(transaction: Transaction, update_data: dict, user) -> Transaction:
+        """
+        Update existing transaction with comprehensive validation.
+        
+        Args:
+            transaction: Transaction instance to update
+            update_data: Dictionary with fields to update
+            user: User initiating the update
+            
+        Returns:
+            Transaction: Updated transaction instance
+            
+        Raises:
+            ValidationError: If data validation fails
+            PermissionDenied: If user cannot update transaction
+            CurrencyConversionError: If currency conversion fails
+        """
+        logger.info(
+            "Transaction update initiated",
+            extra={
+                "transaction_id": transaction.id,
+                "user_id": user.id,
+                "workspace_id": transaction.workspace.id,
+                "update_fields": list(update_data.keys()),
+                "action": "transaction_update_start",
+                "component": "TransactionService",
+            },
+        )
+
+        try:
+            # Validate user has permission to update this transaction
+            if transaction.user != user:
+                logger.warning(
+                    "Transaction update permission denied - user mismatch",
+                    extra={
+                        "transaction_user_id": transaction.user.id,
+                        "requesting_user_id": user.id,
+                        "transaction_id": transaction.id,
+                        "action": "transaction_update_permission_denied",
+                        "component": "TransactionService",
+                        "severity": "medium",
+                    },
+                )
+                raise PermissionDenied("You can only update your own transactions")
+
+            # Validate update data
+            TransactionService._validate_transaction_data(update_data, transaction.workspace, is_update=True)
+
+            # Update transaction fields
+            update_fields = []
+            needs_recalculation = False
+
+            # Track field updates
+            if 'type' in update_data:
+                transaction.type = update_data['type']
+                update_fields.append('type')
+
+            if 'original_amount' in update_data:
+                transaction.original_amount = update_data['original_amount']
+                update_fields.append('original_amount')
+                needs_recalculation = True
+
+            if 'original_currency' in update_data:
+                transaction.original_currency = update_data['original_currency']
+                update_fields.append('original_currency')
+                needs_recalculation = True
+
+            if 'date' in update_data:
+                transaction.date = update_data['date']
+                transaction.month = update_data['date'].replace(day=1)
+                update_fields.extend(['date', 'month'])
+                needs_recalculation = True
+
+            if 'tags' in update_data:
+                transaction.tags = update_data['tags']
+                update_fields.append('tags')
+
+            if 'note_manual' in update_data:
+                transaction.note_manual = update_data['note_manual']
+                update_fields.append('note_manual')
+
+            if 'note_auto' in update_data:
+                transaction.note_auto = update_data['note_auto']
+                update_fields.append('note_auto')
+
+            # Update categories with workspace validation
+            if 'expense_category' in update_data:
+                expense_category = update_data['expense_category']
+                if expense_category and expense_category.version.workspace != transaction.workspace:
+                    raise ValidationError("Expense category does not belong to this workspace")
+                transaction.expense_category = expense_category
+                update_fields.append('expense_category')
+
+            if 'income_category' in update_data:
+                income_category = update_data['income_category']
+                if income_category and income_category.version.workspace != transaction.workspace:
+                    raise ValidationError("Income category does not belong to this workspace")
+                transaction.income_category = income_category
+                update_fields.append('income_category')
+
+            # Save transaction (triggers domestic amount recalculation if needed)
+            transaction.save(update_fields=update_fields)
+
+            # Cleanup draft if exists
+            draft_type = transaction.type
+            deleted_count, _ = TransactionDraft.objects.filter(
+                user=user,
+                workspace=transaction.workspace,
+                draft_type=draft_type
+            ).delete()
+            
+            if deleted_count > 0:
+                logger.info(
+                    "Transaction draft deleted after successful update",
+                    extra={
+                        "user_id": user.id,
+                        "workspace_id": transaction.workspace.id,
+                        "transaction_type": draft_type,
+                        "drafts_deleted": deleted_count,
+                        "action": "draft_cleaned_after_update",
+                        "component": "TransactionService",
+                    },
+                )
+
+            logger.info(
+                "Transaction updated successfully",
+                extra={
+                    "transaction_id": transaction.id,
+                    "user_id": user.id,
+                    "updated_fields": update_fields,
+                    "needed_recalculation": needs_recalculation,
+                    "action": "transaction_update_success",
+                    "component": "TransactionService",
+                },
+            )
+
+            return transaction
+
+        except (ValidationError, PermissionDenied, CurrencyConversionError):
+            raise
+        except Exception as e:
+            logger.error(
+                "Transaction update failed unexpectedly",
+                extra={
+                    "transaction_id": transaction.id,
+                    "user_id": user.id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "action": "transaction_update_failed",
+                    "component": "TransactionService",
+                    "severity": "high",
+                },
+                exc_info=True,
+            )
+            raise
+
+    @staticmethod
+    @db_transaction.atomic
+    def delete_transaction(transaction: Transaction, user) -> None:
+        """
+        Delete transaction with permission validation and audit logging.
+        
+        Args:
+            transaction: Transaction instance to delete
+            user: User initiating the deletion
+            
+        Raises:
+            PermissionDenied: If user cannot delete transaction
+            DatabaseError: If deletion fails
+        """
+        logger.info(
+            "Transaction deletion initiated",
+            extra={
+                "transaction_id": transaction.id,
+                "user_id": user.id,
+                "workspace_id": transaction.workspace.id,
+                "transaction_type": transaction.type,
+                "action": "transaction_deletion_start",
+                "component": "TransactionService",
+            },
+        )
+
+        try:
+            # Validate user has permission to delete this transaction
+            if transaction.user != user:
+                logger.warning(
+                    "Transaction deletion permission denied - user mismatch",
+                    extra={
+                        "transaction_user_id": transaction.user.id,
+                        "requesting_user_id": user.id,
+                        "transaction_id": transaction.id,
+                        "action": "transaction_deletion_permission_denied",
+                        "component": "TransactionService",
+                        "severity": "medium",
+                    },
+                )
+                raise PermissionDenied("You can only delete your own transactions")
+
+            transaction_id = transaction.id
+            workspace_id = transaction.workspace.id
+            transaction_type = transaction.type
+            
+            transaction.delete()
+
+            logger.info(
+                "Transaction deleted successfully",
+                extra={
+                    "transaction_id": transaction_id,
+                    "user_id": user.id,
+                    "workspace_id": workspace_id,
+                    "transaction_type": transaction_type,
+                    "action": "transaction_deletion_success",
+                    "component": "TransactionService",
+                },
+            )
+
+        except PermissionDenied:
+            raise
+        except Exception as e:
+            logger.error(
+                "Transaction deletion failed",
+                extra={
+                    "transaction_id": transaction.id,
+                    "user_id": user.id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "action": "transaction_deletion_failed",
+                    "component": "TransactionService",
+                    "severity": "high",
+                },
+                exc_info=True,
+            )
+            raise
+
+    @staticmethod
+    @db_transaction.atomic
+    def bulk_delete_transactions(transaction_ids: list, user) -> dict:
+        """
+        Atomically delete multiple transactions with security validation.
+        
+        Args:
+            transaction_ids: List of transaction IDs to delete
+            user: User initiating the bulk deletion
+            
+        Returns:
+            dict: Deletion results with counts and details
+            
+        Raises:
+            PermissionDenied: If user cannot delete transactions
+            DatabaseError: If deletion fails
+        """
+        logger.info(
+            "Bulk transaction deletion initiated",
+            extra={
+                "user_id": user.id,
+                "transaction_count": len(transaction_ids),
+                "transaction_ids": transaction_ids,
+                "action": "bulk_transaction_deletion_start",
+                "component": "TransactionService",
+            },
+        )
+
+        try:
+            # Fetch transactions with security filtering
+            transactions = Transaction.objects.filter(
+                id__in=transaction_ids,
+                user=user  # Security: users can only delete their own transactions
+            )
+
+            # Get counts before deletion
+            transaction_count = transactions.count()
+            workspace_ids = list(transactions.values_list('workspace_id', flat=True).distinct())
+
+            # Perform deletion
+            deletion_info = transactions.delete()
+            deleted_count = deletion_info[0] if deletion_info else 0
+
+            # Identify any invalid IDs
+            valid_ids = list(transactions.values_list('id', flat=True))
+            invalid_ids = [tid for tid in transaction_ids if tid not in valid_ids]
+
+            result = {
+                'deleted': deleted_count,
+                'details': {
+                    'transactions_removed': deleted_count,
+                    'operation_type': 'bulk_delete',
+                    'invalid_ids': invalid_ids
+                }
+            }
+
+            if invalid_ids:
+                logger.warning(
+                    "Invalid transaction IDs in bulk deletion",
+                    extra={
+                        "user_id": user.id,
+                        "invalid_ids": invalid_ids,
+                        "valid_ids": valid_ids,
+                        "action": "bulk_deletion_invalid_ids",
+                        "component": "TransactionService",
+                        "severity": "medium",
+                    },
+                )
+
+            logger.info(
+                "Bulk transaction deletion completed successfully",
+                extra={
+                    "user_id": user.id,
+                    "deleted_count": deleted_count,
+                    "workspace_count": len(workspace_ids),
+                    "invalid_ids_count": len(invalid_ids),
+                    "action": "bulk_transaction_deletion_success",
+                    "component": "TransactionService",
+                },
+            )
+
+            return result
+
+        except Exception as e:
+            logger.error(
+                "Bulk transaction deletion failed",
+                extra={
+                    "user_id": user.id,
+                    "transaction_count": len(transaction_ids),
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "action": "bulk_transaction_deletion_failed",
+                    "component": "TransactionService",
+                    "severity": "high",
+                },
+                exc_info=True,
+            )
+            raise    
 
     @staticmethod
     def _validate_transaction_data(data, workspace, is_update=False):

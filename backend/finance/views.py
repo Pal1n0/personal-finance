@@ -31,42 +31,44 @@ from .serializers import (
     WorkspaceMembershipSerializer, WorkspaceSerializer, TransactionDraftSerializer,
     TransactionListSerializer 
 )
+from .services.draft_service import DraftService
 from .services.transaction_service import TransactionService
 from .services.currency_service import CurrencyService
 from .utils.category_utils import sync_categories_tree
-from .mixins import WorkspaceMembershipMixin, WorkspaceContextMixin 
+from .mixins.workspace_context import WorkspaceContextMixin
+from .mixins.workspace_membership import WorkspaceMembershipMixin
+from .mixins.service_exception_handler import ServiceExceptionHandlerMixin
+
+
 
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
 
-class BaseWorkspaceViewSet(WorkspaceContextMixin , viewsets.ModelViewSet):
+class BaseWorkspaceViewSet(WorkspaceContextMixin, viewsets.ModelViewSet):
     """
     Base ViewSet for ALL workspace-related views.
-    Automatically adds workspace permissions to every view.
+    Automatically adds workspace context to every view via DRF lifecycle.
+    
+    DRF Request Flow:
+    1. initialize_request() - Creates DRF request object
+    2. initial() - Called automatically by DRF (triggers WorkspaceContextMixin.initial())
+    3. Workspace context is fully initialized
+    4. View processing continues with proper context
     """
-
-    def initialize_request(self, request, *args, **kwargs):
-        """
-        Initialize workspace permissions when request is created - 
-        runs BEFORE any other view processing
-        """
-        # 1. First get the DRF request object
-        request = super().initialize_request(request, *args, **kwargs)
-        
-        # 2. Initialize our permission system IMMEDIATELY
-        self._process_workspace_permissions(request)
-        
-        # 3. Return request with permissions initialized
-        return request
+    
+    # No custom initialize_request needed
+    # DRF automatically calls initial() after request initialization
+    # WorkspaceContextMixin.initial() handles context setup
+    pass
 
 # -------------------------------------------------------------------
 # WORKSPACE ADMIN MANAGEMENT
 # -------------------------------------------------------------------
 
-class WorkspaceAdminViewSet(BaseWorkspaceViewSet, viewsets.ModelViewSet):
+class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
     """
-    Workspace Administrator Management API
-    Security: Superuser-only access with comprehensive audit logging
+    Production-optimized workspace administrator management.
+    Uses ServiceExceptionHandlerMixin for unified error handling and BaseWorkspaceViewSet for context.
     """
     
     serializer_class = None
@@ -74,8 +76,7 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        Retrieve workspace admin assignments with optimized query patterns
-        Returns empty queryset for non-superusers to prevent information leakage
+        Secure queryset - returns empty for non-superusers to prevent information leakage.
         """
         if not self.request.user.is_superuser:
             return WorkspaceAdmin.objects.none()
@@ -85,14 +86,20 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, viewsets.ModelViewSet):
         ).order_by('-assigned_at')
 
     def get_permissions(self):
-        """Enforce superuser requirement for all administrative actions"""
+        """Enforce superuser requirement for all administrative actions."""
         return [IsAuthenticated(), IsSuperuser()]
 
     @action(detail=False, methods=['post'])
     def assign_admin(self, request, workspace_pk=None):
         """
-        Assign workspace administrator privileges
-        Requires: Superuser authentication, valid workspace, target user membership
+        Assign workspace administrator privileges with comprehensive validation.
+        
+        Args:
+            request: HTTP request with user context
+            workspace_pk: Target workspace ID
+            
+        Returns:
+            Response: Assignment result with metadata
         """
         workspace = get_object_or_404(Workspace, pk=workspace_pk)
         user_id = request.data.get('user_id')
@@ -103,951 +110,408 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        try:
-            target_user = User.objects.get(pk=user_id)
-        except User.DoesNotExist:
+        # Validate workspace access using request context
+        if not request.user_permissions.get('workspace_exists'):
+            logger.warning(
+                "Workspace access denied for admin assignment",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace_pk,
+                    "action": "admin_assignment_access_denied",
+                    "component": "WorkspaceAdminViewSet",
+                    "severity": "high",
+                },
+            )
             return Response(
-                {"error": "Specified user not found in system"},
-                status=status.HTTP_404_NOT_FOUND
+                {"error": "Workspace access denied"},
+                status=status.HTTP_403_FORBIDDEN
             )
 
-        if not self._validate_user_membership(target_user, workspace.id):
+        target_user = request.target_user
+        
+        # Verify target user matches requested user_id
+        if target_user.id != int(user_id):
+            logger.warning(
+                "User ID mismatch in admin assignment",
+                extra={
+                    "request_user_id": request.user.id,
+                    "target_user_id": target_user.id,
+                    "requested_user_id": user_id,
+                    "action": "admin_assignment_user_mismatch",
+                    "component": "WorkspaceAdminViewSet",
+                    "severity": "medium",
+                },
+            )
+            return Response(
+                {"error": "User ID mismatch with request context"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check membership using cached data
+        user_memberships = getattr(request, '_cached_user_memberships', {})
+        is_member = workspace.id in user_memberships
+
+        if not is_member:
+            logger.warning(
+                "User not workspace member for admin assignment",
+                extra={
+                    "user_id": request.user.id,
+                    "target_user_id": target_user.id,
+                    "workspace_id": workspace_pk,
+                    "action": "admin_assignment_not_member",
+                    "component": "WorkspaceAdminViewSet",
+                    "severity": "medium",
+                },
+            )
             return Response(
                 {"error": "User must be workspace member before admin assignment"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        admin_assignment, created = WorkspaceAdmin.objects.get_or_create(
-            user=target_user,
-            workspace=workspace,
-            defaults={
-                'assigned_by': request.user,
-                'is_active': True
-            }
-        )
-
-        if not created:
-            admin_assignment.is_active = True
-            admin_assignment.assigned_by = request.user
-            admin_assignment.save()
-
-        self._invalidate_admin_cache(target_user.id, workspace.id)
-
-        return Response({
-            "message": f"Administrator privileges assigned to {target_user.username}",
-            "admin_assignment_id": admin_assignment.id,
-            "assigned_at": admin_assignment.assigned_at
-        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
-
-    def _validate_user_membership(self, user, workspace_id):
-        """Validate user workspace membership using cached data where available"""
-        cache_key = f"workspace_member_{user.id}_{workspace_id}"
-        cached_membership = cache.get(cache_key)
+        # Create or update admin assignment
+        assigning_admin = request.user
         
-        if cached_membership is not None:
-            return cached_membership
+        try:
+            admin_assignment, created = WorkspaceAdmin.objects.get_or_create(
+                user=target_user,
+                workspace=workspace,
+                defaults={
+                    'assigned_by': assigning_admin,
+                    'is_active': True
+                }
+            )
+
+            if not created:
+                admin_assignment.is_active = True
+                admin_assignment.assigned_by = assigning_admin
+                admin_assignment.save()
+
+            # Invalidate cached permissions
+            self._invalidate_admin_caches(target_user.id, workspace.id)
+
+            logger.info(
+                "Workspace administrator privileges assigned successfully",
+                extra={
+                    "admin_user_id": assigning_admin.id,
+                    "target_user_id": target_user.id,
+                    "workspace_id": workspace.id,
+                    "assignment_created": created,
+                    "action": "workspace_admin_assigned",
+                    "component": "WorkspaceAdminViewSet",
+                },
+            )
+
+            return Response({
+                "message": f"Administrator privileges assigned to {target_user.username}",
+                "admin_assignment_id": admin_assignment.id,
+                "assigned_at": admin_assignment.assigned_at,
+                "assigned_by_admin_id": assigning_admin.id
+            }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
             
-        membership_exists = WorkspaceMembership.objects.filter(
-            user=user,
-            workspace_id=workspace_id
-        ).exists()
-        
-        cache.set(cache_key, membership_exists, 300)
-        return membership_exists
+        except Exception as e:
+            logger.error(
+                "Admin assignment failed",
+                extra={
+                    "admin_user_id": assigning_admin.id,
+                    "target_user_id": target_user.id,
+                    "workspace_id": workspace.id,
+                    "error": str(e),
+                    "action": "admin_assignment_failed",
+                    "component": "WorkspaceAdminViewSet",
+                    "severity": "high",
+                },
+            )
+            return Response(
+                {"error": "Admin assignment failed"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
-    def _invalidate_admin_cache(self, user_id, workspace_id):
-        """Invalidate cached admin permissions after privilege changes"""
+    def _invalidate_admin_caches(self, user_id, workspace_id):
+        """
+        Comprehensive cache invalidation for admin permission changes.
+        """
         cache_keys = [
             f"workspace_admin_{user_id}_{workspace_id}",
-            f"user_workspaces_{user_id}",
+            f"user_admin_workspaces_{user_id}",
+            f"comprehensive_membership_{user_id}",
+            f"workspace_member_{user_id}_{workspace_id}",
+            f"user_permissions_{user_id}_{workspace_id}",
         ]
+        
         for key in cache_keys:
             cache.delete(key)
-
+        
+        logger.debug(
+            "Admin permission caches invalidated",
+            extra={
+                "user_id": user_id,
+                "workspace_id": workspace_id,
+                "cache_keys_invalidated": len(cache_keys),
+                "action": "admin_caches_invalidated",
+                "component": "WorkspaceAdminViewSet",
+            },
+        )
 # -------------------------------------------------------------------
 # WORKSPACE MANAGEMENT
 # -------------------------------------------------------------------
 # Workspace CRUD operations and membership management
 
 
-class WorkspaceViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, viewsets.ModelViewSet):
+class WorkspaceViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, ServiceExceptionHandlerMixin):
     """
-    ViewSet for managing workspaces and workspace memberships.
-    
-    Provides CRUD operations for workspaces with two-level deletion:
-    - Soft delete (inactive): Temporary deactivation (admin/owner only)
-    - Hard delete: Permanent removal (owner only)
-    
-    Security rules:
-    - Viewers/editors can only see active workspaces
-    - Only admins/owners can see inactive workspaces
-    - Only admins/owners can perform soft delete
-    - Only owners can perform hard delete
-    
-    Admin features:
-    - Superusers can impersonate any user via user_id parameter
-    - All operations are performed on behalf of the target user
-    - Comprehensive logging for admin actions
+    FINAL THIN ViewSet - deleguje VŠETKU business logiku na Serializer a Services.
+    Uses BaseWorkspaceViewSet for consistent context and ModelViewSet functionality.
     """
     
     serializer_class = WorkspaceSerializer
     permission_classes = [IsAuthenticated]
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workspace_service = WorkspaceService()
+        self.membership_service = MembershipService()
 
     def get_permissions(self):
-        """
-        Dynamically assign permissions based on action type.
-        """
+        """THIN permissions - iba access control"""
         if self.action in ['create']:
             return [IsAuthenticated()]
         elif self.action in ['update', 'partial_update', 'activate']:
-            return [IsAuthenticated(), IsWorkspaceEditor()]  
-        elif self.action in ['destroy','hard_delete', 'update_member_role']:
-            return [IsAuthenticated(), IsWorkspaceOwner()]  
+            return [IsAuthenticated(), IsWorkspaceEditor()]
+        elif self.action in ['destroy', 'hard_delete', 'update_member_role']:
+            return [IsAuthenticated(), IsWorkspaceOwner()]
         elif self.action in ['change_owner']:
-            return [IsAuthenticated(), IsWorkspaceAdmin()]   
-        return [IsAuthenticated(), IsWorkspaceMember()]      
+            return [IsAuthenticated(), IsWorkspaceAdmin()]
+        return [IsAuthenticated(), IsWorkspaceMember()]
 
     def get_queryset(self):
-        """
-        Get workspaces based on user role with optimized queries.
-        Supports admin impersonation with workspace intersection filtering.
-        """
-        logger.debug(
-            "Retrieving workspaces queryset with role-based filtering",
-            extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": self.request.target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "action": "role_based_workspaces_retrieval",
-                "component": "WorkspaceViewSet",
-            },
-        )
-
-        if not self.request.user.is_authenticated:
-            return Workspace.objects.none()
-        
+        """THIN queryset - iba security filtering"""
         target_user = self.request.target_user
         
-        # BASE QUERY: Start with target user's workspaces
         workspaces = Workspace.objects.filter(
             members=target_user.id
-        ).select_related('owner').prefetch_related('members').annotate(
-            member_count=models.Count('members')
-        )
+        ).select_related('owner').prefetch_related('members')
         
-        # 🔥 CRITICAL FIX: Apply impersonation workspace filtering
+        # Impersonation filtering
         if (self.request.is_admin_impersonation and 
             hasattr(self.request, 'impersonation_workspace_ids') and 
             self.request.impersonation_workspace_ids):
             
-            # Filter to ONLY workspaces in the intersection (admin ∩ target user)
             workspaces = workspaces.filter(id__in=self.request.impersonation_workspace_ids)
-            
-            logger.debug(
-                "Applied impersonation workspace filtering",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "impersonation_workspace_count": len(self.request.impersonation_workspace_ids),
-                    "filtered_workspace_count": workspaces.count(),
-                    "action": "impersonation_workspace_filter_applied",
-                    "component": "WorkspaceViewSet",
-                },
-            )
-        
-        # Apply role-based visibility rules
-        memberships = self._get_user_memberships(self.request)
-        has_admin_owner_role = any(
-            role in ['admin', 'owner'] for role in memberships.values()
-        )
-        
-        if not has_admin_owner_role:
-            workspaces = workspaces.filter(is_active=True)
-        
-        logger.debug(
-            "Workspaces queryset prepared",
-            extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "total_workspaces_count": workspaces.count(),
-                "has_admin_owner_access": has_admin_owner_role,
-                "impersonation_applied": self.request.is_admin_impersonation,
-                "impersonation_workspaces": getattr(self.request, 'impersonation_workspace_ids', []),
-                "action": "workspaces_queryset_prepared",
-                "component": "WorkspaceViewSet",
-            },
-        )
         
         return workspaces
 
-    def get_serializer_context(self):
-        """Add additional context to serializer for frontend needs."""
-        context = super().get_serializer_context()
-        
-        if self.request.user.is_authenticated:
-            context['user_memberships'] = self._get_user_memberships(self.request)
-        
-        return context
-    
-    def list(self, request, *args, **kwargs):
-        """
-        Custom list method to provide additional metadata about workspaces.
-        Supports admin impersonation.
-        """
-        response = super().list(request, *args, **kwargs)
-        
-        workspaces = self.get_queryset()
-        active_count = workspaces.filter(is_active=True).count()
-        inactive_count = workspaces.filter(is_active=False).count()
-        
-        target_user = request.target_user
-        
-        memberships = self._get_user_memberships(request)
-        role_counts = {}
-        for membership in memberships.values():
-            role_counts[membership.role] = role_counts.get(membership.role, 0) + 1
-        
-        has_admin_owner_access = any(
-            m.role in ['admin', 'owner'] for m in memberships.values()
-        )
-        
-        response_data = {
-            'workspaces': response.data,
-            'summary': {
-                'total_workspaces': workspaces.count(),
-                'active_workspaces': active_count,
-                'inactive_workspaces': inactive_count if has_admin_owner_access else 0,
-                'role_distribution': role_counts,
-                'access_level': 'admin_owner' if has_admin_owner_access else 'viewer_editor'
-            }
-        }
-        
-        if request.is_admin_impersonation:
-            response_data['admin_impersonation'] = {
-                'target_user_id': target_user.id,
-                'target_username': target_user.username,
-                'requested_by_admin_id': request.user.id
-            }
-        
-        response.data = response_data
-        
-        return response
-
-    def retrieve(self, request, *args, **kwargs):
-        """
-        Retrieve single workspace with additional security checks.
-        Supports admin impersonation.
-        """
-        instance = self.get_object()
-        
-        target_user = request.target_user
-        
-        memberships = self._get_user_memberships(request)
-        user_membership = memberships.get(instance.id)
-        
-        if not user_membership:
-            logger.warning(
-                "Membership not found for user in workspace",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": instance.id,
-                    "action": "membership_not_found",
-                    "component": "WorkspaceViewSet",
-                    "severity": "medium",
-                },
-            )
-            return Response(
-                {"error": "You are not a member of this workspace."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if not instance.is_active and user_membership.role in ['viewer', 'editor']:
-            logger.warning(
-                "Viewer/editor attempted to access inactive workspace",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": instance.id,
-                    "user_role": user_membership.role,
-                    "action": "inactive_workspace_access_denied",
-                    "component": "WorkspaceViewSet",
-                    "severity": "medium",
-                },
-            )
-            return Response(
-                {"error": "You don't have permission to access this workspace."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        serializer = self.get_serializer(instance)
-        
-        response_data = serializer.data
-        if request.is_admin_impersonation:
-            response_data['admin_impersonation'] = {
-                'target_user_id': target_user.id,
-                'target_username': target_user.username,
-                'requested_by_admin_id': request.user.id
-            }
-        
-        return Response(response_data)
-    
     def perform_create(self, serializer):
         """
-        Create workspace with admin impersonation support.
-        Admin can create workspace for target user.
+        COMPLETELY THIN - serializer handles ALL business logic
+        ServiceExceptionHandlerMixin handles any exceptions from serializer
         """
-
-        target_user = self.request.target_user
-        
-        logger.info(
-            "Workspace creation initiated",
+        logger.debug(
+            "Workspace creation delegated entirely to serializer",
             extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "action": "workspace_creation_start",
+                "user_id": self.request.user.id,
+                "target_user_id": self.request.target_user.id,
+                "action": "workspace_creation_delegated_to_serializer",
                 "component": "WorkspaceViewSet",
             },
         )
         
-        workspace_data = serializer.validated_data
-        if 'owner' not in workspace_data:
-            instance = serializer.save(owner=target_user)
-        else:
-            instance = serializer.save()
-        
-        logger.info(
-            "Workspace created successfully",
-            extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "workspace_id": instance.id,
-                "workspace_name": instance.name,
-                "action": "workspace_creation_success",
-                "component": "WorkspaceViewSet",
-            },
-        )
+        # Serializer.create() handles ALL business logic including:
+        # - Atomic transaction
+        # - Owner membership sync
+        # - Error handling (via ServiceExceptionHandlerMixin in serializer)
+        # - Logging
+        # ServiceExceptionHandlerMixin will catch any exceptions
+        serializer.save()
 
     def perform_destroy(self, instance):
         """
-        SOFT DELETE - set workspace as inactive (admin/owner only).
-        Supports admin impersonation.
+        THIN soft delete - delegate to service with unified exception handling
+        ServiceExceptionHandlerMixin will convert service exceptions to DRF exceptions
         """
         target_user = self.request.target_user
         
         logger.info(
-            "Workspace soft deletion initiated",
+            "Workspace soft delete delegated to service",
             extra={
-                "request_user_id": self.request.user.id,
+                "user_id": self.request.user.id,
                 "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
                 "workspace_id": instance.id,
-                "workspace_name": instance.name,
-                "current_status": "active" if instance.is_active else "inactive",
-                "action": "workspace_soft_deletion_start",
+                "action": "workspace_soft_delete_delegated",
                 "component": "WorkspaceViewSet",
             },
         )
-              
-        if not instance.is_active:
-            logger.warning(
-                "Attempt to deactivate already inactive workspace",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": instance.id,
-                    "action": "workspace_already_inactive",
-                    "component": "WorkspaceViewSet",
-                    "severity": "low",
-                },
-            )
-            raise serializers.ValidationError("Workspace is already inactive.")
         
-        instance.is_active = False
-        instance.save()
-        
-        logger.info(
-            "Workspace soft deleted successfully",
-            extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "workspace_id": instance.id,
-                "previous_status": "active",
-                "new_status": "inactive",
-                "action": "workspace_soft_deletion_success",
-                "component": "WorkspaceViewSet",
-            },
+        # ServiceExceptionHandlerMixin handles exception conversion
+        self.handle_service_call(
+            self.workspace_service.soft_delete_workspace,
+            workspace=instance,
+            user=target_user
         )
 
     @action(detail=True, methods=['delete'])
-    @transaction.atomic
     def hard_delete(self, request, pk=None):
         """
-        OPTIMIZED HARD DELETE - permanently remove workspace with admin privileges support.
-        
-        Enhanced security rules:
-        - Superusers/admins can bypass all restrictions and delete any workspace immediately
-        - Workspace owners can delete only if no other members exist
-        - Comprehensive safety checks and confirmation requirements
-        
-        Performance Optimizations:
-        - Annotated member and transaction counts to prevent N+1 queries
-        - Optimized database queries with single workspace fetch
-        - Cached permission validation for admin privilege checks
-        
-        Supports admin impersonation with elevated privileges.
+        THIN hard delete - delegate to service with unified exception handling
         """
-        # 🔥 OPTIMIZATION: Single database query with annotated counts to prevent N+1 queries
-        workspace = Workspace.objects.annotate(
-            member_count=models.Count('members'),
-            transaction_count=models.Count('transaction')
-        ).get(id=pk)
-        
-        target_user = request.target_user
-        requesting_user = request.user  # The actual user making the request
+        workspace = self.get_object()
         
         logger.warning(
-            "Workspace hard deletion initiated with admin privilege check",
+            "Workspace hard delete delegated to service",
             extra={
-                "request_user_id": requesting_user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
+                "user_id": request.user.id,
+                "target_user_id": request.target_user.id,
                 "workspace_id": workspace.id,
-                "workspace_name": workspace.name,
-                "workspace_owner_id": workspace.owner.id,
-                "action": "workspace_hard_deletion_start",
+                "action": "workspace_hard_delete_delegated",
                 "component": "WorkspaceViewSet",
                 "severity": "high",
             },
         )
         
-        # OPTIMIZATION: Check if requesting user has admin privileges using cached data
-        permissions_data = getattr(request, 'user_permissions', {})
-        is_superuser = permissions_data.get('is_superuser', False)
-        is_workspace_admin = permissions_data.get('is_workspace_admin', False)
-        
-        has_admin_privileges = is_superuser or is_workspace_admin
-        
-        # ADMIN PRIVILEGE: Superusers/admins can delete any workspace immediately
-        if has_admin_privileges and requesting_user.is_authenticated:
-            logger.warning(
-                "Admin privilege detected for workspace hard deletion",
-                extra={
-                    "request_user_id": requesting_user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace.id,
-                    "is_superuser": is_superuser,
-                    "is_workspace_admin": is_workspace_admin,
-                    "admin_user_id": requesting_user.id,
-                    "action": "admin_privilege_detected",
-                    "component": "WorkspaceViewSet",
-                    "severity": "high",
-                },
-            )
-            
-            # Skip ownership and member checks for admins
-            logger.info(
-                "Bypassing ownership and member checks for admin user",
-                extra={
-                    "admin_user_id": requesting_user.id,
-                    "workspace_id": workspace.id,
-                    "action": "admin_checks_bypassed",
-                    "component": "WorkspaceViewSet",
-                },
-            )
-            
-        else:
-            # STANDARD USER: Apply original security rules for non-admin users
-            if workspace.owner != target_user:
-                logger.error(
-                    "Workspace hard deletion permission denied - not owner",
-                    extra={
-                        "request_user_id": requesting_user.id,
-                        "target_user_id": target_user.id,
-                        "workspace_id": workspace.id,
-                        "workspace_owner_id": workspace.owner.id,
-                        "action": "workspace_hard_deletion_permission_denied",
-                        "component": "WorkspaceViewSet",
-                        "severity": "high",
-                    },
-                )
-                return Response(
-                    {"error": "Only workspace owner can permanently delete the workspace."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            
-            # 🔥 OPTIMIZATION: Use annotated member_count instead of additional query
-            # Safety check: no other members (only for non-admin owners)
-            other_member_count = workspace.member_count - 1  # Exclude current user
-            
-            if other_member_count > 0:
-                logger.warning(
-                    "Workspace hard deletion blocked - other members exist",
-                    extra={
-                        "request_user_id": requesting_user.id,
-                        "target_user_id": target_user.id,
-                        "workspace_id": workspace.id,
-                        "other_members_count": other_member_count,
-                        "action": "workspace_hard_deletion_blocked_members",
-                        "component": "WorkspaceViewSet",
-                        "severity": "medium",
-                    },
-                )
-                return Response(
-                    {
-                        "error": "Cannot delete workspace with other members.",
-                        "detail": f"Workspace has {other_member_count} other member(s). Remove all members first.",
-                        "member_count": other_member_count
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-        # Enhanced confirmation requirements for irreversible action
-        confirmation_data = request.data.get('confirmation', {})
-
-        # Check if confirmation object exists and has required fields
-        if not isinstance(confirmation_data, dict):
-            logger.warning(
-                "Invalid confirmation format",
-                extra={
-                    "request_user_id": request.user.id,
-                    "workspace_id": workspace.id,
-                    "confirmation_type": type(confirmation_data).__name__,
-                    "action": "invalid_confirmation_format",
-                    "component": "WorkspaceViewSet",
-                    "severity": "medium",
-                },
-            )
-            return Response(
-                {
-                    "error": "Invalid confirmation format",
-                    "detail": "Confirmation must be an object with required fields."
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Standard confirmation for all users
-        requires_standard_confirmation = not has_admin_privileges or (
-            has_admin_privileges and workspace.owner == target_user
+        # ServiceExceptionHandlerMixin handles all exception conversion
+        result = self.handle_service_call(
+            self.workspace_service.hard_delete_workspace,
+            workspace=workspace,
+            requesting_user=request.user,
+            confirmation_data=request.data.get('confirmation', {})
         )
         
-        if requires_standard_confirmation:
-            standard_confirmation = confirmation_data.get('standard')
-            workspace_name_confirmation = confirmation_data.get('workspace_name')
-            
-            if not standard_confirmation or standard_confirmation is not True:
-                logger.warning(
-                    "Standard confirmation missing or invalid",
-                    extra={
-                        "request_user_id": request.user.id,
-                        "workspace_id": workspace.id,
-                        "has_admin_privileges": has_admin_privileges,
-                        "action": "standard_confirmation_missing",
-                        "component": "WorkspaceViewSet",
-                        "severity": "medium",
-                    },
-                )
-                return Response(
-                    {
-                        "error": "Standard confirmation required",
-                        "detail": "You must confirm understanding that this action is irreversible.",
-                        "confirmation_required": {
-                            "type": "standard",
-                            "field": "confirmation.standard",
-                            "value": True
-                        }
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            if workspace_name_confirmation != workspace.name:
-                logger.warning(
-                    "Workspace name confirmation mismatch",
-                    extra={
-                        "request_user_id": request.user.id,
-                        "workspace_id": workspace.id,
-                        "provided_name": workspace_name_confirmation,
-                        "actual_name": workspace.name,
-                        "action": "workspace_name_mismatch",
-                        "component": "WorkspaceViewSet",
-                        "severity": "medium",
-                    },
-                )
-                return Response(
-                    {
-                        "error": "Workspace name confirmation does not match",
-                        "detail": f"Please type the workspace name exactly: {workspace.name}",
-                        "expected_name": workspace.name
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        
-        # Admin extra confirmation for foreign workspace deletion
-        if has_admin_privileges and workspace.owner != target_user:
-            admin_confirmation = confirmation_data.get('admin')
-            expected_admin_code = f"admin-delete-{workspace.id}"
-            
-            if not admin_confirmation or admin_confirmation != expected_admin_code:
-                logger.warning(
-                    "Admin confirmation required for foreign workspace deletion",
-                    extra={
-                        "admin_user_id": request.user.id,
-                        "workspace_owner_id": workspace.owner.id,
-                        "workspace_id": workspace.id,
-                        "action": "admin_confirmation_required",
-                        "component": "WorkspaceViewSet",
-                        "severity": "high",
-                    },
-                )
-                return Response(
-                    {
-                        "error": "Admin confirmation required",
-                        "detail": "As an admin deleting another user's workspace, additional confirmation is required.",
-                        "confirmation_required": {
-                            "type": "admin",
-                            "field": "confirmation.admin", 
-                            "value": expected_admin_code,
-                            "message": f"Type: {expected_admin_code} to confirm admin deletion"
-                        }
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-        workspace_id = workspace.id
-        workspace_name = workspace.name
-        # 🔥 OPTIMIZATION: Use annotated counts instead of additional queries
-        member_count = workspace.member_count
-        transaction_count = workspace.transaction_count
-        owner_id = workspace.owner.id
-        
-        try:
-            workspace.delete()
-            
-            # Enhanced logging with admin context
-            log_extra = {
-                "request_user_id": requesting_user.id,
-                "target_user_id": target_user.id,
-                "workspace_id": workspace_id,
-                "workspace_name": workspace_name,
-                "workspace_owner_id": owner_id,
-                "member_count": member_count,
-                "transaction_count": transaction_count,
-                "database_queries_optimized": True,
-                "action": "workspace_hard_deletion_success",
-                "component": "WorkspaceViewSet",
-                "severity": "critical",
+        # Add impersonation context
+        if request.is_admin_impersonation:
+            result['admin_impersonation'] = {
+                'target_user_id': request.target_user.id,
+                'target_username': request.target_user.username,
+                'requested_by_admin_id': request.user.id
             }
-            
-            # Add admin context to logs
-            if has_admin_privileges:
-                log_extra['admin_operation'] = True
-                log_extra['admin_user_id'] = requesting_user.id
-                log_extra['deleted_by_admin'] = True
-                if workspace.owner != target_user:
-                    log_extra['foreign_workspace_deletion'] = True
-            
-            logger.critical(
-                "Workspace hard deleted permanently with optimized queries",
-                extra=log_extra,
-            )
-            
-            response_data = {
-                "message": "Workspace permanently deleted.",
-                "details": {
-                    "workspace_name": workspace_name,
-                    "members_affected": member_count,
-                    "transactions_deleted": transaction_count
-                }
-            }
-            
-            # Add admin context to response
-            if has_admin_privileges:
-                response_data['admin_context'] = {
-                    'deleted_by_admin': True,
-                    'admin_user_id': requesting_user.id,
-                    'original_owner_id': owner_id
-                }
-                
-                if workspace.owner != target_user:
-                    response_data['admin_context']['foreign_workspace'] = True
-                    response_data['message'] = "Workspace permanently deleted by administrator."
-            
-            # Add impersonation context if applicable
-            if request.is_admin_impersonation:
-                response_data['admin_impersonation'] = {
-                    'target_user_id': target_user.id,
-                    'target_username': target_user.username,
-                    'requested_by_admin_id': requesting_user.id
-                }
-            
-            return Response(response_data, status=status.HTTP_200_OK)
-            
-        except Exception as e:
-            logger.error(
-                "Workspace hard deletion failed",
-                extra={
-                    "request_user_id": requesting_user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace_id,
-                    "workspace_name": workspace_name,
-                    "has_admin_privileges": has_admin_privileges,
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                    "action": "workspace_hard_deletion_failure",
-                    "component": "WorkspaceViewSet",
-                    "severity": "critical",
-                },
-                exc_info=True,
-            )
-            return Response(
-                {
-                    "error": "Workspace deletion failed",
-                    "detail": str(e)
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        
+        return Response(result, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
         """
-        Activate an inactive workspace (admin/owner only).
-        Supports admin impersonation.
+        THIN activate - delegate to service with unified exception handling
         """
         workspace = self.get_object()
         
-        target_user = request.target_user
-        
         logger.info(
-            "Workspace activation initiated",
+            "Workspace activation delegated to service",
             extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
+                "user_id": request.user.id,
+                "target_user_id": request.target_user.id,
                 "workspace_id": workspace.id,
-                "workspace_name": workspace.name,
-                "current_status": "active" if workspace.is_active else "inactive",
-                "action": "workspace_activation_start",
+                "action": "workspace_activation_delegated",
                 "component": "WorkspaceViewSet",
             },
         )
         
-        
-        if workspace.is_active:
-            logger.warning(
-                "Attempt to activate already active workspace",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace.id,
-                    "action": "workspace_already_active",
-                    "component": "WorkspaceViewSet",
-                    "severity": "low",
-                },
-            )
-            return Response(
-                {"error": "Workspace is already active."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        workspace.is_active = True
-        workspace.save()
-        
-        logger.info(
-            "Workspace activated successfully",
-            extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "workspace_id": workspace.id,
-                "previous_status": "inactive",
-                "new_status": "active",
-                "action": "workspace_activation_success",
-                "component": "WorkspaceViewSet",
-            },
+        # ServiceExceptionHandlerMixin handles exception conversion
+        self.handle_service_call(
+            self.workspace_service.activate_workspace,
+            workspace=workspace,
+            user=request.target_user
         )
         
         response_data = {
-            "message": "Workspace activated successfully.", 
+            "message": "Workspace activated successfully.",
             "is_active": True
         }
         
         if request.is_admin_impersonation:
             response_data['admin_impersonation'] = {
-                'target_user_id': target_user.id,
-                'target_username': target_user.username,
+                'target_user_id': request.target_user.id,
+                'target_username': request.target_user.username,
                 'requested_by_admin_id': request.user.id
             }
         
         return Response(response_data, status=status.HTTP_200_OK)
 
-    @action(detail=True, methods=['get'])
-    def membership_info(self, request, pk=None):
+    @action(detail=True, methods=['post'])
+    def change_owner(self, request, pk=None):
         """
-        Get detailed membership information for current user in this workspace.
-        Supports admin impersonation.
+        THIN change owner - delegate to service with unified exception handling
         """
         workspace = self.get_object()
         
-        target_user = request.target_user
-        
-        logger.debug(
-            "Retrieving detailed membership info",
+        logger.info(
+            "Workspace ownership change delegated to service",
             extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
+                "user_id": request.user.id,
                 "workspace_id": workspace.id,
-                "action": "membership_info_retrieval",
+                "new_owner_id": request.data.get('new_owner_id'),
+                "action": "workspace_ownership_change_delegated",
                 "component": "WorkspaceViewSet",
             },
         )
         
-        memberships = self._get_user_memberships(request)
-        user_membership = memberships.get(workspace.id)
-        
-        if not user_membership:
-            logger.warning(
-                "Membership not found for user in workspace",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace.id,
-                    "action": "membership_not_found",
-                    "component": "WorkspaceViewSet",
-                    "severity": "low",
-                },
-            )
-            return Response(
-                {"error": "You are not a member of this workspace."},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        if not workspace.is_active and user_membership.role in ['viewer', 'editor']:
-            logger.warning(
-                "Viewer/editor attempted to access membership info for inactive workspace",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace.id,
-                    "user_role": user_membership.role,
-                    "action": "inactive_workspace_membership_access_denied",
-                    "component": "WorkspaceViewSet",
-                    "severity": "medium",
-                },
-            )
-            return Response(
-                {"error": "You don't have permission to access this workspace."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        serializer = WorkspaceMembershipSerializer(
-            user_membership, 
-            context={'request': request}
+        # ServiceExceptionHandlerMixin handles exception conversion
+        self.handle_service_call(
+            self.workspace_service.change_ownership,
+            workspace=workspace,
+            new_owner_id=request.data.get('new_owner_id'),
+            changed_by=request.user,
+            old_owner_action=request.data.get('old_owner_action', 'editor')
         )
         
-        response_data = {
-            **serializer.data,
-            'permissions': {
-                'can_activate': user_membership.role in ['admin', 'owner'] and not workspace.is_active,
-                'can_deactivate': user_membership.role in ['admin', 'owner'] and workspace.is_active,
-                'can_hard_delete': workspace.owner == target_user,
-                'can_invite': user_membership.role in ['admin', 'owner'] and workspace.is_active,
-                'can_manage_members': user_membership.role in ['admin', 'owner'] and workspace.is_active,
-                'can_view': workspace.is_active or user_membership.role in ['admin', 'owner'],
-                'can_edit': user_membership.role in ['admin', 'owner'] and workspace.is_active,
-                'can_see_inactive': user_membership.role in ['admin', 'owner'],
-            }
-        }
+        return Response({
+            "message": f"Workspace ownership transferred to user {request.data.get('new_owner_id')}.",
+            "new_owner_id": request.data.get('new_owner_id'),
+            "old_owner_action": request.data.get('old_owner_action', 'editor')
+        })
+
+    @action(detail=True, methods=['post'])
+    def update_member_role(self, request, pk=None):
+        """
+        THIN update member role - delegate to MembershipService with unified exception handling
+        """
+        workspace = self.get_object()
         
-        if request.is_admin_impersonation:
-            response_data['admin_impersonation'] = {
-                'target_user_id': target_user.id,
-                'target_username': target_user.username,
-                'requested_by_admin_id': request.user.id
-            }
-        
-        logger.debug(
-            "Membership info retrieved successfully",
+        logger.info(
+            "Member role update delegated to service",
             extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
+                "user_id": request.user.id,
                 "workspace_id": workspace.id,
-                "user_role": user_membership.role,
-                "is_owner": workspace.owner == target_user,
-                "workspace_active": workspace.is_active,
-                "action": "membership_info_retrieved",
+                "target_user_id": request.data.get('user_id'),
+                "new_role": request.data.get('role'),
+                "action": "member_role_update_delegated",
                 "component": "WorkspaceViewSet",
             },
         )
         
-        return Response(response_data)
+        # ServiceExceptionHandlerMixin handles exception conversion
+        self.handle_service_call(
+            self.membership_service.update_member_role,
+            workspace=workspace,
+            target_user_id=request.data.get('user_id'),
+            new_role=request.data.get('role'),
+            requesting_user=request.user
+        )
         
+        return Response({
+            "message": f"User role updated to {request.data.get('role')}.",
+            "user_id": request.data.get('user_id'),
+            "new_role": request.data.get('role')
+        })
+
     @action(detail=True, methods=['get'])
     def members(self, request, pk=None):
-        """
-        Get all members of this workspace with their roles.
-        
-        Returns serialized list of workspace members with membership details.
-        Supports admin impersonation.
-        """
+        """THIN members list - delegate to service with unified exception handling"""
         workspace = self.get_object()
         
-        target_user = request.target_user
-        
         logger.debug(
-            "Retrieving workspace members",
+            "Workspace members retrieval delegated to service",
             extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
+                "user_id": request.user.id,
                 "workspace_id": workspace.id,
-                "action": "workspace_members_retrieval",
+                "action": "workspace_members_retrieval_delegated",
                 "component": "WorkspaceViewSet",
             },
         )
         
-        memberships = self._get_user_memberships(request)
-        user_membership = memberships.get(workspace.id)
-        
-        if not user_membership:
-            return Response(
-                {"error": "You are not a member of this workspace."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if not workspace.is_active and user_membership.role in ['viewer', 'editor']:
-            logger.warning(
-                "Viewer/editor attempted to access members of inactive workspace",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace.id,
-                    "user_role": user_membership.role,
-                    "action": "inactive_workspace_members_access_denied",
-                    "component": "WorkspaceViewSet",
-                    "severity": "medium",
-                },
-            )
-            return Response(
-                {"error": "You don't have permission to access this workspace."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        all_memberships = WorkspaceMembership.objects.filter(
-            workspace=workspace
-        ).select_related('user')
-        
-        members_data = []
-        for membership in all_memberships:
-            members_data.append({
-                'user_id': membership.user.id,
-                'username': membership.user.username,
-                'email': membership.user.email,
-                'role': membership.role,
-                'joined_at': membership.joined_at,
-                'is_owner': workspace.owner == membership.user
-            })
+        # ServiceExceptionHandlerMixin handles exception conversion
+        members_data = self.handle_service_call(
+            self.membership_service.get_workspace_members_with_roles,
+            workspace=workspace,
+            requesting_user=request.user
+        )
         
         response_data = {
             'workspace_id': workspace.id,
@@ -1058,413 +522,24 @@ class WorkspaceViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, viewsets.
         
         if request.is_admin_impersonation:
             response_data['admin_impersonation'] = {
-                'target_user_id': target_user.id,
-                'target_username': target_user.username,
+                'target_user_id': request.target_user.id,
+                'target_username': request.target_user.username,
                 'requested_by_admin_id': request.user.id
             }
-        
-        logger.debug(
-            "Workspace members retrieved successfully",
-            extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "workspace_id": workspace.id,
-                "member_count": len(members_data),
-                "action": "workspace_members_retrieved",
-                "component": "WorkspaceViewSet",
-            },
-        )
         
         return Response(response_data)
-    
-    @action(detail=True, methods=['get'])
-    def workspace_settings(self, request, pk=None):
-        """
-        Get workspace settings.
-        
-        Returns workspace settings with additional context.
-        Supports admin impersonation.
-        """
-        workspace = self.get_object()
-        
-        target_user = request.target_user
-        
-        logger.debug(
-            "Retrieving workspace settings",
-            extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
-                "workspace_id": workspace.id,
-                "action": "workspace_settings_retrieval",
-                "component": "WorkspaceViewSet",
-            },
-        )
-        
-        memberships = self._get_user_memberships(request)
-        user_membership = memberships.get(workspace.id)
-        
-        if not user_membership:
-            return Response(
-                {"error": "You are not a member of this workspace."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if not workspace.is_active and user_membership.role in ['viewer', 'editor']:
-            logger.warning(
-                "Viewer/editor attempted to access settings of inactive workspace",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace.id,
-                    "user_role": user_membership.role,
-                    "action": "inactive_workspace_settings_access_denied",
-                    "component": "WorkspaceViewSet",
-                    "severity": "medium",
-                },
-            )
-            return Response(
-                {"error": "You don't have permission to access this workspace."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        settings, created = WorkspaceSettings.objects.get_or_create(
-            workspace=workspace,
-            defaults={
-                'domestic_currency': 'EUR',
-                'fiscal_year_start': 1,
-                'display_mode': 'month',
-                'accounting_mode': False
-            }
-        )
-        
-        if created:
-            logger.info(
-                "Default workspace settings created",
-                extra={
-                    "workspace_id": workspace.id,
-                    "action": "default_workspace_settings_created",
-                    "component": "WorkspaceViewSet",
-                },
-            )
-        
-        settings_data = {
-            'workspace_id': workspace.id,
-            'domestic_currency': settings.domestic_currency,
-            'fiscal_year_start': settings.fiscal_year_start,
-            'display_mode': settings.display_mode,
-            'accounting_mode': settings.accounting_mode,
-            'available_currencies': ['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'CZK'],
-            'fiscal_year_start_options': [
-                {'value': 1, 'label': 'January'},
-                {'value': 2, 'label': 'February'},
-                {'value': 3, 'label': 'March'},
-                {'value': 4, 'label': 'April'},
-                {'value': 5, 'label': 'May'},
-                {'value': 6, 'label': 'June'},
-                {'value': 7, 'label': 'July'},
-                {'value': 8, 'label': 'August'},
-                {'value': 9, 'label': 'September'},
-                {'value': 10, 'label': 'October'},
-                {'value': 11, 'label': 'November'},
-                {'value': 12, 'label': 'December'},
-            ],
-            'display_mode_options': [
-                {'value': 'month', 'label': 'Month only'},
-                {'value': 'day', 'label': 'Full date'}
-            ]
-        }
-        
-        if request.is_admin_impersonation:
-            settings_data['admin_impersonation'] = {
-                'target_user_id': target_user.id,
-                'target_username': target_user.username,
-                'requested_by_admin_id': request.user.id
-            }
-        
-        logger.debug(
-            "Workspace settings retrieved successfully",
-            extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "workspace_id": workspace.id,
-                "domestic_currency": settings.domestic_currency,
-                "action": "workspace_settings_retrieved",
-                "component": "WorkspaceViewSet",
-            },
-        )
-        
-        return Response(settings_data)
-    
-    @action(detail=True, methods=['post'])
-    @transaction.atomic
-    def change_owner(self, request, pk=None):
-        """
-        Change workspace owner with configurable old owner handling.
-        
-        Only workspace admins, owners or superusers can change ownership.
-        The new owner must be an existing workspace member.
-        
-        Request body:
-        {
-            "new_owner_id": 123,
-            "old_owner_action": "editor"  # Optional: "editor", "viewer", or "remove"
-        }
-        """
-        workspace = self.get_object()
-        
-        logger.info(
-            "Workspace ownership change initiated",
-            extra={
-                "request_user_id": request.user.id,
-                "workspace_id": workspace.id,
-                "action": "workspace_ownership_change_start",
-                "component": "WorkspaceViewSet",
-            },
-        )
-        
-        # Check permissions - only admins, owners or superusers can change ownership
-        memberships = self._get_user_memberships(request)
-        user_membership = memberships.get(workspace.id)
-        
-        has_permission = (
-            request.user.is_superuser or 
-            (user_membership and user_membership.role in ['admin', 'owner'])
-        )
-        
-        if not has_permission:
-            logger.warning(
-                "Insufficient permissions for ownership change",
-                extra={
-                    "request_user_id": request.user.id,
-                    "workspace_id": workspace.id,
-                    "user_role": user_membership.role if user_membership else 'none',
-                    "action": "workspace_ownership_change_denied",
-                    "component": "WorkspaceViewSet",
-                    "severity": "high",
-                },
-            )
-            return Response(
-                {"error": "You need admin or owner permissions to change workspace ownership."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        new_owner_id = request.data.get('new_owner_id')
-        if not new_owner_id:
-            return Response(
-                {"error": "new_owner_id is required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Get old owner action with default to 'editor'
-        old_owner_action = request.data.get('old_owner_action', 'editor')
-        valid_actions = ['editor', 'viewer', 'remove']
-        if old_owner_action not in valid_actions:
-            return Response(
-                {"error": f"old_owner_action must be one of: {', '.join(valid_actions)}"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            new_owner = User.objects.get(pk=new_owner_id)
-        except User.DoesNotExist:
-            return Response(
-                {"error": "New owner user not found."},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Check if new owner is workspace member
-        if not WorkspaceMembership.objects.filter(workspace=workspace, user=new_owner).exists():
-            return Response(
-                {"error": "New owner must be a workspace member."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Prevent self-ownership change
-        if new_owner == workspace.owner:
-            return Response(
-                {"error": "New owner cannot be the same as current owner."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            # Use the model method for atomic ownership change
-            workspace.change_owner(new_owner, request.user, old_owner_action)
-            
-            logger.info(
-                "Workspace ownership changed successfully via API",
-                extra={
-                    "request_user_id": request.user.id,
-                    "workspace_id": workspace.id,
-                    "old_owner_id": workspace.owner.id,  # Note: owner is already changed
-                    "new_owner_id": new_owner.id,
-                    "old_owner_action": old_owner_action,
-                    "action": "workspace_ownership_changed_api",
-                    "component": "WorkspaceViewSet",
-                },
-            )
-            
-            return Response({
-                "message": f"Workspace ownership transferred to {new_owner.username}.",
-                "new_owner_id": new_owner.id,
-                "new_owner_username": new_owner.username,
-                "old_owner_action": old_owner_action
-            })
-            
-        except PermissionError as e:
-            logger.warning(
-                "Permission denied for workspace ownership change",
-                extra={
-                    "request_user_id": request.user.id,
-                    "workspace_id": workspace.id,
-                    "error": str(e),
-                    "action": "workspace_ownership_change_permission_denied",
-                    "component": "WorkspaceViewSet",
-                    "severity": "high",
-                },
-            )
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_403_FORBIDDEN
-            )
-            
-        except ValidationError as e:
-            logger.warning(
-                "Validation failed for workspace ownership change",
-                extra={
-                    "request_user_id": request.user.id,
-                    "workspace_id": workspace.id,
-                    "error": str(e),
-                    "action": "workspace_ownership_change_validation_failed",
-                    "component": "WorkspaceViewSet",
-                    "severity": "medium",
-                },
-            )
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
-        except Exception as e:
-            logger.error(
-                "Workspace ownership change failed unexpectedly",
-                extra={
-                    "request_user_id": request.user.id,
-                    "workspace_id": workspace.id,
-                    "error": str(e),
-                    "action": "workspace_ownership_change_failed",
-                    "component": "WorkspaceViewSet",
-                    "severity": "high",
-                },
-            )
-            return Response(
-                {"error": "An unexpected error occurred during ownership change."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-    
-    @action(detail=True, methods=['post'])
-    def update_member_role(self, request, pk=None):
-        """
-        Update workspace member role.
-        
-        Only workspace admins or owners can update member roles.
-        Cannot change owner role through this endpoint.
-        """
-        workspace = self.get_object()
-        
-        user_id = request.data.get('user_id')
-        new_role = request.data.get('role')
-        
-        if not user_id or not new_role:
-            return Response(
-                {"error": "user_id and role are required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        if new_role not in ['viewer', 'editor', 'admin']:
-            return Response(
-                {"error": "Invalid role. Must be viewer, editor, or admin."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Check permissions
-        memberships = self._get_user_memberships(request)
-        user_membership = memberships.get(workspace.id)
-        
-        has_permission = (
-            request.user.is_superuser or 
-            (user_membership and user_membership.role in ['admin', 'owner'])
-        )
-        
-        if not has_permission:
-            logger.warning(
-                "Insufficient permissions for member role update",
-                extra={
-                    "request_user_id": request.user.id,
-                    "workspace_id": workspace.id,
-                    "action": "member_role_update_denied",
-                    "component": "WorkspaceViewSet",
-                    "severity": "medium",
-                },
-            )
-            return Response(
-                {"error": "You need admin or owner permissions to update member roles."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        try:
-            target_membership = WorkspaceMembership.objects.get(
-                workspace=workspace, 
-                user_id=user_id
-            )
-        except WorkspaceMembership.DoesNotExist:
-            return Response(
-                {"error": "User is not a member of this workspace."},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Prevent changing owner role
-        if target_membership.user == workspace.owner:
-            return Response(
-                {"error": "Cannot change owner role through this endpoint."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        old_role = target_membership.role
-        target_membership.role = new_role
-        target_membership.save()
-        
-        logger.info(
-            "Workspace member role updated",
-            extra={
-                "request_user_id": request.user.id,
-                "workspace_id": workspace.id,
-                "target_user_id": user_id,
-                "old_role": old_role,
-                "new_role": new_role,
-                "action": "member_role_updated",
-                "component": "WorkspaceViewSet",
-            },
-        )
-        
-        return Response({
-            "message": f"User role updated from {old_role} to {new_role}.",
-            "user_id": user_id,
-            "old_role": old_role,
-            "new_role": new_role
-        })
-    
 # -------------------------------------------------------------------
 # WORKSPACE SETTINGS MANAGEMENT  
 # -------------------------------------------------------------------
 # Workspace configuration with atomic currency changes
 
 
-class WorkspaceSettingsViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, mixins.RetrieveModelMixin,
-                              mixins.UpdateModelMixin, viewsets.GenericViewSet):
+class WorkspaceSettingsViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin, 
+                              mixins.RetrieveModelMixin, mixins.UpdateModelMixin, 
+                              viewsets.GenericViewSet):
     """
-    ViewSet for managing workspace-specific settings with atomic currency changes
-    and admin impersonation support.
+    THIN ViewSet for workspace settings management with atomic currency changes.
+    Uses ServiceExceptionHandlerMixin for unified error handling.
     """
     
     serializer_class = WorkspaceSettingsSerializer
@@ -1472,7 +547,7 @@ class WorkspaceSettingsViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, m
 
     def get_permissions(self):
         """
-        Dynamically assign permissions based on action type.
+        Dynamic permissions - owner required for updates.
         """
         if self.action in ['update', 'partial_update']:
             return [IsAuthenticated(), IsWorkspaceOwner()]
@@ -1480,7 +555,7 @@ class WorkspaceSettingsViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, m
 
     def get_queryset(self):
         """
-        Get workspace settings queryset filtered by user membership with impersonation support.
+        THIN queryset - basic security filtering.
         """
         target_user = self.request.target_user
         
@@ -1489,87 +564,51 @@ class WorkspaceSettingsViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, m
             extra={
                 "request_user_id": self.request.user.id,
                 "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "action": "workspace_queryset_retrieval", 
+                "action": "workspace_settings_queryset",
                 "component": "WorkspaceSettingsViewSet",
             },
         )
-        return WorkspaceSettings.objects.filter(workspace__members=target_user.id).select_related('workspace')
+        
+        return WorkspaceSettings.objects.filter(
+            workspace__members=target_user.id
+        ).select_related('workspace')
 
     def update(self, request, *args, **kwargs):
         """
-        Update workspace settings with atomic currency change handling and impersonation support.
+        THIN update - handles currency changes via service.
         """
         instance = self.get_object()
         
-        target_user = request.target_user
-              
         if 'domestic_currency' in request.data:
             return self._handle_currency_change(request, instance)
         
         response = super().update(request, *args, **kwargs)
-        
-        if request.is_admin_impersonation and response.status_code == status.HTTP_200_OK:
-            response_data = response.data
-            if isinstance(response_data, dict):
-                response_data['admin_impersonation'] = {
-                    'target_user_id': target_user.id,
-                    'target_username': target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
-                response.data = response_data
-        
-        return response
+        return self._add_impersonation_context(response, request)
 
     def partial_update(self, request, *args, **kwargs):
         """
-        Partial update with atomic currency change handling and impersonation support.
+        THIN partial update - handles currency changes via service.
         """
         instance = self.get_object()
-        
-        target_user = request.target_user
         
         if 'domestic_currency' in request.data:
             return self._handle_currency_change(request, instance)
         
         response = super().partial_update(request, *args, **kwargs)
-        
-        if request.is_admin_impersonation and response.status_code == status.HTTP_200_OK:
-            response_data = response.data
-            if isinstance(response_data, dict):
-                response_data['admin_impersonation'] = {
-                    'target_user_id': target_user.id,
-                    'target_username': target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
-                response.data = response_data
-        
-        return response
+        return self._add_impersonation_context(response, request)
 
     def retrieve(self, request, *args, **kwargs):
         """
-        Retrieve workspace settings with impersonation support.
+        THIN retrieve - adds impersonation context if needed.
         """
         response = super().retrieve(request, *args, **kwargs)
-        
-        if request.is_admin_impersonation:
-            response_data = response.data
-            if isinstance(response_data, dict):
-                response_data['admin_impersonation'] = {
-                    'target_user_id': request.target_user.id,
-                    'target_username': request.target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
-                response.data = response_data
-        
-        return response
+        return self._add_impersonation_context(response, request)
     
     def _handle_currency_change(self, request, instance):
         """
-        Handle currency change with atomic transaction recalculation and impersonation support.
+        Handle currency change with service-layer delegation.
         """
         new_currency = request.data['domestic_currency']
-        
         target_user = request.target_user
         
         logger.info(
@@ -1577,8 +616,6 @@ class WorkspaceSettingsViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, m
             extra={
                 "request_user_id": request.user.id,
                 "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
-                "workspace_settings_id": instance.id,
                 "workspace_id": instance.workspace.id,
                 "new_currency": new_currency,
                 "current_currency": instance.domestic_currency,
@@ -1588,69 +625,44 @@ class WorkspaceSettingsViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, m
         )
         
         try:
+            # Delegate to CurrencyService
             result = CurrencyService.change_workspace_currency(instance, new_currency)
             
             if result['changed']:
                 logger.info(
-                    "Currency change completed successfully via API",
+                    "Currency change completed successfully",
                     extra={
                         "request_user_id": request.user.id,
-                        "target_user_id": target_user.id,
-                        "workspace_settings_id": instance.id,
+                        "workspace_id": instance.workspace.id,
                         "transactions_updated": result['transactions_updated'],
-                        "action": "currency_change_api_success",
+                        "action": "currency_change_success",
                         "component": "WorkspaceSettingsViewSet",
                     },
                 )
-                
-                serializer = self.get_serializer(instance)
-                response_data = {
-                    **serializer.data,
-                    "recalculation_details": {
-                        "transactions_updated": result['transactions_updated'],
-                        "currency_changed": True
-                    }
+            
+            serializer = self.get_serializer(instance)
+            response_data = {
+                **serializer.data,
+                "recalculation_details": {
+                    "transactions_updated": result['transactions_updated'],
+                    "currency_changed": result['changed']
                 }
-                
-                if request.is_admin_impersonation:
-                    response_data['admin_impersonation'] = {
-                        'target_user_id': target_user.id,
-                        'target_username': target_user.username,
-                        'requested_by_admin_id': request.user.id
-                    }
-                
-                return Response(response_data)
-                
-            else:
-                serializer = self.get_serializer(instance)
-                response_data = serializer.data
-                
-                if request.is_admin_impersonation:
-                    response_data['admin_impersonation'] = {
-                        'target_user_id': target_user.id,
-                        'target_username': target_user.username,
-                        'requested_by_admin_id': request.user.id
-                    }
-                
-                return Response(response_data)
+            }
+            
+            return self._add_impersonation_context(Response(response_data), request)
                 
         except Exception as e:
             logger.error(
-                "Currency change API request failed",
+                "Currency change failed",
                 extra={
                     "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "is_admin_impersonation": request.is_admin_impersonation,
-                    "workspace_settings_id": instance.id,
                     "workspace_id": instance.workspace.id,
                     "new_currency": new_currency,
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                    "action": "currency_change_api_failure",
+                    "error": str(e),
+                    "action": "currency_change_failed",
                     "component": "WorkspaceSettingsViewSet",
                     "severity": "high",
                 },
-                exc_info=True,
             )
             
             error_response = {
@@ -1659,29 +671,39 @@ class WorkspaceSettingsViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, m
                 "detail": str(e)
             }
             
-            if request.is_admin_impersonation:
-                error_response['admin_impersonation'] = {
-                    'target_user_id': target_user.id,
-                    'target_username': target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
+            return self._add_impersonation_context(
+                Response(error_response, status=status.HTTP_400_BAD_REQUEST), 
+                request
+            )
+
+    def _add_impersonation_context(self, response, request):
+        """
+        Add impersonation context to response if applicable.
+        """
+        if (request.is_admin_impersonation and 
+            response.status_code == status.HTTP_200_OK and
+            isinstance(response.data, dict)):
             
-            return Response(error_response, status=status.HTTP_400_BAD_REQUEST)
+            response.data['admin_impersonation'] = {
+                'target_user_id': request.target_user.id,
+                'target_username': request.target_user.username,
+                'requested_by_admin_id': request.user.id
+            }
         
+        return response
+       
 # -------------------------------------------------------------------
 # USER SETTINGS MANAGEMENT
 # -------------------------------------------------------------------
 # User preferences and personalization
 
 
-class UserSettingsViewSet(BaseWorkspaceViewSet, mixins.RetrieveModelMixin,
-                         mixins.UpdateModelMixin,
+class UserSettingsViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin,
+                         mixins.RetrieveModelMixin, mixins.UpdateModelMixin,
                          viewsets.GenericViewSet):
     """
-    ViewSet for managing user-specific settings with admin impersonation support.
-    
-    Provides retrieve and update operations for user settings with field-level
-    validation and security controls.
+    THIN ViewSet for user settings management.
+    Uses ServiceExceptionHandlerMixin for unified error handling.
     """
     
     serializer_class = UserSettingsSerializer
@@ -1689,9 +711,8 @@ class UserSettingsViewSet(BaseWorkspaceViewSet, mixins.RetrieveModelMixin,
 
     def get_queryset(self):
         """
-        Get user settings queryset filtered by target user (supports admin impersonation).
+        THIN queryset - filtered by target user.
         """
-        # Use target_user for all queries
         target_user = self.request.target_user
         
         logger.debug(
@@ -1699,44 +720,31 @@ class UserSettingsViewSet(BaseWorkspaceViewSet, mixins.RetrieveModelMixin,
             extra={
                 "request_user_id": self.request.user.id,
                 "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "action": "queryset_retrieval",
+                "action": "user_settings_queryset",
                 "component": "UserSettingsViewSet",
             },
         )
+        
         return UserSettings.objects.filter(user=target_user.id)
 
     def partial_update(self, request, *args, **kwargs):
         """
-        Partially update user settings with field-level validation and impersonation support.
-        
-        Args:
-            request: HTTP request object
-            *args: Variable length argument list
-            **kwargs: Arbitrary keyword arguments
-            
-        Returns:
-            Response: DRF Response object with update result
-            
-        Raises:
-            ValidationError: If unauthorized fields are attempted to be updated
+        THIN partial update with field-level validation.
         """
-        # Use target_user for permission checks
         target_user = request.target_user
         
+        # Validate allowed fields
         allowed_fields = {'language'}
         invalid_fields = [key for key in request.data.keys() if key not in allowed_fields]
         
         if invalid_fields:
             logger.warning(
-                "User settings update attempted with invalid fields",
+                "Invalid fields in user settings update",
                 extra={
                     "request_user_id": request.user.id,
                     "target_user_id": target_user.id,
-                    "is_admin_impersonation": request.is_admin_impersonation,
                     "invalid_fields": invalid_fields,
-                    "allowed_fields": list(allowed_fields),
-                    "action": "settings_update_validation_failed",
+                    "action": "user_settings_invalid_fields",
                     "component": "UserSettingsViewSet",
                     "severity": "medium",
                 },
@@ -1751,59 +759,47 @@ class UserSettingsViewSet(BaseWorkspaceViewSet, mixins.RetrieveModelMixin,
             extra={
                 "request_user_id": request.user.id,
                 "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
                 "updated_fields": list(request.data.keys()),
-                "action": "settings_update_start",
+                "action": "user_settings_update",
                 "component": "UserSettingsViewSet",
             },
         )
         
         response = super().partial_update(request, *args, **kwargs)
-        
-        # Add admin impersonation info if applicable
-        if request.is_admin_impersonation and response.status_code == status.HTTP_200_OK:
-            response_data = response.data
-            if isinstance(response_data, dict):
-                response_data['admin_impersonation'] = {
-                    'target_user_id': target_user.id,
-                    'target_username': target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
-                response.data = response_data
-        
-        return response
+        return self._add_impersonation_context(response, request)
 
     def retrieve(self, request, *args, **kwargs):
         """
-        Retrieve user settings with impersonation support.
+        THIN retrieve with impersonation context.
         """
         response = super().retrieve(request, *args, **kwargs)
-        
-        # Add admin impersonation info if applicable
-        if request.is_admin_impersonation:
-            response_data = response.data
-            if isinstance(response_data, dict):
-                response_data['admin_impersonation'] = {
-                    'target_user_id': request.target_user.id,
-                    'target_username': request.target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
-                response.data = response_data
+        return self._add_impersonation_context(response, request)
+    
+    def _add_impersonation_context(self, response, request):
+        """
+        Add impersonation context to response if applicable.
+        """
+        if (request.is_admin_impersonation and 
+            response.status_code == status.HTTP_200_OK and
+            isinstance(response.data, dict)):
+            
+            response.data['admin_impersonation'] = {
+                'target_user_id': request.target_user.id,
+                'target_username': request.target_user.username,
+                'requested_by_admin_id': request.user.id
+            }
         
         return response
-        
+     
 # -------------------------------------------------------------------
 # EXPENSE CATEGORIES MANAGEMENT
 # -------------------------------------------------------------------
 # Read-only access to expense category hierarchies
 
 
-class ExpenseCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet):
+class ExpenseCategoryViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin, viewsets.ReadOnlyModelViewSet):
     """
-    ViewSet for retrieving expense categories with admin impersonation support.
-    
-    Provides read-only access to expense categories from active workspace versions
-    where the target user is a member.
+    THIN ViewSet for expense categories with service exception handling.
     """
     
     serializer_class = ExpenseCategorySerializer
@@ -1811,10 +807,7 @@ class ExpenseCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet
 
     def get_queryset(self):
         """
-        Get expense categories from active workspace versions for target user.
-        
-        Returns:
-            QuerySet: Filtered expense categories with prefetched properties
+        THIN queryset - basic security filtering.
         """
         target_user = self.request.target_user
         
@@ -1823,8 +816,7 @@ class ExpenseCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet
             extra={
                 "request_user_id": self.request.user.id,
                 "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "action": "expense_categories_retrieval",
+                "action": "expense_categories_queryset",
                 "component": "ExpenseCategoryViewSet",
             },
         )
@@ -1834,54 +826,41 @@ class ExpenseCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet
             is_active=True
         ).select_related('workspace')
         
-        categories = ExpenseCategory.objects.filter(version__in=active_versions)\
+        return ExpenseCategory.objects.filter(version__in=active_versions)\
             .select_related('version')\
             .prefetch_related('property', 'children')
-            
-        logger.debug(
-            "Expense categories queryset prepared",
-            extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "active_versions_count": active_versions.count(),
-                "categories_count": categories.count(),
-                "action": "expense_categories_queryset_prepared",
-                "component": "ExpenseCategoryViewSet",
-            },
-        )
-        
-        return categories
-    
+
     @action(detail=True, methods=['get'])
     def usage(self, request, pk=None):
+        """
+        Check category usage with proper permission validation.
+        """
         category = self.get_object()
+        workspace = category.version.workspace
+        target_user = request.target_user
         
         logger.debug(
-            "Checking category usage in transactions",
+            "Checking category usage",
             extra={
                 "request_user_id": request.user.id,
-                "target_user_id": request.target_user.id,
+                "target_user_id": target_user.id,
                 "category_id": category.id,
-                "category_name": category.name,
+                "workspace_id": workspace.id,
                 "action": "category_usage_check",
                 "component": "ExpenseCategoryViewSet",
             },
         )
         
-        workspace = category.version.workspace
-        memberships = WorkspaceMembership.objects.filter(
-            workspace=workspace,
-            user=request.target_user
-        )
-        
-        if not memberships.exists():
+        # Check workspace membership
+        if not WorkspaceMembership.objects.filter(
+            workspace=workspace, user=target_user
+        ).exists():
             logger.warning(
                 "User not member of category workspace",
                 extra={
                     "request_user_id": request.user.id,
-                    "target_user_id": request.target_user.id,
+                    "target_user_id": target_user.id,
                     "workspace_id": workspace.id,
-                    "category_id": category.id,
                     "action": "category_usage_access_denied",
                     "component": "ExpenseCategoryViewSet",
                     "severity": "medium",
@@ -1892,15 +871,14 @@ class ExpenseCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        user_membership = memberships.first()
-        if user_membership.role not in ['editor', 'admin', 'owner']:
+        # Check permissions
+        user_role = self._get_user_role(workspace, target_user)
+        if user_role not in ['editor', 'admin', 'owner']:
             logger.warning(
                 "Insufficient permissions for category usage check",
                 extra={
                     "request_user_id": request.user.id,
-                    "target_user_id": request.target_user.id,
-                    "user_role": user_membership.role,
-                    "required_roles": ['editor', 'admin', 'owner'],
+                    "user_role": user_role,
                     "action": "category_usage_permission_denied",
                     "component": "ExpenseCategoryViewSet",
                     "severity": "medium",
@@ -1913,70 +891,27 @@ class ExpenseCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet
         
         is_used = Transaction.objects.filter(expense_category=category).exists()
         
-        # ENHANCED RESPONSE WITH MOVE INFORMATION
         response_data = {
             'category_id': category.id,
             'category_name': category.name,
             'level': category.level,
             'is_used': is_used,
-            'can_be_moved': not is_used or category.level != 5,  # Non-leaf or unused leaf can be moved
+            'can_be_moved': not is_used or category.level != 5,
             'move_restrictions': {
                 'reason': 'Used in transactions' if is_used and category.level == 5 else 'None',
-                'requires_confirmation': category.level != 5 and not is_used  # Non-leaf categories need confirmation
+                'requires_confirmation': category.level != 5 and not is_used
             }
         }
         
-        logger.info(
-            "Category usage check completed",
-            extra={
-                "request_user_id": request.user.id,
-                "target_user_id": request.target_user.id,
-                "category_id": category.id,
-                "is_used": is_used,
-                "can_be_moved": response_data['can_be_moved'],
-                "action": "category_usage_check_completed",
-                "component": "ExpenseCategoryViewSet",
-            },
-        )
-        
         return Response(response_data)
 
-
-    def list(self, request, *args, **kwargs):
+    def _get_user_role(self, workspace, user):
         """
-        List expense categories with impersonation support.
+        Get user role in workspace using cached data.
         """
-        response = super().list(request, *args, **kwargs)
-        
-        if request.is_admin_impersonation:
-            response_data = response.data
-            if isinstance(response_data, dict):
-                response_data['admin_impersonation'] = {
-                    'target_user_id': request.target_user.id,
-                    'target_username': request.target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
-                response.data = response_data
-        
-        return response
-
-    def retrieve(self, request, *args, **kwargs):
-        """
-        Retrieve expense category with impersonation support.
-        """
-        response = super().retrieve(request, *args, **kwargs)
-        
-        if request.is_admin_impersonation:
-            response_data = response.data
-            if isinstance(response_data, dict):
-                response_data['admin_impersonation'] = {
-                    'target_user_id': request.target_user.id,
-                    'target_username': request.target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
-                response.data = response_data
-        
-        return response
+        memberships = getattr(self.request, '_cached_user_memberships', {})
+        workspace_membership = memberships.get(workspace.id)
+        return workspace_membership.get('role') if workspace_membership else None
     
 
 # -------------------------------------------------------------------
@@ -1985,12 +920,10 @@ class ExpenseCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet
 # Read-only access to income category hierarchies
 
 
-class IncomeCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet):
+class IncomeCategoryViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin, viewsets.ReadOnlyModelViewSet):
     """
-    ViewSet for retrieving income categories with admin impersonation support.
-    
-    Provides read-only access to income categories from active workspace versions
-    where the target user is a member.
+    THIN ViewSet for income categories with service exception handling.
+    Provides read-only access to income categories with proper workspace validation.
     """
     
     serializer_class = IncomeCategorySerializer
@@ -1998,10 +931,7 @@ class IncomeCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet)
 
     def get_queryset(self):
         """
-        Get income categories from active workspace versions for target user.
-        
-        Returns:
-            QuerySet: Filtered income categories with prefetched properties
+        THIN queryset - security filtered income categories.
         """
         target_user = self.request.target_user
         
@@ -2010,8 +940,7 @@ class IncomeCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet)
             extra={
                 "request_user_id": self.request.user.id,
                 "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "action": "income_categories_retrieval",
+                "action": "income_categories_queryset",
                 "component": "IncomeCategoryViewSet",
             },
         )
@@ -2021,56 +950,41 @@ class IncomeCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet)
             is_active=True
         ).select_related('workspace')
         
-        categories = IncomeCategory.objects.filter(version__in=active_versions)\
+        return IncomeCategory.objects.filter(version__in=active_versions)\
             .select_related('version')\
             .prefetch_related('property', 'children')
-            
+
+    @action(detail=True, methods=['get'])
+    def usage(self, request, pk=None):
+        """
+        Check income category usage with permission validation.
+        """
+        category = self.get_object()
+        workspace = category.version.workspace
+        target_user = request.target_user
+        
         logger.debug(
-            "Income categories queryset prepared",
+            "Checking income category usage",
             extra={
-                "request_user_id": self.request.user.id,
+                "request_user_id": request.user.id,
                 "target_user_id": target_user.id,
-                "active_versions_count": active_versions.count(),
-                "categories_count": categories.count(),
-                "action": "income_categories_queryset_prepared",
+                "category_id": category.id,
+                "workspace_id": workspace.id,
+                "action": "income_category_usage_check",
                 "component": "IncomeCategoryViewSet",
             },
         )
         
-        return categories
-    
-    @action(detail=True, methods=['get'])
-    def usage(self, request, pk=None):
-        category = self.get_object()
-        
-        logger.debug(
-            "Checking category usage in transactions",
-            extra={
-                "request_user_id": request.user.id,
-                "target_user_id": request.target_user.id,
-                "category_id": category.id,
-                "category_name": category.name,
-                "action": "category_usage_check",
-                "component": "ExpenseCategoryViewSet",
-            },
-        )
-        
-        workspace = category.version.workspace
-        memberships = WorkspaceMembership.objects.filter(
-            workspace=workspace,
-            user=request.target_user
-        )
-        
-        if not memberships.exists():
+        # Validate workspace access
+        if not self._has_workspace_access(workspace, target_user):
             logger.warning(
-                "User not member of category workspace",
+                "Workspace access denied for income category usage check",
                 extra={
                     "request_user_id": request.user.id,
-                    "target_user_id": request.target_user.id,
+                    "target_user_id": target_user.id,
                     "workspace_id": workspace.id,
-                    "category_id": category.id,
-                    "action": "category_usage_access_denied",
-                    "component": "ExpenseCategoryViewSet",
+                    "action": "income_category_usage_access_denied",
+                    "component": "IncomeCategoryViewSet",
                     "severity": "medium",
                 },
             )
@@ -2079,17 +993,16 @@ class IncomeCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet)
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        user_membership = memberships.first()
-        if user_membership.role not in ['editor', 'admin', 'owner']:
+        # Check permissions
+        if not self._has_editor_permissions(workspace, target_user):
             logger.warning(
-                "Insufficient permissions for category usage check",
+                "Insufficient permissions for income category usage check",
                 extra={
                     "request_user_id": request.user.id,
-                    "target_user_id": request.target_user.id,
-                    "user_role": user_membership.role,
-                    "required_roles": ['editor', 'admin', 'owner'],
-                    "action": "category_usage_permission_denied",
-                    "component": "ExpenseCategoryViewSet",
+                    "target_user_id": target_user.id,
+                    "workspace_id": workspace.id,
+                    "action": "income_category_usage_permission_denied",
+                    "component": "IncomeCategoryViewSet",
                     "severity": "medium",
                 },
             )
@@ -2098,96 +1011,53 @@ class IncomeCategoryViewSet(BaseWorkspaceViewSet, viewsets.ReadOnlyModelViewSet)
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        is_used = Transaction.objects.filter(expense_category=category).exists()
+        is_used = Transaction.objects.filter(income_category=category).exists()
         
-        # ENHANCED RESPONSE WITH MOVE INFORMATION
         response_data = {
             'category_id': category.id,
             'category_name': category.name,
             'level': category.level,
             'is_used': is_used,
-            'can_be_moved': not is_used or category.level != 5,  # Non-leaf or unused leaf can be moved
+            'can_be_moved': not is_used or category.level != 5,
             'move_restrictions': {
                 'reason': 'Used in transactions' if is_used and category.level == 5 else 'None',
-                'requires_confirmation': category.level != 5 and not is_used  # Non-leaf categories need confirmation
+                'requires_confirmation': category.level != 5 and not is_used
             }
         }
         
         logger.info(
-            "Category usage check completed",
+            "Income category usage check completed",
             extra={
-                "request_user_id": request.user.id,
-                "target_user_id": request.target_user.id,
                 "category_id": category.id,
                 "is_used": is_used,
                 "can_be_moved": response_data['can_be_moved'],
-                "action": "category_usage_check_completed",
-                "component": "ExpenseCategoryViewSet",
+                "action": "income_category_usage_check_completed",
+                "component": "IncomeCategoryViewSet",
             },
         )
         
         return Response(response_data)
 
-    def list(self, request, *args, **kwargs):
-        """
-        List income categories with impersonation support.
-        """
-        response = super().list(request, *args, **kwargs)
-        
-        if request.is_admin_impersonation:
-            response_data = response.data
-            if isinstance(response_data, dict):
-                response_data['admin_impersonation'] = {
-                    'target_user_id': request.target_user.id,
-                    'target_username': request.target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
-                response.data = response_data
-        
-        return response
+    def _has_workspace_access(self, workspace, user):
+        """Check if user has access to workspace."""
+        memberships = getattr(self.request, '_cached_user_memberships', {})
+        return workspace.id in memberships
 
-    def retrieve(self, request, *args, **kwargs):
-        """
-        Retrieve income category with impersonation support.
-        """
-        response = super().retrieve(request, *args, **kwargs)
-        
-        if request.is_admin_impersonation:
-            response_data = response.data
-            if isinstance(response_data, dict):
-                response_data['admin_impersonation'] = {
-                    'target_user_id': request.target_user.id,
-                    'target_username': request.target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
-                response.data = response_data
-        
-        return response
+    def _has_editor_permissions(self, workspace, user):
+        """Check if user has editor or higher permissions."""
+        memberships = getattr(self.request, '_cached_user_memberships', {})
+        workspace_membership = memberships.get(workspace.id)
+        user_role = workspace_membership.get('role') if workspace_membership else None
+        return user_role in ['editor', 'admin', 'owner']
     
 # -------------------------------------------------------------------
 # CATEGORY SYNCHRONIZATION MANAGEMENT
 # -------------------------------------------------------------------
 
-class CategorySyncViewSet(BaseWorkspaceViewSet):
+class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
     """
-    ViewSet for synchronizing expense and income category hierarchies.
-    
-    Provides bulk synchronization of category trees within specific workspaces
-    with automatic permission handling, admin impersonation support, and
-    comprehensive audit logging.
-    
-    Features:
-    - Unified endpoint for both expense and income category synchronization
-    - Automatic workspace validation and permission enforcement
-    - Admin impersonation support with proper context preservation
-    - Comprehensive audit logging for compliance and debugging
-    - Atomic operations to prevent data corruption
-    
-    Security:
-    - Workspace membership validation using BaseWorkspaceViewSet permissions
-    - Editor-level permissions required for category modifications
-    - Automatic workspace existence validation
-    - Admin impersonation context preservation
+    THIN ViewSet for category synchronization with service exception handling.
+    Delegates all business logic to category_utils with proper validation.
     """
     
     permission_classes = [IsAuthenticated, IsWorkspaceEditor]
@@ -2195,48 +1065,38 @@ class CategorySyncViewSet(BaseWorkspaceViewSet):
     @action(detail=False, methods=['post'], url_path='workspaces/(?P<workspace_id>[^/.]+)/(?P<category_type>expense|income)')
     def sync_categories(self, request, workspace_id=None, category_type=None):
         """
-        Synchronize category hierarchies for specific workspace and type.
-        
-        Handles bulk synchronization of expense or income category trees
-        with comprehensive validation and error handling.
+        Synchronize category hierarchies with comprehensive validation.
         
         Args:
             request: HTTP request with category data
-            workspace_id: ID of the workspace for category synchronization
+            workspace_id: Workspace ID for synchronization
             category_type: Type of categories ('expense' or 'income')
             
         Returns:
-            Response: Category synchronization results with admin context
-            
-        Raises:
-            PermissionDenied: If user lacks workspace access or editor permissions
-            ValidationError: If category type is invalid or data format is incorrect
+            Response: Synchronization results with admin context
         """
         logger.info(
-            "Category synchronization initiated via ViewSet",
+            "Category synchronization initiated",
             extra={
                 "user_id": request.user.id,
                 "target_user_id": request.target_user.id,
                 "workspace_id": workspace_id,
                 "category_type": category_type,
                 "category_count": len(request.data) if isinstance(request.data, list) else 0,
-                "is_admin_impersonation": request.is_admin_impersonation,
                 "action": "category_sync_start",
                 "component": "CategorySyncViewSet",
             },
         )
         
         try:
-            # Validate workspace existence using BaseWorkspaceViewSet permissions
+            # Validate workspace existence
             if not request.user_permissions.get('workspace_exists'):
                 logger.warning(
-                    "Workspace not found during category synchronization",
+                    "Workspace not found for category sync",
                     extra={
                         "user_id": request.user.id,
-                        "target_user_id": request.target_user.id,
                         "workspace_id": workspace_id,
-                        "category_type": category_type,
-                        "action": "workspace_not_found",
+                        "action": "category_sync_workspace_not_found",
                         "component": "CategorySyncViewSet",
                         "severity": "medium",
                     },
@@ -2246,7 +1106,7 @@ class CategorySyncViewSet(BaseWorkspaceViewSet):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
-            # Get workspace instance (already validated to exist)
+            # Get workspace instance
             workspace = Workspace.objects.get(id=workspace_id)
             
             # Validate and resolve category type
@@ -2269,10 +1129,8 @@ class CategorySyncViewSet(BaseWorkspaceViewSet):
                     "Invalid category type provided",
                     extra={
                         "user_id": request.user.id,
-                        "target_user_id": request.target_user.id,
-                        "workspace_id": workspace_id,
                         "category_type": category_type,
-                        "action": "invalid_category_type",
+                        "action": "category_sync_invalid_type",
                         "component": "CategorySyncViewSet",
                         "severity": "medium",
                     },
@@ -2282,12 +1140,17 @@ class CategorySyncViewSet(BaseWorkspaceViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Execute category synchronization
-            results = sync_categories_tree(request.data, version, category_model)
+            # Execute synchronization with service exception handling
+            results = self.handle_service_call(
+                sync_categories_tree,
+                request.data, 
+                version, 
+                category_model
+            )
             
-            # Prepare response with admin impersonation context if applicable
             response_data = results
             
+            # Add impersonation context if applicable
             if request.is_admin_impersonation:
                 response_data['admin_impersonation'] = {
                     'target_user_id': request.target_user.id,
@@ -2299,11 +1162,9 @@ class CategorySyncViewSet(BaseWorkspaceViewSet):
                 "Category synchronization completed successfully",
                 extra={
                     "user_id": request.user.id,
-                    "target_user_id": request.target_user.id,
                     "workspace_id": workspace_id,
                     "category_type": category_type,
                     "results": results,
-                    "is_admin_impersonation": request.is_admin_impersonation,
                     "action": "category_sync_success",
                     "component": "CategorySyncViewSet",
                 },
@@ -2311,61 +1172,21 @@ class CategorySyncViewSet(BaseWorkspaceViewSet):
             
             return Response(response_data)
             
-        except PermissionDenied:
-            # Re-raise permission exceptions for proper handling
-            logger.warning(
-                "Permission denied for category synchronization",
-                extra={
-                    "user_id": request.user.id,
-                    "target_user_id": request.target_user.id,
-                    "workspace_id": workspace_id,
-                    "category_type": category_type,
-                    "action": "category_sync_permission_denied",
-                    "component": "CategorySyncViewSet",
-                    "severity": "high",
-                },
-            )
-            raise
-            
-        except ValidationError as e:
-            # Handle validation errors with detailed logging
-            logger.warning(
-                "Validation error during category synchronization",
-                extra={
-                    "user_id": request.user.id,
-                    "target_user_id": request.target_user.id,
-                    "workspace_id": workspace_id,
-                    "category_type": category_type,
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                    "action": "category_sync_validation_error",
-                    "component": "CategorySyncViewSet",
-                    "severity": "medium",
-                },
-            )
-            return Response(
-                {'error': str(e)}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
         except Exception as e:
-            # Comprehensive error handling for unexpected failures
             logger.error(
-                "Category synchronization failed unexpectedly",
+                "Category synchronization failed",
                 extra={
                     "user_id": request.user.id,
-                    "target_user_id": request.target_user.id,
                     "workspace_id": workspace_id,
                     "category_type": category_type,
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                    "is_admin_impersonation": request.is_admin_impersonation,
-                    "action": "category_sync_failure",
+                    "error": str(e),
+                    "action": "category_sync_failed",
                     "component": "CategorySyncViewSet",
                     "severity": "high",
                 },
                 exc_info=True,
             )
+            
             return Response(
                 {
                     'error': 'Category synchronization failed',
@@ -2374,46 +1195,30 @@ class CategorySyncViewSet(BaseWorkspaceViewSet):
                 }, 
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+        
 # -------------------------------------------------------------------
 # TRANSACTION MANAGEMENT
 # -------------------------------------------------------------------
 # Financial transaction CRUD with filtering and bulk operations
 
 
-class TransactionViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, viewsets.ModelViewSet):
+class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
     """
-    ViewSet for managing financial transactions with role-based permissions.
-    
-    Permission rules:
-    - Viewers: Read-only access (list, retrieve)
-    - Editors/Admins/Owners: Full CRUD + bulk operations
-    - All users must be workspace members
-    
-    Security features:
-    - Automatic user assignment from request
-    - Workspace membership validation
-    - Category workspace validation
-    - Atomic bulk operations
-    - Automatic draft cleanup
-    - Comprehensive logging
-    
-    Admin features:
-    - Superusers can impersonate any user via user_id parameter
-    - All operations are performed on behalf of the target user
-
-    Features:
-    - Lightweight mode for optimized list views (light=true parameter)
-    - Full detail mode for complete transaction data
-
+    COMPLETE THIN ViewSet for transaction management.
+    Delegates ALL business logic to services and serializers.
     """
     
     serializer_class = TransactionSerializer
     permission_classes = [IsAuthenticated]
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.transaction_service = TransactionService()
+        self.draft_service = DraftService()
 
     def get_permissions(self):
         """
-        Dynamically assign permissions based on action type.
+        THIN permissions - services handle business logic.
         """
         if self.action in ['create', 'update', 'partial_update', 'destroy', 'bulk_delete', 'bulk_sync']:
             return [IsAuthenticated(), IsWorkspaceEditor()]
@@ -2421,206 +1226,71 @@ class TransactionViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, viewset
 
     def get_serializer_class(self):
         """
-        Dynamically select serializer based on light mode parameter.
-        
-        Returns:
-            Serializer: TransactionListSerializer for lightweight list views,
-                       TransactionSerializer for all other cases
+        Dynamic serializer selection for performance optimization.
         """
         light_mode = self.request.query_params.get('light') == 'true'
         
         if light_mode and self.action == 'list':
             logger.debug(
-                "Selected TransactionListSerializer for lightweight list view",
+                "Lightweight serializer selected for transaction list",
                 extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": self.request.target_user.id,
-                    "action": "lightweight_serializer_selected",
+                    "user_id": self.request.user.id,
+                    "action": "lightweight_transaction_serializer",
                     "component": "TransactionViewSet",
                 },
             )
             return TransactionListSerializer
         
-        logger.debug(
-            "Selected TransactionSerializer for full detail view",
-            extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": self.request.target_user.id,
-                "action_type": self.action,
-                "light_mode": light_mode,
-                "action": "full_serializer_selected",
-                "component": "TransactionViewSet",
-            },
-        )
         return TransactionSerializer
 
     def get_queryset(self):
         """
-        Get transactions queryset with advanced filtering, security, and optional lightweight optimization.
-        
-        Supports:
-        - Lightweight mode for performance-optimized list views
-        - Full detail mode for complete transaction data
-        - Advanced filtering by type, date, workspace, and fiscal year
-        - Admin impersonation support
-        - Comprehensive security validation
-        - Optimized database queries for maximum performance
+        THIN queryset with performance optimizations.
         """
+        target_user = self.request.target_user
+        
         logger.debug(
-            "Retrieving transactions queryset with lightweight optimization",
+            "Building transactions queryset",
             extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": self.request.target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "query_params": dict(self.request.query_params),
-                "action": "transactions_queryset_retrieval",
+                "user_id": self.request.user.id,
+                "target_user_id": target_user.id,
+                "action": "transactions_queryset_building",
                 "component": "TransactionViewSet",
             },
         )
         
-        target_user = self.request.target_user
-        
-        # Base security-filtered queryset with middleware-enforced user context
-        qs = Transaction.objects.filter(
-            workspace__members=target_user.id
-        )
+        # Base security filtering
+        qs = Transaction.objects.filter(workspace__members=target_user.id)
 
-        # LIGHTWEIGHT OPTIMIZATION - Apply only for list views with light parameter
+        # Performance optimizations
         light_mode = self.request.query_params.get('light') == 'true'
-        
         if light_mode and self.action == 'list':
-            # Lightweight mode - optimized for performance with minimal field selection
             qs = qs.select_related('workspace').only(
                 'id', 'type', 'amount_domestic', 'original_amount', 'original_currency',
                 'date', 'description', 'tags', 'workspace_id',
                 'expense_category_id', 'income_category_id'
             )
-            
-            logger.info(
-                "Applied lightweight optimization to transactions queryset",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "optimization_type": "lightweight_mode",
-                    "selected_fields_count": 11,
-                    "join_count": 1,
-                    "action": "lightweight_optimization_applied",
-                    "component": "TransactionViewSet",
-                },
-            )
         else:
-            # Full detail mode - complete relations for full functionality
             qs = qs.select_related(
                 'workspace', 'workspace__settings', 'user'
-            ).prefetch_related(
-                'tags',
-                models.Prefetch(
-                    'expense_category',
-                    queryset=ExpenseCategory.objects.select_related('version')
-                ),
-                models.Prefetch(
-                    'income_category', 
-                    queryset=IncomeCategory.objects.select_related('version')
-                )
-            )
-            
-            logger.debug(
-                "Applied full relations to transactions queryset",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "optimization_type": "full_detail_mode",
-                    "join_count": 5,
-                    "action": "full_relations_applied",
-                    "component": "TransactionViewSet",
-                },
-            )
+            ).prefetch_related('tags')
 
-        # APPLY FILTERS (existing filtering logic preserved)
+        # Apply filters
         tx_type = self.request.query_params.get('type')
-        fiscal_year = self.request.query_params.get('fiscal_year')
-        month = self.request.query_params.get('month')
-
         if tx_type in ['income', 'expense']:
             qs = qs.filter(type=tx_type)
-            logger.debug(
-                "Applied transaction type filter",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "transaction_type": tx_type,
-                    "action": "transaction_type_filter_applied",
-                    "component": "TransactionViewSet",
-                },
-            )
 
         workspace_id = self.request.query_params.get('workspace')
         if workspace_id:
-            try:
-                workspace_settings = WorkspaceSettings.objects.select_related('workspace').get(
-                    workspace_id=workspace_id,
-                    workspace__members=target_user.id
-                )
-                fiscal_start_month = workspace_settings.fiscal_year_start
-
-                if fiscal_year:
-                    fiscal_year = int(fiscal_year)
-                    start_date = date(fiscal_year - 1, fiscal_start_month, 1) if fiscal_start_month > 1 else date(fiscal_year, 1, 1)
-                    end_date = date(fiscal_year, fiscal_start_month, 1) if fiscal_start_month > 1 else date(fiscal_year, 12, 31)
-                    qs = qs.filter(date__gte=start_date, date__lt=end_date)
-                    
-                    logger.debug(
-                        "Applied fiscal year filter",
-                        extra={
-                            "request_user_id": self.request.user.id,
-                            "target_user_id": target_user.id,
-                            "workspace_id": workspace_id,
-                            "fiscal_year": fiscal_year,
-                            "fiscal_start_month": fiscal_start_month,
-                            "action": "fiscal_year_filter_applied",
-                            "component": "TransactionViewSet",
-                        },
-                    )
-
-            except WorkspaceSettings.DoesNotExist:
-                logger.warning(
-                    "Workspace settings not found for fiscal year filtering",
-                    extra={
-                        "request_user_id": self.request.user.id,
-                        "target_user_id": target_user.id,
-                        "workspace_id": workspace_id,
-                        "action": "workspace_settings_not_found",
-                        "component": "TransactionViewSet",
-                        "severity": "low",
-                    },
-                )
-
-        if month:
-            month = int(month)
-            qs = qs.filter(date__month=month)
-            logger.debug(
-                "Applied month filter",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "month": month,
-                    "action": "month_filter_applied",
-                    "component": "TransactionViewSet",
-                },
-            )
+            qs = qs.filter(workspace_id=workspace_id)
 
         logger.info(
-            "Transactions queryset prepared with filters and optimization",
+            "Transactions queryset prepared",
             extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "final_queryset_count": qs.count(),
-                "optimization_mode": "lightweight" if (light_mode and self.action == 'list') else "full",
+                "user_id": self.request.user.id,
+                "queryset_count": qs.count(),
                 "filters_applied": {
                     "type": tx_type,
-                    "fiscal_year": fiscal_year,
-                    "month": month,
                     "workspace": workspace_id,
                 },
                 "action": "transactions_queryset_prepared",
@@ -2632,468 +1302,188 @@ class TransactionViewSet(BaseWorkspaceViewSet, WorkspaceMembershipMixin, viewset
 
     def perform_create(self, serializer):
         """
-        Create a new transaction with comprehensive validation and security.
-        Supports admin impersonation.
+        THIN create - delegates to TransactionSerializer.
         """
-        workspace = serializer.validated_data.get('workspace')
-        target_user = self.request.target_user
-        
-        logger.info(
-            "Transaction creation initiated",
+        logger.debug(
+            "Transaction creation delegated to serializer",
             extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "workspace_id": workspace.id if workspace else None,
-                "action": "transaction_creation_start",
+                "user_id": self.request.user.id,
+                "target_user_id": self.request.target_user.id,
+                "action": "transaction_create_delegated",
                 "component": "TransactionViewSet",
             },
         )
         
-        if workspace and workspace.members.filter(id=target_user.id).exists():
-            expense_category = serializer.validated_data.get('expense_category')
-            income_category = serializer.validated_data.get('income_category')
-            
-            if expense_category and expense_category.version.workspace != workspace:
-                logger.warning(
-                    "Expense category workspace validation failed",
-                    extra={
-                        "request_user_id": self.request.user.id,
-                        "target_user_id": target_user.id,
-                        "workspace_id": workspace.id,
-                        "expense_category_id": expense_category.id,
-                        "category_workspace_id": expense_category.version.workspace.id,
-                        "action": "category_workspace_validation_failed",
-                        "component": "TransactionViewSet",
-                        "severity": "medium",
-                    },
-                )
-                raise serializers.ValidationError("Expense category does not belong to this workspace")
-                
-            if income_category and income_category.version.workspace != workspace:
-                logger.warning(
-                    "Income category workspace validation failed",
-                    extra={
-                        "request_user_id": self.request.user.id,
-                        "target_user_id": target_user.id,
-                        "workspace_id": workspace.id,
-                        "income_category_id": income_category.id,
-                        "category_workspace_id": income_category.version.workspace.id,
-                        "action": "category_workspace_validation_failed",
-                        "component": "TransactionViewSet",
-                        "severity": "medium",
-                    },
-                )
-                raise serializers.ValidationError("Income category does not belong to this workspace")
-            
-            instance = serializer.save(user=target_user)
-            
-            if instance.date:
-                instance.month = instance.date.replace(day=1)
-                instance.save(update_fields=['month'])
-
-            draft_type = instance.type
-            deleted_count, _ = TransactionDraft.objects.filter(
-                user=target_user,
-                workspace=workspace,
-                draft_type=draft_type
-            ).delete()
-            
-            if deleted_count > 0:
-                logger.info(
-                    "Transaction draft deleted after successful save",
-                    extra={
-                        "request_user_id": self.request.user.id,
-                        "target_user_id": target_user.id,
-                        "workspace_id": workspace.id,
-                        "transaction_type": draft_type,
-                        "drafts_deleted": deleted_count,
-                        "action": "draft_cleaned_after_save",
-                        "component": "TransactionViewSet",
-                    },
-                )
-                
-            logger.info(
-                "Transaction created successfully",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "transaction_id": instance.id,
-                    "workspace_id": workspace.id,
-                    "transaction_type": instance.type,
-                    "original_amount": float(instance.original_amount) if instance.original_amount else None,
-                    "action": "transaction_creation_success",
-                    "component": "TransactionViewSet",
-                },
-            )
-        else:
-            logger.warning(
-                "Workspace access denied for transaction creation",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace.id if workspace else None,
-                    "action": "workspace_access_denied",
-                    "component": "TransactionViewSet",
-                    "severity": "high",
-                },
-            )
-            raise serializers.ValidationError("You don't have access to this workspace")
+        # TransactionSerializer.create() handles all business logic
+        serializer.save()
 
     def perform_update(self, serializer):
         """
-        Update an existing transaction with permission validation.
-        Supports admin impersonation.
+        THIN update - delegates to TransactionSerializer.
         """
-        instance = serializer.instance
-        target_user = self.request.target_user
-        
-        logger.info(
-            "Transaction update initiated",
+        logger.debug(
+            "Transaction update delegated to serializer",
             extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "transaction_id": instance.id,
-                "action": "transaction_update_start",
+                "user_id": self.request.user.id,
+                "transaction_id": serializer.instance.id,
+                "action": "transaction_update_delegated",
                 "component": "TransactionViewSet",
             },
         )
         
-        instance = serializer.save()
-        
-        if instance.date:
-            instance.month = instance.date.replace(day=1)
-            instance.save(update_fields=['month'])
-
-        draft_type = instance.type
-        deleted_count, _ = TransactionDraft.objects.filter(
-            user=target_user,
-            workspace=instance.workspace,
-            draft_type=draft_type
-        ).delete()
-        
-        if deleted_count > 0:
-            logger.info(
-                "Transaction draft deleted after successful update",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": instance.workspace.id,
-                    "transaction_type": draft_type,
-                    "drafts_deleted": deleted_count,
-                    "action": "draft_cleaned_after_update",
-                    "component": "TransactionViewSet",
-                },
-            )
-            
-        logger.info(
-            "Transaction updated successfully",
-            extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "transaction_id": instance.id,
-                "action": "transaction_update_success",
-                "component": "TransactionViewSet",
-            },
-        )
+        # TransactionSerializer.update() handles all business logic
+        serializer.save()
 
     def perform_destroy(self, instance):
         """
-        Delete a transaction with permission validation.
-        Supports admin impersonation.
+        THIN delete - delegates to TransactionService.
         """
         target_user = self.request.target_user
-                
+        
         logger.info(
-            "Transaction deletion initiated",
+            "Transaction deletion delegated to service",
             extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
+                "user_id": self.request.user.id,
                 "transaction_id": instance.id,
-                "workspace_id": instance.workspace.id,
-                "action": "transaction_deletion_start",
+                "action": "transaction_delete_delegated",
                 "component": "TransactionViewSet",
             },
         )
         
-        instance.delete()
-        
-        logger.info(
-            "Transaction deleted successfully",
-            extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "transaction_id": instance.id,
-                "action": "transaction_deletion_success",
-                "component": "TransactionViewSet",
-            },
+        self.handle_service_call(
+            self.transaction_service.delete_transaction,
+            transaction=instance,
+            user=target_user
         )
 
     @action(detail=False, methods=['post'])
-    @transaction.atomic
     def bulk_delete(self, request):
         """
-        Atomically delete multiple transactions with comprehensive security validation.
-        
-        Performance Features:
-        - Atomic transaction execution for data consistency
-        - Optimized database queries with redundant filter elimination
-        - Selective related object loading for efficient deletion
-        - Comprehensive audit logging for deletion tracking
-        
-        Security Features:
-        - Middleware-enforced user context validation
-        - Transaction ownership verification via workspace membership
-        - Admin impersonation support with proper context preservation
-        - Permission-based access control enforcement
-        
-        Args:
-            request: HTTP request containing transaction IDs for deletion
-            
-        Returns:
-            Response: Deletion results with admin impersonation context if applicable
-            
-        Raises:
-            PermissionDenied: If user lacks permission for bulk deletion
+        THIN bulk delete - delegates to TransactionService.
         """
         transaction_ids = request.data.get('ids', [])
         target_user = request.target_user
         
         logger.info(
-            "Bulk transaction delete initiated with security validation",
+            "Bulk transaction delete delegated to service",
             extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
+                "user_id": request.user.id,
                 "transaction_count": len(transaction_ids),
-                "transaction_ids": transaction_ids,
-                "action": "bulk_delete_start",
+                "action": "bulk_delete_delegated",
                 "component": "TransactionViewSet",
             },
         )
         
-        try:
-            # SECURITY OPTIMIZATION: Leverage middleware-enforced user context
-            # Workspace membership validation ensures user has access to transactions
-            transactions = Transaction.objects.filter(
-                id__in=transaction_ids
-                # User context enforced by middleware - redundant filter removed for performance
-            ).select_related('workspace')
-            
-            # Execute atomic deletion with comprehensive result tracking
-            deleted_count, deletion_details = transactions.delete()
-            
-            # Prepare response with deletion summary
-            response_data = {
-                'deleted': deleted_count,
-                'details': {
-                    'transactions_removed': deleted_count,
-                    'operation_type': 'bulk_delete'
-                }
-            }
-            
-            # Add admin impersonation context if applicable
-            if request.is_admin_impersonation:
-                response_data['admin_impersonation'] = {
-                    'target_user_id': target_user.id,
-                    'target_username': target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
-            
-            logger.info(
-                "Bulk transaction delete completed successfully",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "deleted_count": deleted_count,
-                    "deletion_details": deletion_details,
-                    "transaction_ids_processed": len(transaction_ids),
-                    "deletion_efficiency": f"{(deleted_count / len(transaction_ids)) * 100:.1f}%" if transaction_ids else "N/A",
-                    "action": "bulk_delete_success",
-                    "component": "TransactionViewSet",
-                },
-            )
-            
-            return Response(response_data)
-            
-        except PermissionDenied:
-            # Re-raise permission exceptions for proper handling
-            logger.warning(
-                "Bulk transaction delete permission denied",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "transaction_count": len(transaction_ids),
-                    "action": "bulk_delete_permission_denied",
-                    "component": "TransactionViewSet",
-                    "severity": "medium",
-                },
-            )
-            raise
-            
-        except Exception as e:
-            # Comprehensive error handling with detailed logging
-            logger.error(
-                "Bulk transaction delete operation failed",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "transaction_count": len(transaction_ids),
-                    "transaction_ids": transaction_ids,
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                    "stack_trace": getattr(e, '__traceback__', None),
-                    "action": "bulk_delete_failure",
-                    "component": "TransactionViewSet",
-                    "severity": "high",
-                },
-                exc_info=True,
-            )
-            
-            return Response(
-                {
-                    'error': 'Bulk delete operation failed',
-                    'code': 'bulk_delete_error',
-                    'detail': str(e)
-                }, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        result = self.handle_service_call(
+            self.transaction_service.bulk_delete_transactions,
+            transaction_ids=transaction_ids,
+            user=target_user
+        )
+        
+        return self._add_impersonation_context(Response(result), request)
 
     @action(detail=False, methods=['post'], url_path='workspaces/(?P<workspace_id>[^/.]+)/bulk-sync')
     def bulk_sync(self, request, workspace_id=None):
         """
-        Bulk sync transactions for specific workspace with atomic safety.
-        Supports admin impersonation.
+        THIN bulk sync - delegates to TransactionService.
         """
         target_user = request.target_user
         
         logger.info(
-            "Bulk sync transaction viewset action called",
+            "Bulk transaction sync delegated to service",
             extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
+                "user_id": request.user.id,
                 "workspace_id": workspace_id,
-                "action": "bulk_sync_viewset_called",
+                "action": "bulk_sync_delegated",
                 "component": "TransactionViewSet",
             },
         )
         
+        # Get workspace with validation
+        workspace = self.handle_service_call(
+            self._get_workspace_with_access,
+            workspace_id=workspace_id,
+            user=target_user
+        )
+        
+        # Delegate sync to service
+        results = self.handle_service_call(
+            self.transaction_service.bulk_sync_transactions,
+            transactions_data=request.data,
+            workspace=workspace,
+            user=target_user
+        )
+        
+        # Handle draft cleanup
+        self._cleanup_drafts_after_sync(workspace, target_user, request.data)
+        
+        return self._add_impersonation_context(Response(results), request)
+
+    def _get_workspace_with_access(self, workspace_id, user):
+        """
+        Get workspace with access validation.
+        """
         try:
-            workspace = Workspace.objects.select_related('owner').get(id=workspace_id, members=target_user.id)
-            
-            transactions_data = request.data
-            
-            results = TransactionService.bulk_sync_transactions(
-                transactions_data, 
-                workspace, 
-                target_user
-            )
-
-            created_count = results.get('created', 0)
-            updated_count = results.get('updated', 0)
-            
-            if created_count > 0 or updated_count > 0:
-                transaction_types = set()
-                for transaction in transactions_data:
-                    if (isinstance(transaction, dict) and 
-                        transaction.get('type') in ['income', 'expense']):
-                        transaction_types.add(transaction['type'])
-                
-                for draft_type in transaction_types:
-                    deleted_count, _ = TransactionDraft.objects.filter(
-                        user=target_user,
-                        workspace=workspace,
-                        draft_type=draft_type
-                    ).delete()
-                    
-                    if deleted_count > 0:
-                        logger.info(
-                            "Transaction draft deleted after bulk sync with creates/updates",
-                            extra={
-                                "request_user_id": request.user.id,
-                                "target_user_id": target_user.id,
-                                "workspace_id": workspace_id,
-                                "transaction_type": draft_type,
-                                "drafts_deleted": deleted_count,
-                                "action": "draft_cleaned_after_bulk_sync",
-                                "component": "TransactionViewSet",
-                            },
-                        )
-            
-            if request.is_admin_impersonation:
-                results['admin_impersonation'] = {
-                    'target_user_id': target_user.id,
-                    'target_username': target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
-            
-            logger.info(
-                "Bulk transaction sync completed successfully",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace_id,
-                    "results": results,
-                    "action": "bulk_sync_success",
-                    "component": "TransactionViewSet",
-                },
-            )
-            
-            return Response(results)
-            
-        except PermissionDenied:
-            raise
+            return Workspace.objects.get(id=workspace_id, members=user.id)
         except Workspace.DoesNotExist:
-            logger.warning(
-                "Workspace not found for bulk sync",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace_id,
-                    "action": "workspace_not_found",
-                    "component": "TransactionViewSet",
-                    "severity": "medium",
-                },
-            )
-            return Response(
-                {'error': 'Workspace not found'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as e:
-            logger.error(
-                "Bulk transaction sync failed",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace_id,
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                    "action": "bulk_sync_failure",
-                    "component": "TransactionViewSet",
-                    "severity": "high",
-                },
-                exc_info=True,
-            )
-            return Response(
-                {'error': str(e)}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise ValidationError("Workspace not found or access denied")
 
+    def _cleanup_drafts_after_sync(self, workspace, user, transactions_data):
+        """
+        Cleanup drafts after successful sync.
+        """
+        transaction_types = set()
+        for operation_type in ['create', 'update']:
+            for transaction in transactions_data.get(operation_type, []):
+                if isinstance(transaction, dict) and transaction.get('type') in ['income', 'expense']:
+                    transaction_types.add(transaction['type'])
+        
+        for draft_type in transaction_types:
+            deleted_count = self.draft_service.cleanup_drafts_for_transaction(
+                user=user,
+                workspace_id=workspace.id,
+                transaction_type=draft_type
+            )
+            
+            if deleted_count > 0:
+                logger.info(
+                    "Drafts cleaned after bulk sync",
+                    extra={
+                        "user_id": user.id,
+                        "workspace_id": workspace.id,
+                        "draft_type": draft_type,
+                        "drafts_deleted": deleted_count,
+                        "action": "drafts_cleaned_after_sync",
+                        "component": "TransactionViewSet",
+                    },
+                )
+
+    def _add_impersonation_context(self, response, request):
+        """
+        Add impersonation context to response.
+        """
+        if (request.is_admin_impersonation and 
+            response.status_code == status.HTTP_200_OK and
+            isinstance(response.data, dict)):
+            
+            response.data['admin_impersonation'] = {
+                'target_user_id': request.target_user.id,
+                'target_username': request.target_user.username,
+                'requested_by_admin_id': request.user.id
+            }
+        
+        return response
+    
 # -------------------------------------------------------------------
 # EXCHANGE RATES MANAGEMENT
 # -------------------------------------------------------------------
 # Currency exchange rate retrieval and filtering
 
 
-class ExchangeRateViewSet(BaseWorkspaceViewSet, viewsets.GenericViewSet):
+class ExchangeRateViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin, viewsets.GenericViewSet):
     """
-    ViewSet for retrieving exchange rate information.
-    
-    Provides read-only access to exchange rates with filtering by currencies
-    and date ranges.
+    THIN ViewSet for exchange rate retrieval with filtering.
+    Uses ServiceExceptionHandlerMixin for unified error handling.
     """
     
     serializer_class = ExchangeRateSerializer
@@ -3102,70 +1492,40 @@ class ExchangeRateViewSet(BaseWorkspaceViewSet, viewsets.GenericViewSet):
 
     def get_queryset(self):
         """
-        Get exchange rates queryset with currency and date filtering.
-        
-        Returns:
-            QuerySet: Filtered exchange rates based on query parameters
+        THIN queryset with currency and date filtering.
         """
         logger.debug(
-            "Retrieving exchange rates queryset",
+            "Building exchange rates queryset",
             extra={
                 "user_id": self.request.user.id,
                 "query_params": dict(self.request.query_params),
-                "action": "exchange_rates_queryset_retrieval",
+                "action": "exchange_rates_queryset",
                 "component": "ExchangeRateViewSet",
             },
         )
         
         qs = super().get_queryset()
+        
+        # Currency filtering
         currencies = self.request.query_params.get('currencies')
-        date_from = self.request.query_params.get('date_from')
-        date_to = self.request.query_params.get('date_to')
-
-        # Filter by specific currencies
         if currencies:
             currency_list = [c.strip().upper() for c in currencies.split(',')]
             qs = qs.filter(currency__in=currency_list)
-            logger.debug(
-                "Applied currency filter to exchange rates",
-                extra={
-                    "user_id": self.request.user.id,
-                    "currencies": currency_list,
-                    "action": "currency_filter_applied",
-                    "component": "ExchangeRateViewSet",
-                },
-            )
 
         # Date range filtering
+        date_from = self.request.query_params.get('date_from')
         if date_from:
             qs = qs.filter(date__gte=date_from)
-            logger.debug(
-                "Applied date_from filter to exchange rates",
-                extra={
-                    "user_id": self.request.user.id,
-                    "date_from": date_from,
-                    "action": "date_from_filter_applied",
-                    "component": "ExchangeRateViewSet",
-                },
-            )
             
+        date_to = self.request.query_params.get('date_to')
         if date_to:
             qs = qs.filter(date__lte=date_to)
-            logger.debug(
-                "Applied date_to filter to exchange rates",
-                extra={
-                    "user_id": self.request.user.id,
-                    "date_to": date_to,
-                    "action": "date_to_filter_applied",
-                    "component": "ExchangeRateViewSet",
-                },
-            )
 
         logger.info(
-            "Exchange rates queryset prepared with filters",
+            "Exchange rates queryset prepared",
             extra={
                 "user_id": self.request.user.id,
-                "final_queryset_count": qs.count(),
+                "result_count": qs.count(),
                 "filters_applied": {
                     "currencies": currencies,
                     "date_from": date_from,
@@ -3178,569 +1538,155 @@ class ExchangeRateViewSet(BaseWorkspaceViewSet, viewsets.GenericViewSet):
         
         return qs
 
-
 # -------------------------------------------------------------------
 # TRANSACTION DRAFTS MANAGEMENT - OPTIMIZED
 # -------------------------------------------------------------------
 # Single draft operations per workspace with atomic replacement and cached permissions
 
 
-class TransactionDraftViewSet(BaseWorkspaceViewSet, viewsets.ModelViewSet):
+class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
     """
-    OPTIMIZED ViewSet for transaction draft management.
-    
-    Leverages cached permission data for efficient workspace access validation
-    while maintaining atomic draft operations and comprehensive security.
-    
-    Features:
-    - Single draft per workspace-type combination with atomic replacement
-    - Cached workspace access validation for efficient permission checks
-    - Admin impersonation support for all operations
-    - Comprehensive audit logging for draft lifecycle management
-    - Atomic operations to prevent data corruption
-    
-    Security:
-    - Workspace membership validation using cached permissions
-    - User-specific draft isolation
-    - Atomic draft replacement to prevent race conditions
+    THIN ViewSet for transaction draft management.
+    Uses ServiceExceptionHandlerMixin for unified error handling.
     """
     
     serializer_class = TransactionDraftSerializer
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.draft_service = DraftService()
+
     def get_permissions(self):
         """
-        Dynamically assign permissions based on action type.
+        THIN permissions - editor required for modifications.
         """
         if self.action in ['create', 'update', 'partial_update', 'destroy', 'save_draft', 'discard']:
-            return [IsAuthenticated(), IsWorkspaceEditor()]  
-        return [IsAuthenticated(), IsWorkspaceMember()]     
+            return [IsAuthenticated(), IsWorkspaceEditor()]
+        return [IsAuthenticated(), IsWorkspaceMember()]
 
     def get_queryset(self):
         """
-        OPTIMIZED: Get transaction drafts using cached workspace access.
-        
-        Leverages middleware-cached workspace IDs for efficient filtering when available,
-        with secure fallback to database queries for non-impersonation requests.
-        
-        Performance Features:
-        - Cached workspace ID filtering for admin impersonation scenarios
-        - Explicit user filtering for security compliance
-        - Optimized database queries with selective field loading
-        - Comprehensive audit logging for query optimization tracking
-        
-        Security Features:
-        - User context enforcement through explicit filtering
-        - Workspace membership validation via cached permissions
-        - Admin impersonation support with scope limitation
-        
-        Returns:
-            QuerySet: Transaction drafts filtered by user membership and cached workspace access
+        THIN queryset with optimized workspace filtering.
         """
         target_user = self.request.target_user
         
         logger.debug(
-            "Retrieving transaction drafts queryset with optimization",
+            "Building transaction drafts queryset",
             extra={
-                "request_user_id": self.request.user.id,
+                "user_id": self.request.user.id,
                 "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "action": "optimized_drafts_retrieval",
+                "action": "drafts_queryset",
                 "component": "TransactionDraftViewSet",
             },
         )
         
-        # OPTIMIZATION: Use cached workspace IDs for efficient filtering during admin impersonation
+        # Optimized filtering using cached workspace IDs
         if (self.request.is_admin_impersonation and 
-            hasattr(self.request, 'impersonation_workspace_ids') and 
-            self.request.impersonation_workspace_ids):
+            hasattr(self.request, 'impersonation_workspace_ids')):
             
             workspace_ids = self.request.impersonation_workspace_ids
             queryset = TransactionDraft.objects.filter(
                 user=target_user,
                 workspace_id__in=workspace_ids
             )
-            
-            logger.debug(
-                "Using cached workspace IDs for optimized draft filtering",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "cached_workspace_count": len(workspace_ids),
-                    "filtered_workspace_ids": workspace_ids,
-                    "optimization_type": "cached_workspace_filtering",
-                    "action": "cached_draft_filtering_applied",
-                    "component": "TransactionDraftViewSet",
-                },
-            )
         else:
-            # SECURE FALLBACK: Database query with membership validation for non-impersonation requests
             queryset = TransactionDraft.objects.filter(
                 user=target_user,
                 workspace__members=target_user.id
             )
-            
-            logger.debug(
-                "Using database membership query for draft filtering",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "optimization_type": "database_membership_filtering",
-                    "action": "database_draft_query_executed",
-                    "component": "TransactionDraftViewSet",
-                },
-            )
         
-        # PERFORMANCE OPTIMIZATION: Selective related object loading
-        optimized_queryset = queryset.select_related('workspace', 'user')
-        
-        logger.info(
-            "Transaction drafts queryset prepared with security and optimization",
-            extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": self.request.is_admin_impersonation,
-                "final_queryset_count": optimized_queryset.count(),
-                "optimization_strategy": "cached_workspace" if self.request.is_admin_impersonation else "database_membership",
-                "related_objects_loaded": ['workspace', 'user'],
-                "action": "transaction_drafts_queryset_optimized",
-                "component": "TransactionDraftViewSet",
-            },
-        )
-        
-        return optimized_queryset
+        return queryset.select_related('workspace', 'user')
 
     @action(detail=False, methods=['post'])
-    @transaction.atomic
     def save_draft(self, request, workspace_pk=None):
         """
-        OPTIMIZED: Atomically save transaction draft with cached permission validation.
-        
-        Performs atomic replacement of existing draft for the specified workspace and type
-        using cached permission data for efficient access validation.
-        
-        Args:
-            request: HTTP request containing draft data
-            workspace_pk: Workspace ID for draft association
-            
-        Returns:
-            Response: Serialized draft data with admin impersonation context
-            
-        Raises:
-            PermissionDenied: If user lacks access to the workspace
+        THIN save draft - delegates to DraftService.
         """
         target_user = request.target_user
         
         logger.info(
-            "Transaction draft save initiated with optimization",
+            "Draft save delegated to service",
             extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
+                "user_id": request.user.id,
                 "workspace_id": workspace_pk,
-                "action": "optimized_draft_save_start",
+                "action": "draft_save_delegated",
                 "component": "TransactionDraftViewSet",
             },
         )
         
-        # OPTIMIZATION: Use cached workspace existence and access validation
-        permissions_data = getattr(request, 'user_permissions', {})
-        workspace_exists = permissions_data.get('workspace_exists', False)
-        current_workspace_id = permissions_data.get('current_workspace_id')
-        
-        if not workspace_exists or current_workspace_id != int(workspace_pk):
-            logger.warning(
-                "Workspace access denied for draft save",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace_pk,
-                    "cached_workspace_exists": workspace_exists,
-                    "cached_workspace_id": current_workspace_id,
-                    "action": "draft_save_access_denied_cached",
-                    "component": "TransactionDraftViewSet",
-                    "severity": "medium",
-                },
-            )
+        # Validate workspace access
+        if not self._has_workspace_access(workspace_pk, request):
             raise PermissionDenied("You don't have access to this workspace")
         
-        # Get workspace using optimized query (already validated to exist)
-        workspace = get_object_or_404(
-            Workspace.objects.select_related('owner'), 
-            id=workspace_pk
-        )
-        
-        draft_type = request.data.get('draft_type')
-        transactions_data = request.data.get('transactions_data', [])
-        
-        # Atomic draft replacement to prevent race conditions
-        with transaction.atomic():
-            # Delete existing draft for this workspace and type
-            deleted_count, _ = TransactionDraft.objects.filter(
-                user=target_user,
-                workspace=workspace,
-                draft_type=draft_type
-            ).delete()
-            
-            # Create new draft with provided data
-            draft = TransactionDraft.objects.create(
-                user=target_user,
-                workspace=workspace,
-                draft_type=draft_type,
-                transactions_data=transactions_data
-            )
-        
-        logger.info(
-            "Transaction draft saved atomically with optimization",
-            extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
-                "workspace_id": workspace.id,
-                "draft_type": draft_type,
-                "transaction_count": len(transactions_data),
-                "previous_drafts_deleted": deleted_count,
-                "action": "optimized_draft_saved_atomically",
-                "component": "TransactionDraftViewSet",
-            },
+        # Delegate to service
+        draft = self.handle_service_call(
+            self.draft_service.save_draft,
+            user=target_user,
+            workspace_id=workspace_pk,
+            draft_type=request.data.get('draft_type'),
+            transactions_data=request.data.get('transactions_data', [])
         )
         
         response_data = TransactionDraftSerializer(draft).data
-        
-        # Add admin impersonation context if applicable
-        if request.is_admin_impersonation:
-            response_data['admin_impersonation'] = {
-                'target_user_id': target_user.id,
-                'target_username': target_user.username,
-                'requested_by_admin_id': request.user.id
-            }
-        
-        return Response(response_data)
+        return self._add_impersonation_context(Response(response_data), request)
 
     @action(detail=False, methods=['get'])
     def get_workspace_draft(self, request, workspace_pk=None):
         """
-        OPTIMIZED: Retrieve workspace-specific draft with cached permission validation.
-        
-        Fetches a single draft for the specified workspace and type using
-        cached permission data for efficient access validation.
-        
-        Args:
-            request: HTTP request with query parameters
-            workspace_pk: Workspace ID for draft retrieval
-            
-        Returns:
-            Response: Serialized draft data or empty transactions_data if not found
+        THIN get draft - delegates to DraftService.
         """
         target_user = request.target_user
-        draft_type = request.query_params.get('type')
         
         logger.debug(
-            "Retrieving workspace draft with optimization",
+            "Workspace draft retrieval delegated to service",
             extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
+                "user_id": request.user.id,
                 "workspace_id": workspace_pk,
-                "draft_type": draft_type,
-                "action": "optimized_draft_retrieval",
+                "draft_type": request.query_params.get('type'),
+                "action": "workspace_draft_retrieval",
                 "component": "TransactionDraftViewSet",
             },
         )
         
-        # OPTIMIZATION: Use cached workspace access validation
-        permissions_data = getattr(request, 'user_permissions', {})
-        workspace_exists = permissions_data.get('workspace_exists', False)
-        current_workspace_id = permissions_data.get('current_workspace_id')
-        
-        if not workspace_exists or current_workspace_id != int(workspace_pk):
-            logger.warning(
-                "Workspace access denied for draft retrieval",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace_pk,
-                    "cached_workspace_exists": workspace_exists,
-                    "cached_workspace_id": current_workspace_id,
-                    "action": "draft_retrieval_access_denied_cached",
-                    "component": "TransactionDraftViewSet",
-                    "severity": "medium",
-                },
-            )
+        # Validate workspace access
+        if not self._has_workspace_access(workspace_pk, request):
             return Response(
                 {"error": "You don't have access to this workspace."},
                 status=status.HTTP_403_FORBIDDEN
             )
         
         try:
-            draft = TransactionDraft.objects.select_related('workspace', 'user').get(
+            draft = self.handle_service_call(
+                self.draft_service.get_workspace_draft,
                 user=target_user,
                 workspace_id=workspace_pk,
-                draft_type=draft_type
+                draft_type=request.query_params.get('type')
             )
             
             response_data = TransactionDraftSerializer(draft).data
-            
-            # Add admin impersonation context if applicable
-            if request.is_admin_impersonation:
-                response_data['admin_impersonation'] = {
-                    'target_user_id': target_user.id,
-                    'target_username': target_user.username,
-                    'requested_by_admin_id': request.user.id
-                }
-            
-            logger.debug(
-                "Workspace draft retrieved successfully",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace_pk,
-                    "draft_type": draft_type,
-                    "draft_id": draft.id,
-                    "transaction_count": draft.get_transactions_count(),
-                    "action": "draft_retrieved_success",
-                    "component": "TransactionDraftViewSet",
-                },
-            )
-            
-            return Response(response_data)
+            return self._add_impersonation_context(Response(response_data), request)
             
         except TransactionDraft.DoesNotExist:
-            logger.debug(
-                "No draft found for workspace and type",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace_pk,
-                    "draft_type": draft_type,
-                    "action": "draft_not_found",
-                    "component": "TransactionDraftViewSet",
-                },
-            )
             return Response({"transactions_data": []})
 
-    @action(detail=True, methods=['delete'])
-    def discard(self, request, pk=None):
-        """
-        OPTIMIZED: Discard transaction draft with cached permission validation.
-        
-        Permanently deletes a specific draft after validating workspace access
-        using cached permission data.
-        
-        Args:
-            request: HTTP request for draft deletion
-            workspace_pk: Workspace ID containing the draft
-            draft_type: Type of draft to discard
-            
-        Returns:
-            Response: Success message with admin impersonation context
-        """
-        target_user = request.target_user
-
-        draft = self.get_object()
-        workspace_id = draft.workspace_id
-        draft_type = draft.draft_type
-        
-        logger.info(
-            "Transaction draft discard initiated with optimization",
-            extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
-                "workspace_id": workspace_id,
-                "draft_type": draft_type,
-                "action": "optimized_draft_discard_start",
-                "component": "TransactionDraftViewSet",
-            },
-        )
-        
-        # OPTIMIZATION: Use cached workspace access validation
+    def _has_workspace_access(self, workspace_id, request):
+        """Check if user has access to workspace."""
         permissions_data = getattr(request, 'user_permissions', {})
         workspace_exists = permissions_data.get('workspace_exists', False)
         current_workspace_id = permissions_data.get('current_workspace_id')
-        
-        if not workspace_exists or current_workspace_id != int(workspace_id):
-            logger.warning(
-                "Workspace access denied for draft discard",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace_id,
-                    "cached_workspace_exists": workspace_exists,
-                    "cached_workspace_id": current_workspace_id,
-                    "action": "draft_discard_access_denied_cached",
-                    "component": "TransactionDraftViewSet",
-                    "severity": "medium",
-                },
-            )
-            raise PermissionDenied("You don't have access to this workspace")
-        
-        draft_id = draft.id
-        transaction_count = draft.get_transactions_count()
-        
-        draft.delete()
-        
-        response_data = {"message": "Draft discarded successfully"}
-        
-        # Add admin impersonation context if applicable
-        if request.is_admin_impersonation:
-            response_data['admin_impersonation'] = {
-                'target_user_id': target_user.id,
-                'target_username': target_user.username,
+        return workspace_exists and current_workspace_id == int(workspace_id)
+
+    def _add_impersonation_context(self, response, request):
+        """Add impersonation context to response."""
+        if (request.is_admin_impersonation and 
+            response.status_code == status.HTTP_200_OK and
+            isinstance(response.data, dict)):
+            
+            response.data['admin_impersonation'] = {
+                'target_user_id': request.target_user.id,
+                'target_username': request.target_user.username,
                 'requested_by_admin_id': request.user.id
             }
         
-        logger.info(
-            "Transaction draft discarded successfully",
-            extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "is_admin_impersonation": request.is_admin_impersonation,
-                "workspace_id": workspace_id,
-                "draft_type": draft_type,
-                "draft_id": draft_id,
-                "discarded_transaction_count": transaction_count,
-                "action": "draft_discarded_success",
-                "component": "TransactionDraftViewSet",
-            },
-        )
-        
-        return Response(response_data)
-
-    def perform_create(self, serializer):
-        """
-        OPTIMIZED: Create transaction draft with cached permission validation.
-        
-        Validates workspace access using cached permission data before
-        creating a new draft instance.
-        """
-        workspace = serializer.validated_data.get('workspace')
-        target_user = self.request.target_user
-        
-        # OPTIMIZATION: Use cached workspace access validation
-        permissions_data = getattr(self.request, 'user_permissions', {})
-        workspace_exists = permissions_data.get('workspace_exists', False)
-        current_workspace_id = permissions_data.get('current_workspace_id')
-        
-        if not workspace_exists or current_workspace_id != workspace.id:
-            logger.warning(
-                "Workspace access denied for draft creation",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": workspace.id,
-                    "cached_workspace_exists": workspace_exists,
-                    "cached_workspace_id": current_workspace_id,
-                    "action": "draft_creation_access_denied_cached",
-                    "component": "TransactionDraftViewSet",
-                    "severity": "medium",
-                },
-            )
-            raise PermissionDenied("You don't have access to this workspace")
-        
-        serializer.save(user=target_user)
-        
-        logger.info(
-            "Transaction draft created successfully",
-            extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "workspace_id": workspace.id,
-                "draft_type": serializer.validated_data.get('draft_type'),
-                "action": "draft_created_success",
-                "component": "TransactionDraftViewSet",
-            },
-        )
-
-    def perform_update(self, serializer):
-        """
-        OPTIMIZED: Update transaction draft with cached permission validation.
-        
-        Validates workspace access using cached permission data before
-        updating an existing draft instance.
-        """
-        instance = serializer.instance
-        target_user = self.request.target_user
-        
-        # OPTIMIZATION: Use cached workspace access validation
-        permissions_data = getattr(self.request, 'user_permissions', {})
-        workspace_exists = permissions_data.get('workspace_exists', False)
-        current_workspace_id = permissions_data.get('current_workspace_id')
-        
-        if not workspace_exists or current_workspace_id != instance.workspace.id:
-            logger.warning(
-                "Workspace access denied for draft update",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": instance.workspace.id,
-                    "cached_workspace_exists": workspace_exists,
-                    "cached_workspace_id": current_workspace_id,
-                    "action": "draft_update_access_denied_cached",
-                    "component": "TransactionDraftViewSet",
-                    "severity": "medium",
-                },
-            )
-            raise PermissionDenied("You don't have access to this workspace")
-        
-        serializer.save()
-        
-        logger.info(
-            "Transaction draft updated successfully",
-            extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "draft_id": instance.id,
-                "workspace_id": instance.workspace.id,
-                "action": "draft_updated_success",
-                "component": "TransactionDraftViewSet",
-            },
-        )
-
-    def perform_destroy(self, instance):
-        """
-        OPTIMIZED: Delete transaction draft with cached permission validation.
-        
-        Validates workspace access using cached permission data before
-        deleting a draft instance.
-        """
-        target_user = self.request.target_user
-        
-        # OPTIMIZATION: Use cached workspace access validation
-        permissions_data = getattr(self.request, 'user_permissions', {})
-        workspace_exists = permissions_data.get('workspace_exists', False)
-        current_workspace_id = permissions_data.get('current_workspace_id')
-        
-        if not workspace_exists or current_workspace_id != instance.workspace.id:
-            logger.warning(
-                "Workspace access denied for draft deletion",
-                extra={
-                    "request_user_id": self.request.user.id,
-                    "target_user_id": target_user.id,
-                    "workspace_id": instance.workspace.id,
-                    "cached_workspace_exists": workspace_exists,
-                    "cached_workspace_id": current_workspace_id,
-                    "action": "draft_deletion_access_denied_cached",
-                    "component": "TransactionDraftViewSet",
-                    "severity": "medium",
-                },
-            )
-            raise PermissionDenied("You don't have access to this workspace")
-        
-        draft_id = instance.id
-        workspace_id = instance.workspace.id
-        transaction_count = instance.get_transactions_count()
-        
-        instance.delete()
-        
-        logger.info(
-            "Transaction draft deleted successfully",
-            extra={
-                "request_user_id": self.request.user.id,
-                "target_user_id": target_user.id,
-                "draft_id": draft_id,
-                "workspace_id": workspace_id,
-                "discarded_transaction_count": transaction_count,
-                "action": "draft_deleted_success",
-                "component": "TransactionDraftViewSet",
-            },
-        )
+        return response
+    

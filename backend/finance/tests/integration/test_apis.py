@@ -30,6 +30,9 @@ from ..factories import (
     TransactionFactory, TransactionDraftFactory, WorkspaceAdminFactory
 )
 
+from finance.mixins.workspace_membership import WorkspaceMembershipMixin
+
+
 User = get_user_model()
 fake = Faker()
 
