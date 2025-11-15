@@ -34,10 +34,13 @@ from .serializers import (
 from .services.draft_service import DraftService
 from .services.transaction_service import TransactionService
 from .services.currency_service import CurrencyService
+from .services.membership_service import MembershipService
+from .services.workspace_service import WorkspaceService
 from .utils.category_utils import sync_categories_tree
 from .mixins.workspace_context import WorkspaceContextMixin
 from .mixins.workspace_membership import WorkspaceMembershipMixin
 from .mixins.service_exception_handler import ServiceExceptionHandlerMixin
+WorkspaceService
 
 
 

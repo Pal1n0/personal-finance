@@ -297,6 +297,105 @@ class WorkspaceSerializer(WorkspaceMembershipMixin, ServiceExceptionHandlerMixin
         )
         
         return workspace
+    
+# -------------------------------------------------------------------
+# WORKSPACE MEMBERSHIP SERIALIZER 
+# -------------------------------------------------------------------
+
+class WorkspaceMembershipSerializer(serializers.ModelSerializer):
+    """
+    Production-ready workspace membership serializer.
+    
+    Handles workspace membership data with user and workspace context
+    and role-based permission validation.
+    """
+    
+    user_username = serializers.CharField(source='user.username', read_only=True)
+    user_email = serializers.CharField(source='user.email', read_only=True)
+    workspace_name = serializers.CharField(source='workspace.name', read_only=True)
+    is_workspace_owner = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = WorkspaceMembership
+        fields = [
+            'id', 'workspace', 'workspace_name', 'user', 'user_username', 
+            'user_email', 'role', 'is_workspace_owner', 'joined_at'
+        ]
+        read_only_fields = ['id', 'workspace', 'user', 'joined_at', 'is_workspace_owner']
+    
+    def get_is_workspace_owner(self, obj):
+        """Check if membership user is workspace owner."""
+        return obj.user == obj.workspace.owner
+    
+    def validate_role(self, value):
+        """Validate role assignment with permission checks."""
+        valid_roles = ['admin', 'editor', 'viewer']
+        
+        if value not in valid_roles:
+            logger.warning(
+                "Invalid role provided",
+                extra={
+                    "provided_role": value,
+                    "valid_roles": valid_roles,
+                    "action": "role_validation_failed",
+                    "component": "WorkspaceMembershipSerializer",
+                    "severity": "medium",
+                },
+            )
+            raise serializers.ValidationError(f"Invalid role. Choose from: {', '.join(valid_roles)}")
+        
+        request = self.context.get('request')
+        instance = self.instance
+        
+        if instance and request:
+            # Permission checks...
+            workspace = instance.workspace
+            
+            # Use cached permissions instead of DB query
+            permissions_data = getattr(request, 'user_permissions', {})
+            user_role = permissions_data.get('workspace_role')
+            
+            # Only owners and admins can change roles
+            if user_role not in ['admin', 'owner']:
+                logger.warning(
+                    "Role change permission denied",
+                    extra={
+                        "user_id": request.user.id,
+                        "workspace_id": workspace.id,
+                        "user_role": user_role,
+                        "required_roles": ['admin', 'owner'],
+                        "action": "role_change_permission_denied",
+                        "component": "WorkspaceMembershipSerializer",
+                        "severity": "medium",
+                    },
+                )
+                raise serializers.ValidationError("You don't have permission to change roles.")
+            
+            # Prevent changing owner's role
+            if instance.user == workspace.owner:
+                logger.warning(
+                    "Attempt to change owner role blocked",
+                    extra={
+                        "user_id": request.user.id,
+                        "workspace_id": workspace.id,
+                        "target_user_id": instance.user.id,
+                        "action": "owner_role_change_blocked",
+                        "component": "WorkspaceMembershipSerializer",
+                        "severity": "high",
+                    },
+                )
+                raise serializers.ValidationError("Cannot change owner's role.")
+        
+        logger.debug(
+            "Role validation completed successfully",
+            extra={
+                "role": value,
+                "action": "role_validation_success",
+                "component": "WorkspaceMembershipSerializer",
+            },
+        )
+        
+        return value
 
 # -------------------------------------------------------------------
 # WORKSPACE SETTINGS SERIALIZER  
