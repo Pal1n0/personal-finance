@@ -6,8 +6,9 @@ This configuration extends base settings with pre-production specific values
 including stricter security, external services, and structured logging.
 """
 
-from .base import *
 import logging
+
+from .base import *
 from .utils import load_environment_config
 
 # Load environment configuration

@@ -5,6 +5,7 @@ Eliminates duplicate database queries through optimized request-level caching.
 """
 
 import logging
+
 from ..services.membership_cache_service import MembershipCacheService
 
 logger = logging.getLogger(__name__)
@@ -26,18 +27,21 @@ class WorkspaceMembershipMixin:
     def _get_user_memberships(self, request):
         """
         Retrieve cached membership data from request context.
-        
+
         Args:
             request: HTTP request object
-            
+
         Returns:
-            dict: Cached workspace memberships {workspace_id: role_data}
+            dict: Cached workspace memberships {workspace_id: role_string}
         """
-        if not hasattr(request, '_cached_user_memberships'):
-            target_user = getattr(request, 'target_user', request.user)
-            user_data = self.membership_service.get_comprehensive_user_data(target_user.id)
-            request._cached_user_memberships = user_data['memberships']
-            
+        if not hasattr(request, "_cached_user_memberships"):
+            target_user = getattr(request, "target_user", request.user)
+            user_data = self.membership_service.get_comprehensive_user_data(
+                target_user.id
+            )
+
+            request._cached_user_memberships = user_data["roles"]
+
             logger.debug(
                 "Membership cache initialized from service",
                 extra={
@@ -47,24 +51,23 @@ class WorkspaceMembershipMixin:
                     "component": "WorkspaceMembershipMixin",
                 },
             )
-        
+
         return request._cached_user_memberships
 
     def _get_membership_for_workspace(self, obj, request):
         """
         Get user role for specific workspace from optimized cache.
-        
+
         Args:
             obj: Workspace instance
             request: HTTP request object
-            
+
         Returns:
             str or None: User's role in the workspace
         """
         memberships = self._get_user_memberships(request)
-        role_data = memberships.get(obj.id)
-        role = role_data['role'] if role_data else None
-        
+        role = memberships.get(obj.id)
+
         if role:
             logger.debug(
                 "Workspace role retrieved from cache",
@@ -76,5 +79,5 @@ class WorkspaceMembershipMixin:
                     "component": "WorkspaceMembershipMixin",
                 },
             )
-        
+
         return role

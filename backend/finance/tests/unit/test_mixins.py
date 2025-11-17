@@ -1,669 +1,729 @@
-import pytest
-from django.test import TestCase, RequestFactory
-from django.contrib.auth import get_user_model
-from unittest.mock import Mock, patch, MagicMock
-from rest_framework.exceptions import ValidationError as DRFValidationError
-from rest_framework import serializers
+# tests/test_mixins.py
+from unittest.mock import MagicMock, Mock, patch
 
-from finance.mixins import TargetUserMixin, WorkspaceMembershipMixin, CategoryWorkspaceMixin
-from finance.models import Workspace, WorkspaceMembership, ExpenseCategoryVersion, IncomeCategoryVersion
+import pytest
+from django.contrib.auth import get_user_model
+from django.core.cache import cache
+from django.test import RequestFactory, TestCase
+from rest_framework import serializers
+from rest_framework.exceptions import ValidationError as DRFValidationError
+
+from finance.models import (ExpenseCategoryVersion, IncomeCategoryVersion,
+                            Workspace, WorkspaceMembership)
+from finance.mixins.category_workspace import CategoryWorkspaceMixin
+from finance.mixins.target_user import TargetUserMixin
+from finance.mixins.workspace_context import WorkspaceContextMixin
+from finance.mixins.workspace_membership import WorkspaceMembershipMixin
+from finance.services.membership_cache_service import MembershipCacheService
+from finance.services.workspace_context_service import WorkspaceContextService
 
 User = get_user_model()
 
 
-class BaseTestMixin:
-    """Base class for mixin tests that provides proper serializer context."""
-    
-    def create_test_serializer(self, mixin_class, context=None, instance=None):
-        """Create a proper serializer with the mixin for testing."""
+class BaseMixinTest(TestCase):
+    """Base class for all mixin tests."""
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+        # Create test users
+        self.user = User.objects.create_user(
+            email="user@test.com", password="testpass123", username="testuser"
+        )
+        self.target_user = User.objects.create_user(
+            email="target@test.com", password="testpass123", username="targetuser"
+        )
+        self.admin_user = User.objects.create_user(
+            email="admin@test.com", password="testpass123", username="adminuser"
+        )
+
+        # Create workspaces
+        self.workspace1 = Workspace.objects.create(name="Workspace 1", owner=self.user)
+        self.workspace2 = Workspace.objects.create(
+            name="Workspace 2", owner=self.admin_user
+        )
+
+        # Create category versions
+        self.expense_version1 = ExpenseCategoryVersion.objects.create(
+            workspace=self.workspace1, name="Expense Version 1", created_by=self.user
+        )
+        self.expense_version2 = ExpenseCategoryVersion.objects.create(
+            workspace=self.workspace2,
+            name="Expense Version 2",
+            created_by=self.admin_user,
+        )
+        self.income_version1 = IncomeCategoryVersion.objects.create(
+            workspace=self.workspace1, name="Income Version 1", created_by=self.user
+        )
+
+        # Create memberships
+        self.membership1 = WorkspaceMembership.objects.create(
+            workspace=self.workspace1, user=self.target_user, role="editor"
+        )
+        self.membership2 = WorkspaceMembership.objects.create(
+            workspace=self.workspace2, user=self.user, role="viewer"
+        )
+
+    def create_serializer_with_mixin(self, mixin_class, context=None, instance=None):
+        """Helper to create serializer with mixin."""
+
         class TestSerializer(mixin_class, serializers.Serializer):
             class Meta:
-                fields = '__all__'
-                
+                fields = "__all__"
+
         serializer = TestSerializer(context=context or {})
         if instance:
             serializer.instance = instance
         return serializer
 
-
-class TestTargetUserMixin(TestCase, BaseTestMixin):
-    """Tests for TargetUserMixin user assignment functionality."""
-    
-    def setUp(self):
-        self.factory = RequestFactory()
-        
-        self.regular_user = User.objects.create_user(
-            email='user@test.com',
-            password='testpass123',
-            username='regularuser'
-        )
-        self.target_user = User.objects.create_user(
-            email='target@test.com',
-            password='testpass123',
-            username='targetuser'
-        )
-        self.admin_user = User.objects.create_user(
-            email='admin@test.com',
-            password='testpass123',
-            username='adminuser'
-        )
-
-    def create_request(self, user=None, target_user=None, is_impersonation=False):
-        request = self.factory.get('/')
-        if user:
-            request.user = user
-        else:
-            request.user = self.regular_user
+    def create_request(
+        self, user=None, target_user=None, workspace=None, is_impersonation=False
+    ):
+        """Helper to create request with common attributes."""
+        request = self.factory.get("/")
+        request.user = user or self.user
         if target_user:
             request.target_user = target_user
-        request.is_admin_impersonation = is_impersonation
-        return request
-
-    def test_validate_sets_user_from_target_user(self):
-        """Test user assignment from request.target_user."""
-        request = self.create_request(user=self.admin_user, target_user=self.target_user)
-        
-        serializer = self.create_test_serializer(TargetUserMixin, context={'request': request})
-        
-        initial_attrs = {'some_field': 'some_value'}
-        result_attrs = serializer.validate(initial_attrs)
-        
-        self.assertEqual(result_attrs['user'], self.target_user)
-        self.assertEqual(result_attrs['some_field'], 'some_value')
-
-    def test_validate_preserves_original_attrs(self):
-        """Test original attributes preservation when setting user."""
-        request = self.create_request(user=self.admin_user, target_user=self.target_user)
-        
-        serializer = self.create_test_serializer(TargetUserMixin, context={'request': request})
-        
-        initial_attrs = {
-            'field1': 'value1',
-            'field2': 'value2',
-            'user': self.regular_user  # Should be overwritten
-        }
-        result_attrs = serializer.validate(initial_attrs)
-        
-        self.assertEqual(result_attrs['user'], self.target_user)
-        self.assertEqual(result_attrs['field1'], 'value1')
-        self.assertEqual(result_attrs['field2'], 'value2')
-
-    def test_validate_without_request_context(self):
-        """Test mixin behavior without request context."""
-        serializer = self.create_test_serializer(TargetUserMixin, context={})
-        
-        initial_attrs = {'field': 'value'}
-        result_attrs = serializer.validate(initial_attrs)
-        
-        self.assertEqual(result_attrs, initial_attrs)
-
-    def test_validate_without_target_user(self):
-        """Test mixin behavior when request has no target_user."""
-        request = self.create_request(user=self.admin_user)  # No target_user
-        
-        serializer = self.create_test_serializer(TargetUserMixin, context={'request': request})
-        
-        initial_attrs = {'field': 'value'}
-        result_attrs = serializer.validate(initial_attrs)
-        
-        self.assertEqual(result_attrs, initial_attrs)
-
-    @patch('finance.mixins.logger')
-    def test_validate_logging_on_success(self, mock_logger):
-        """Test logging for successful user assignment."""
-        request = self.create_request(
-            user=self.admin_user, 
-            target_user=self.target_user,
-            is_impersonation=True
-        )
-        
-        serializer = self.create_test_serializer(TargetUserMixin, context={'request': request})
-        serializer.validate({})
-        
-        mock_logger.debug.assert_called_once()
-        call_args = mock_logger.debug.call_args
-        self.assertEqual(call_args[1]['extra']['target_user_id'], self.target_user.id)
-        self.assertEqual(call_args[1]['extra']['impersonation_active'], True)
-        self.assertEqual(call_args[1]['extra']['action'], 'target_user_assignment')
-        self.assertEqual(call_args[1]['extra']['component'], 'TargetUserMixin')
-
-    def test_inheritance_behavior(self):
-        """Test mixin integration with parent class validation."""
-        class ParentSerializer(serializers.Serializer):
-            def validate(self, attrs):
-                attrs['parent_validated'] = True
-                return super().validate(attrs)
-                
-        class TestSerializer(TargetUserMixin, ParentSerializer):
-            def validate(self, attrs):
-                attrs = super().validate(attrs)
-                attrs['child_validated'] = True
-                return attrs
-                
-        request = self.create_request(user=self.admin_user, target_user=self.target_user)
-        
-        serializer = TestSerializer(context={'request': request})
-        result_attrs = serializer.validate({'original': 'value'})
-        
-        self.assertEqual(result_attrs['user'], self.target_user)
-        self.assertEqual(result_attrs['parent_validated'], True)
-        self.assertEqual(result_attrs['child_validated'], True)
-        self.assertEqual(result_attrs['original'], 'value')
-
-
-class TestWorkspaceMembershipMixin(TestCase, BaseTestMixin):
-    """Tests for WorkspaceMembershipMixin caching functionality."""
-    
-    def setUp(self):
-        self.mixin = WorkspaceMembershipMixin()
-        self.factory = RequestFactory()
-        
-        self.user = User.objects.create_user(
-            email='user@test.com',
-            password='testpass123',
-            username='testuser'
-        )
-        self.other_user = User.objects.create_user(
-            email='other@test.com',
-            password='testpass123',
-            username='otheruser'
-        )
-
-        self.workspace1 = Workspace.objects.create(
-            name='Workspace 1',
-            owner=self.user
-        )
-        self.workspace2 = Workspace.objects.create(
-            name='Workspace 2', 
-            owner=self.other_user
-        )
-        self.workspace3 = Workspace.objects.create(  # ← PRIDAJ Tretí workspace
-            name='Workspace 3',
-            owner=self.other_user
-        )
-
-        
-        # Create memberships - user má 2 memberships, other_user má 1
-        self.membership1 = WorkspaceMembership.objects.create(
-            workspace=self.workspace1,
-            user=self.other_user,
-            role='editor'
-        )
-        self.membership2 = WorkspaceMembership.objects.create(
-            workspace=self.workspace2,
-            user=self.user,
-            role='viewer'
-        )
-        self.membership3 = WorkspaceMembership.objects.create(  # ← PRIDAJ Druhý membership pre usera
-            workspace=self.workspace3,
-            user=self.user,
-            role='editor'
-        )
-
-    def create_request(self, user=None):
-        request = self.factory.get('/')
-        if user:
-            request.user = user
-        else:
-            request.user = self.user
-        return request
-
-    def test_get_user_memberships_initial_cache_creation(self):
-        """Test cache creation on first access."""
-        request = self.create_request(user=self.user)
-        
-        self.assertFalse(hasattr(request, '_cached_user_memberships'))
-        
-        memberships = self.mixin._get_user_memberships(request)
-        
-        self.assertTrue(hasattr(request, '_cached_user_memberships'))
-        self.assertEqual(len(memberships), 3)  
-        self.assertEqual(memberships[self.workspace2.id], 'viewer')
-        self.assertEqual(memberships[self.workspace3.id], 'editor')
-
-    def test_get_user_memberships_cache_reuse(self):
-        """Test cache reuse on subsequent calls."""
-        request = self.create_request(user=self.user)
-        
-        with self.assertNumQueries(1):
-            memberships1 = self.mixin._get_user_memberships(request)
-        
-        with self.assertNumQueries(0):
-            memberships2 = self.mixin._get_user_memberships(request)
-        
-        self.assertEqual(memberships1, memberships2)
-        self.assertEqual(len(memberships1), 3)  
-
-    def test_get_user_memberships_select_related_optimization(self):
-        """Test select_related optimization."""
-        request = self.create_request(user=self.user)
-        
-        with self.assertNumQueries(1):
-            memberships = self.mixin._get_user_memberships(request)
-        
-        self.assertIsInstance(memberships, dict)
-        self.assertEqual(len(memberships), 3)  
-
-    @patch('finance.mixins.logger')
-    def test_get_user_memberships_logging(self, mock_logger):
-        """Test cache initialization logging."""
-        request = self.create_request(user=self.user)
-        
-        self.mixin._get_user_memberships(request)
-        
-        mock_logger.debug.assert_called_once()
-        call_args = mock_logger.debug.call_args
-        self.assertEqual(call_args[1]['extra']['user_id'], self.user.id)
-        self.assertEqual(call_args[1]['extra']['cached_workspaces_count'], 3)  
-
-    def test_get_membership_for_workspace_existing_membership(self):
-        """Test role retrieval for workspace membership."""
-        request = self.create_request(user=self.other_user)
-        
-        role = self.mixin._get_membership_for_workspace(self.workspace1, request)
-        
-        self.assertEqual(role, 'editor')
-
-    def test_get_membership_for_workspace_no_membership(self):
-        """Test role retrieval for non-member workspace."""
-        other_workspace = Workspace.objects.create(
-            name='Other Workspace',
-            owner=self.other_user
-        )
-        request = self.create_request(user=self.user)
-        
-        role = self.mixin._get_membership_for_workspace(other_workspace, request)
-        
-        self.assertIsNone(role)
-
-    def test_get_membership_for_workspace_uses_cache(self):
-        """Test cache usage in workspace role retrieval."""
-        request = self.create_request(user=self.other_user)
-        
-        self.mixin._get_user_memberships(request)
-        
-        with self.assertNumQueries(0):
-            role = self.mixin._get_membership_for_workspace(self.workspace1, request)
-        
-        self.assertEqual(role, 'editor')
-
-    @patch('finance.mixins.logger')
-    def test_get_membership_for_workspace_logging_on_cache_hit(self, mock_logger):
-        """Test logging for cache hits."""
-        request = self.create_request(user=self.other_user)
-        
-        self.mixin._get_user_memberships(request)
-        self.mixin._get_membership_for_workspace(self.workspace1, request)
-        
-        mock_logger.debug.assert_called()
-        cache_hit_call = None
-        for call in mock_logger.debug.call_args_list:
-            if call[1]['extra'].get('action') == 'workspace_role_cache_hit':
-                cache_hit_call = call
-                break
-        
-        self.assertIsNotNone(cache_hit_call)
-        self.assertEqual(cache_hit_call[1]['extra']['user_id'], self.other_user.id)
-        self.assertEqual(cache_hit_call[1]['extra']['workspace_id'], self.workspace1.id)
-
-    def test_get_membership_for_workspace_no_logging_on_cache_miss(self):
-        """Test no logging for cache misses."""
-        request = self.create_request(user=self.user)
-        other_workspace = Workspace.objects.create(
-            name='Other Workspace',
-            owner=self.other_user
-        )
-        
-        with patch('finance.mixins.logger') as mock_logger:
-            role = self.mixin._get_membership_for_workspace(other_workspace, request)
-            
-            cache_hit_calls = [
-                call for call in mock_logger.debug.call_args_list
-                if call[1]['extra'].get('action') == 'workspace_role_cache_hit'
-            ]
-            self.assertEqual(len(cache_hit_calls), 0)
-
-    def test_multiple_users_independent_caches(self):
-        """Test independent caches for different users."""
-        request1 = self.create_request(user=self.user)
-        request2 = self.create_request(user=self.other_user)
-        
-        memberships1 = self.mixin._get_user_memberships(request1)
-        memberships2 = self.mixin._get_user_memberships(request2)
-        
-        self.assertEqual(len(memberships1), 3)  
-        self.assertEqual(len(memberships2), 3)  
-        self.assertNotEqual(id(request1._cached_user_memberships), id(request2._cached_user_memberships))
-
-    def test_integration_with_serializer(self):
-        """Test mixin integration with serializer."""
-        class TestSerializer(WorkspaceMembershipMixin, serializers.Serializer):
-            def get_user_role(self, obj):
-                request = self.context.get('request')
-                if request:
-                    return self._get_membership_for_workspace(obj, request)
-                return None
-        
-        request = self.create_request(user=self.other_user)
-        context = {'request': request}
-        serializer = TestSerializer(context=context)
-        
-        role = serializer.get_user_role(self.workspace1)
-        self.assertEqual(role, 'editor')
-
-
-class TestCategoryWorkspaceMixin(TestCase, BaseTestMixin):
-    """Tests for CategoryWorkspaceMixin security validation."""
-    
-    def setUp(self):
-        self.factory = RequestFactory()
-        
-        self.user = User.objects.create_user(
-            email='user@test.com',
-            password='testpass123',
-            username='testuser'
-        )
-        self.workspace1 = Workspace.objects.create(
-            name='Workspace 1',
-            owner=self.user
-        )
-        self.workspace2 = Workspace.objects.create(
-            name='Workspace 2',
-            owner=self.user
-        )
-        
-        self.expense_version1 = ExpenseCategoryVersion.objects.create(
-            workspace=self.workspace1,
-            name='Expense Version 1',
-            created_by=self.user
-        )
-        self.expense_version2 = ExpenseCategoryVersion.objects.create(
-            workspace=self.workspace2,
-            name='Expense Version 2',
-            created_by=self.user
-        )
-        
-        self.income_version1 = IncomeCategoryVersion.objects.create(
-            workspace=self.workspace1,
-            name='Income Version 1',
-            created_by=self.user
-        )
-
-    def create_request(self, workspace=None, is_impersonation=False):
-        request = self.factory.get('/')
-        request.user = self.user
         if workspace:
             request.workspace = workspace
         request.is_admin_impersonation = is_impersonation
+        request.user_permissions = Mock()
+        request.user_permissions.workspace_exists = False
+        request.user_permissions.current_workspace_id = None
+        request.user_permissions.workspace_role = None
         return request
 
-    def test_validate_same_workspace_allowed(self):
-        """Test same workspace category validation."""
-        request = self.create_request(workspace=self.workspace1)
-        
-        serializer = self.create_test_serializer(CategoryWorkspaceMixin, context={'request': request})
-        
-        data = {'version': self.expense_version1}
-        result_data = serializer.validate(data)
-        
-        self.assertEqual(result_data, data)
 
-    def test_validate_different_workspace_blocked(self):
-        """Test cross-workspace category validation blocking."""
+class TestTargetUserMixin(BaseMixinTest):
+    """Comprehensive tests for TargetUserMixin."""
+
+    def test_user_assignment_from_target_user(self):
+        """Test user is assigned from request.target_user."""
+        request = self.create_request(
+            user=self.admin_user, target_user=self.target_user
+        )
+        serializer = self.create_serializer_with_mixin(
+            TargetUserMixin, context={"request": request}
+        )
+
+        result = serializer.validate({"field": "value"})
+
+        self.assertEqual(result["user"], self.target_user)
+        self.assertEqual(result["field"], "value")
+
+    def test_user_assignment_preserves_existing_user(self):
+        """Test existing user is overwritten by target_user."""
+        request = self.create_request(
+            user=self.admin_user, target_user=self.target_user
+        )
+        serializer = self.create_serializer_with_mixin(
+            TargetUserMixin, context={"request": request}
+        )
+
+        result = serializer.validate({"user": self.user, "field": "value"})
+
+        self.assertEqual(result["user"], self.target_user)  # Overwritten
+        self.assertEqual(result["field"], "value")
+
+    def test_workspace_assignment_from_request(self):
+        """Test workspace is assigned from request.workspace."""
         request = self.create_request(workspace=self.workspace1)
-        
-        serializer = self.create_test_serializer(CategoryWorkspaceMixin, context={'request': request})
-        
-        data = {'version': self.expense_version2}
-        
+        serializer = self.create_serializer_with_mixin(
+            TargetUserMixin, context={"request": request}
+        )
+
+        result = serializer.validate({"field": "value"})
+
+        self.assertEqual(result["workspace"], self.workspace1)
+        self.assertEqual(result["field"], "value")
+
+    def test_workspace_assignment_preserves_existing_workspace(self):
+        """Test existing workspace is preserved."""
+        request = self.create_request(workspace=self.workspace1)
+        serializer = self.create_serializer_with_mixin(
+            TargetUserMixin, context={"request": request}
+        )
+
+        result = serializer.validate({"workspace": self.workspace2, "field": "value"})
+
+        self.assertEqual(result["workspace"], self.workspace2)  # Preserved
+        self.assertEqual(result["field"], "value")
+
+    def test_no_request_context(self):
+        """Test behavior without request context."""
+        serializer = self.create_serializer_with_mixin(TargetUserMixin, context={})
+
+        result = serializer.validate({"field": "value"})
+
+        self.assertEqual(result, {"field": "value"})
+
+    def test_request_without_target_user(self):
+        """Test behavior when request has no target_user."""
+        request = self.create_request()  # No target_user
+        serializer = self.create_serializer_with_mixin(
+            TargetUserMixin, context={"request": request}
+        )
+
+        result = serializer.validate({"field": "value"})
+
+        self.assertEqual(result, {"field": "value"})
+
+    @patch("finance.mixins.target_user.logger")
+    def test_impersonation_logging(self, mock_logger):
+        """Test logging during admin impersonation."""
+        request = self.create_request(
+            user=self.admin_user, target_user=self.target_user, is_impersonation=True
+        )
+        serializer = self.create_serializer_with_mixin(
+            TargetUserMixin, context={"request": request}
+        )
+
+        serializer.validate({})
+
+        mock_logger.debug.assert_called_once()
+        call_args = mock_logger.debug.call_args[1]
+        self.assertEqual(call_args["extra"]["target_user_id"], self.target_user.id)
+        self.assertEqual(call_args["extra"]["impersonation_active"], True)
+        self.assertEqual(call_args["extra"]["action"], "target_user_assignment")
+
+    def test_serializer_inheritance_chain(self):
+        """Test mixin works correctly in inheritance chain."""
+
+        class ParentSerializer(serializers.Serializer):
+            def validate(self, attrs):
+                attrs["parent"] = True
+                return super().validate(attrs)
+
+        class ChildSerializer(TargetUserMixin, ParentSerializer):
+            def validate(self, attrs):
+                attrs["child"] = True
+                return super().validate(attrs)
+
+        request = self.create_request(
+            user=self.admin_user, target_user=self.target_user
+        )
+        serializer = ChildSerializer(context={"request": request})
+
+        result = serializer.validate({"original": "value"})
+
+        self.assertEqual(result["user"], self.target_user)
+        self.assertEqual(result["parent"], True)
+        self.assertEqual(result["child"], True)
+        self.assertEqual(result["original"], "value")
+
+
+class TestWorkspaceMembershipMixin(BaseMixinTest):
+    """Comprehensive tests for WorkspaceMembershipMixin."""
+
+    def setUp(self):
+        super().setUp()
+        self.mixin = WorkspaceMembershipMixin()
+
+    def test_membership_cache_initialization(self):
+        """Test cache is initialized on first access."""
+        request = self.create_request(user=self.user)
+
+        self.assertFalse(hasattr(request, "_cached_user_memberships"))
+
+        memberships = self.mixin._get_user_memberships(request)
+
+        self.assertTrue(hasattr(request, "_cached_user_memberships"))
+        self.assertIn(self.workspace2.id, memberships)
+        self.assertEqual(memberships[self.workspace2.id], "viewer")
+
+    def test_membership_cache_reuse(self):
+        """Test cache is reused on subsequent calls."""
+        request = self.create_request(user=self.user)
+
+        # First call - should query database
+        with self.assertNumQueries(2):
+            memberships1 = self.mixin._get_user_memberships(request)
+
+        # Second call - should use cache
+        with self.assertNumQueries(0):
+            memberships2 = self.mixin._get_user_memberships(request)
+
+        self.assertEqual(memberships1, memberships2)
+
+    def test_membership_for_workspace_existing(self):
+        """Test role retrieval for existing membership."""
+        request = self.create_request(user=self.target_user)
+
+        role = self.mixin._get_membership_for_workspace(self.workspace1, request)
+
+        self.assertEqual(role, "editor")
+
+    def test_membership_for_workspace_nonexistent(self):
+        """Test role retrieval for non-existent membership."""
+        new_workspace = Workspace.objects.create(
+            name="New Workspace", owner=self.admin_user
+        )
+        request = self.create_request(user=self.user)
+
+        role = self.mixin._get_membership_for_workspace(new_workspace, request)
+
+        self.assertIsNone(role)
+
+    def test_membership_cache_per_user(self):
+        """Test cache is separate for each user."""
+        request1 = self.create_request(user=self.user)
+        request2 = self.create_request(user=self.target_user)
+
+        memberships1 = self.mixin._get_user_memberships(request1)
+        memberships2 = self.mixin._get_user_memberships(request2)
+
+        self.assertNotEqual(memberships1, memberships2)
+        self.assertNotEqual(
+            id(request1._cached_user_memberships), id(request2._cached_user_memberships)
+        )
+
+    @patch("finance.mixins.workspace_membership.logger")
+    def test_cache_initialization_logging(self, mock_logger):
+        """Test logging when cache is initialized."""
+        request = self.create_request(user=self.user)
+
+        self.mixin._get_user_memberships(request)
+
+        mock_logger.debug.assert_called_once()
+        call_args = mock_logger.debug.call_args[1]
+        self.assertEqual(call_args["extra"]["user_id"], self.user.id)
+        self.assertEqual(call_args["extra"]["action"], "membership_cache_initialized")
+
+    @patch("finance.mixins.workspace_membership.logger")
+    def test_cache_hit_logging(self, mock_logger):
+        """Test logging when role is retrieved from cache."""
+        request = self.create_request(user=self.target_user)
+
+        # Initialize cache
+        self.mixin._get_user_memberships(request)
+        # Get role from cache
+        self.mixin._get_membership_for_workspace(self.workspace1, request)
+
+        # Find the cache hit log
+        cache_hit_found = False
+        for call in mock_logger.debug.call_args_list:
+            if call[1]["extra"].get("action") == "workspace_role_cache_hit":
+                cache_hit_found = True
+                self.assertEqual(call[1]["extra"]["user_role"], "editor")
+                break
+
+        self.assertTrue(cache_hit_found)
+
+    def test_integration_with_serializer(self):
+        """Test mixin integration in serializer context."""
+
+        class TestSerializer(WorkspaceMembershipMixin, serializers.Serializer):
+            def get_role(self, workspace):
+                return self._get_membership_for_workspace(
+                    workspace, self.context["request"]
+                )
+
+        request = self.create_request(user=self.target_user)
+        serializer = TestSerializer(context={"request": request})
+
+        role = serializer.get_role(self.workspace1)
+
+        self.assertEqual(role, "editor")
+
+
+class TestCategoryWorkspaceMixin(BaseMixinTest):
+    """Comprehensive tests for CategoryWorkspaceMixin."""
+
+    def test_same_workspace_validation(self):
+        """Test validation passes for same workspace."""
+        request = self.create_request(workspace=self.workspace1)
+        serializer = self.create_serializer_with_mixin(
+            CategoryWorkspaceMixin, context={"request": request}
+        )
+
+        data = {"version": self.expense_version1}
+        result = serializer.validate(data)
+
+        self.assertEqual(result, data)
+
+    def test_cross_workspace_validation_blocked(self):
+        """Test validation fails for cross-workspace access."""
+        request = self.create_request(workspace=self.workspace1)
+        serializer = self.create_serializer_with_mixin(
+            CategoryWorkspaceMixin, context={"request": request}
+        )
+
+        data = {"version": self.expense_version2}
+
         with self.assertRaises(DRFValidationError) as context:
             serializer.validate(data)
-        
-        self.assertIn('Category version does not belong to this workspace', str(context.exception))
 
-    def test_validate_with_instance_same_workspace(self):
-        """Test validation with instance from same workspace."""
+        self.assertIn(
+            "Category version does not belong to this workspace", str(context.exception)
+        )
+
+    def test_instance_validation_same_workspace(self):
+        """Test instance validation for same workspace."""
         request = self.create_request(workspace=self.workspace1)
-        
-        class MockInstance:
-            def __init__(self, version):
-                self.version = version
-        
-        instance = MockInstance(self.expense_version1)
-        
-        serializer = self.create_test_serializer(CategoryWorkspaceMixin, context={'request': request}, instance=instance)
-        
-        data = {}
-        result_data = serializer.validate(data)
-        
-        self.assertEqual(result_data, data)
 
-    def test_validate_with_instance_different_workspace(self):
-        """Test validation with instance from different workspace."""
+        class MockInstance:
+            version = self.expense_version1
+
+        serializer = self.create_serializer_with_mixin(
+            CategoryWorkspaceMixin,
+            context={"request": request},
+            instance=MockInstance(),
+        )
+
+        result = serializer.validate({})
+        self.assertEqual(result, {})
+
+    def test_instance_validation_cross_workspace(self):
+        """Test instance validation fails for cross-workspace."""
         request = self.create_request(workspace=self.workspace1)
-        
-        class MockInstance:
-            def __init__(self, version):
-                self.version = version
-        
-        instance = MockInstance(self.expense_version2)
-        
-        serializer = self.create_test_serializer(CategoryWorkspaceMixin, context={'request': request}, instance=instance)
-        
-        data = {}
-        
-        with self.assertRaises(DRFValidationError) as context:
-            serializer.validate(data)
-        
-        self.assertIn('Category version does not belong to this workspace', str(context.exception))
 
-    def test_validate_data_version_overrides_instance(self):
-        """Test data version precedence over instance version."""
+        class MockInstance:
+            version = self.expense_version2
+
+        serializer = self.create_serializer_with_mixin(
+            CategoryWorkspaceMixin,
+            context={"request": request},
+            instance=MockInstance(),
+        )
+
+        with self.assertRaises(DRFValidationError):
+            serializer.validate({})
+
+    def test_data_version_overrides_instance(self):
+        """Test data version takes precedence over instance version."""
         request = self.create_request(workspace=self.workspace1)
-        
-        class MockInstance:
-            def __init__(self, version):
-                self.version = version
-        
-        instance = MockInstance(self.expense_version2)
-        
-        serializer = self.create_test_serializer(CategoryWorkspaceMixin, context={'request': request}, instance=instance)
-        
-        data = {'version': self.expense_version1}
-        result_data = serializer.validate(data)
-        
-        self.assertEqual(result_data, data)
 
-    def test_validate_no_request_context(self):
+        class MockInstance:
+            version = self.expense_version2  # Wrong workspace
+
+        serializer = self.create_serializer_with_mixin(
+            CategoryWorkspaceMixin,
+            context={"request": request},
+            instance=MockInstance(),
+        )
+
+        data = {"version": self.expense_version1}  # Correct workspace
+        result = serializer.validate(data)
+
+        self.assertEqual(result, data)
+
+    def test_no_version_in_data_or_instance(self):
+        """Test validation passes when no version is provided."""
+        request = self.create_request(workspace=self.workspace1)
+        serializer = self.create_serializer_with_mixin(
+            CategoryWorkspaceMixin, context={"request": request}
+        )
+
+        result = serializer.validate({"other_field": "value"})
+
+        self.assertEqual(result, {"other_field": "value"})
+
+    def test_no_request_context(self):
         """Test validation without request context."""
-        serializer = self.create_test_serializer(CategoryWorkspaceMixin, context={})
-        
-        data = {'version': self.expense_version1}
-        result_data = serializer.validate(data)
-        
-        self.assertEqual(result_data, data)
+        serializer = self.create_serializer_with_mixin(
+            CategoryWorkspaceMixin, context={}
+        )
 
-    def test_validate_no_workspace_in_request(self):
+        result = serializer.validate({"version": self.expense_version1})
+
+        self.assertEqual(result, {"version": self.expense_version1})
+
+    def test_no_workspace_in_request(self):
         """Test validation without workspace in request."""
-        request = self.create_request()
-        
-        serializer = self.create_test_serializer(CategoryWorkspaceMixin, context={'request': request})
-        
-        data = {'version': self.expense_version1}
-        result_data = serializer.validate(data)
-        
-        self.assertEqual(result_data, data)
+        request = self.create_request()  # No workspace
+        serializer = self.create_serializer_with_mixin(
+            CategoryWorkspaceMixin, context={"request": request}
+        )
 
-    def test_validate_no_version_in_data_or_instance(self):
-        """Test validation without version data."""
-        request = self.create_request(workspace=self.workspace1)
-        
-        serializer = self.create_test_serializer(CategoryWorkspaceMixin, context={'request': request})
-        
-        data = {'other_field': 'value'}
-        result_data = serializer.validate(data)
-        
-        self.assertEqual(result_data, data)
+        result = serializer.validate({"version": self.expense_version1})
 
-    @patch('finance.mixins.logger')
-    def test_cross_workspace_access_logging(self, mock_logger):
+        self.assertEqual(result, {"version": self.expense_version1})
+
+    @patch("finance.mixins.category_workspace.logger")
+    def test_cross_workspace_logging(self, mock_logger):
         """Test logging for cross-workspace access attempts."""
         request = self.create_request(workspace=self.workspace1, is_impersonation=True)
-        
-        serializer = self.create_test_serializer(CategoryWorkspaceMixin, context={'request': request})
-        
-        data = {'version': self.expense_version2}
-        
+        serializer = self.create_serializer_with_mixin(
+            CategoryWorkspaceMixin, context={"request": request}
+        )
+
         try:
-            serializer.validate(data)
+            serializer.validate({"version": self.expense_version2})
         except DRFValidationError:
             pass
-        
+
         mock_logger.warning.assert_called_once()
-        call_args = mock_logger.warning.call_args
-        self.assertEqual(call_args[1]['extra']['category_version_id'], self.expense_version2.id)
-        self.assertEqual(call_args[1]['extra']['version_workspace_id'], self.workspace2.id)
-
-    def test_income_category_validation(self):
-        """Test income category version validation."""
-        request = self.create_request(workspace=self.workspace1)
-        
-        serializer = self.create_test_serializer(CategoryWorkspaceMixin, context={'request': request})
-        
-        data = {'version': self.income_version1}
-        result_data = serializer.validate(data)
-        
-        self.assertEqual(result_data, data)
-
-    def test_inheritance_behavior_with_parent_validation(self):
-        """Test mixin integration with parent validation."""
-        class ParentSerializer:
-            # NEPOUŽÍVAJ serializers.Serializer - to má svoj validate()
-            def validate(self, attrs):
-                attrs['parent_validated'] = True
-                return attrs  # ← Len vráť attrs bez super()
-                    
-        class TestSerializer(CategoryWorkspaceMixin, ParentSerializer):
-            def validate(self, data):
-                # Volaj parent explicitne
-                data = ParentSerializer.validate(self, data)
-                # Potom mixin
-                data = CategoryWorkspaceMixin.validate(self, data)
-                data['child_validated'] = True
-                return data
-        
-        request = self.create_request(workspace=self.workspace1)
-        
-        serializer = TestSerializer()
-        serializer.context = {'request': request}
-        
-        data = {'version': self.expense_version1}
-        result_data = serializer.validate(data)
-        
-        self.assertEqual(result_data['version'], self.expense_version1)
-        self.assertEqual(result_data['parent_validated'], True)  # ← Teraz funguje
-        self.assertEqual(result_data['child_validated'], True)
+        call_args = mock_logger.warning.call_args[1]
+        self.assertEqual(
+            call_args["extra"]["category_version_id"], self.expense_version2.id
+        )
+        self.assertEqual(call_args["extra"]["version_workspace_id"], self.workspace2.id)
+        self.assertEqual(call_args["extra"]["request_workspace_id"], self.workspace1.id)
+        self.assertEqual(call_args["extra"]["action"], "cross_workspace_access_blocked")
 
 
-class TestMixinsIntegration(TestCase, BaseTestMixin):
-    """Integration tests for multiple mixins."""
-    
+class TestWorkspaceContextMixin(BaseMixinTest):
+    """Comprehensive tests for WorkspaceContextMixin."""
+
     def setUp(self):
-        self.factory = RequestFactory()
+        super().setUp()
+        self.mixin = WorkspaceContextMixin()
+
+    @patch("finance.mixins.workspace_context.WorkspaceContextMixin.context_service")
+    def test_initial_calls_context_service(self, mock_service):
+        """Test initial method calls context service."""
+
+        # Vytvor triedu ktorá má parent initial metódu
+        class ParentView:
+            def initial(self, request, *args, **kwargs):
+                self.parent_called = True
+
+        class TestView(WorkspaceContextMixin, ParentView):
+            def initial(self, request, *args, **kwargs):
+                # Toto volá WorkspaceContextMixin.initial() ktorá potom volá ParentView.initial()
+                super().initial(request, *args, **kwargs)
+                self.child_called = True
+
+        request = self.create_request()
+        view = TestView()
         
-        self.user = User.objects.create_user(
-            email='user@test.com',
-            password='testpass123',
-            username='testuser'
-        )
-        self.target_user = User.objects.create_user(
-            email='target@test.com',
-            password='testpass123',
-            username='targetuser'
-        )
+        view.initial(request, **{})  
         
-        WorkspaceMembership.objects.all().delete()
+        mock_service.build_request_context.assert_called_once_with(request, {})
+        self.assertTrue(view.parent_called)
+        self.assertTrue(view.child_called)
 
-        self.workspace = Workspace.objects.create(
-            name='Test Workspace',
-            owner=self.user
+    @patch("finance.mixins.workspace_context.WorkspaceContextMixin.context_service")
+    def test_initial_propagates_exceptions(self, mock_service):
+
+        mock_service.build_request_context.side_effect = Exception("Service error")
+
+
+        # Trieda, ktorá uzatvára reťazec super() volaní
+        class BaseTestView:
+            def initial(self, request, *args, **kwargs):
+                # Nič nerobí, len prijíma volanie
+                pass
+
+        # OPRAVA: Odstráňte try...except blok
+        class TestView(WorkspaceContextMixin, BaseTestView):
+            def initial(self, request, *args, **kwargs):
+                super().initial(request, *args, **kwargs)  # Toto by malo hodiť Service error
+
+        request = self.create_request()
+        view = TestView()
+
+        with self.assertRaises(Exception) as context:
+            view.initial(request, **{})  # OPRAVA: Volať s kwargs
+
+        self.assertEqual(str(context.exception), "Service error")
+
+    def test_view_inheritance_chain(self):
+        """Test mixin works in View inheritance chain."""
+
+        class ParentView:
+            def initial(self, request, *args, **kwargs):
+                self.parent_called = True
+
+        class TestView(WorkspaceContextMixin, ParentView):
+            def initial(self, request, *args, **kwargs):
+                super().initial(request, *args, **kwargs)
+                self.child_called = True
+
+        with patch("finance.mixins.workspace_context.WorkspaceContextMixin.context_service") as mock_service:
+
+            view = TestView()
+            request = self.create_request()
+
+            view.initial(request, **{})
+
+            self.assertTrue(view.parent_called)
+            self.assertTrue(view.child_called)
+            mock_service.build_request_context.assert_called_once_with(request, {})
+
+
+class TestAllMixinsIntegration(BaseMixinTest):
+    """Integration tests for all mixins working together."""
+
+    def test_comprehensive_serializer_with_all_mixins(self):
+        """Test all mixins integrated in one serializer."""
+
+        class ComprehensiveSerializer(
+            TargetUserMixin,
+            WorkspaceMembershipMixin,
+            CategoryWorkspaceMixin,
+            serializers.Serializer,
+        ):
+            def get_context_info(self):
+                request = self.context.get("request")
+                info = {}
+                if request and hasattr(request, "target_user"):
+                    info["target_user"] = request.target_user
+                if request and hasattr(request, "workspace"):
+                    info["workspace"] = request.workspace
+                    info["user_role"] = self._get_membership_for_workspace(
+                        request.workspace, request
+                    )
+                return info
+
+        request = self.create_request(
+            user=self.admin_user,
+            target_user=self.target_user,
+            workspace=self.workspace1,
+            is_impersonation=True,
         )
-        
-        
-        self.category_version = ExpenseCategoryVersion.objects.create(
-            workspace=self.workspace,
-            name='Test Version',
-            created_by=self.user
-        )
 
-    def test_all_mixins_together(self):
-        """Test integration of all three mixins."""
-        class IntegratedSerializer(TargetUserMixin, WorkspaceMembershipMixin, CategoryWorkspaceMixin, serializers.Serializer):
-            def get_user_role(self, obj):
-                request = self.context.get('request')
-                if request:
-                    return self._get_membership_for_workspace(obj, request)
-                return None
-
-        request = self.factory.get('/')
-        request.user = self.user
-
-        # Vytvor membership pre target_user v workspace
-        WorkspaceMembership.objects.create(
-            workspace=self.workspace,
-            user=self.target_user,
-            role='editor'  # target_user je editor v workspace
-        )
-
-        request.target_user = self.target_user
-        request.workspace = self.workspace
-        request.is_admin_impersonation = True
-
-        context = {'request': request}
-        serializer = IntegratedSerializer(context=context)
+        serializer = ComprehensiveSerializer(context={"request": request})
 
         # Test TargetUserMixin
-        data_with_user = serializer.validate({'version': self.category_version})
-        
-        # Over všetky mixiny naraz
-        self.assertEqual(data_with_user['user'], self.target_user)  # TargetUserMixin
-        self.assertEqual(data_with_user['workspace'], self.workspace)  # CategoryWorkspaceMixin
+        data = serializer.validate({"version": self.expense_version1})
+        self.assertEqual(data["user"], self.target_user)
+        self.assertEqual(data["workspace"], self.workspace1)
 
-        # Test WorkspaceMembershipMixin - vráti rolu target_user v workspace
-        role = serializer.get_user_role(self.workspace)
-        self.assertEqual(role, 'editor')  # target_user má rolu 'editor'
+        # Test WorkspaceMembershipMixin
+        context_info = serializer.get_context_info()
+        self.assertEqual(context_info["target_user"], self.target_user)
+        self.assertEqual(context_info["workspace"], self.workspace1)
+        self.assertEqual(context_info["user_role"], "editor")  # target_user's role
 
-    @patch('finance.mixins.logger')
-    def test_comprehensive_logging_integration(self, mock_logger):
-        """Test logging integration across all mixins."""
-        class LoggingSerializer(TargetUserMixin, WorkspaceMembershipMixin, CategoryWorkspaceMixin, serializers.Serializer):
+        # Test CategoryWorkspaceMixin - should not raise for same workspace
+        self.assertEqual(data["version"], self.expense_version1)
+
+    def test_cross_workspace_security_in_integrated_serializer(self):
+        """Test security validation in integrated serializer."""
+
+        class SecureSerializer(
+            TargetUserMixin, CategoryWorkspaceMixin, serializers.Serializer
+        ):
             pass
-        
-        request = self.factory.get('/')
-        request.user = self.user
-        request.target_user = self.target_user
-        request.workspace = self.workspace
-        request.is_admin_impersonation = True
-        
-        context = {'request': request}
-        serializer = LoggingSerializer(context=context)
-        
+
+        request = self.create_request(workspace=self.workspace1)
+        serializer = SecureSerializer(context={"request": request})
+
+        # Try to assign category from different workspace
+        with self.assertRaises(DRFValidationError):
+            serializer.validate({"version": self.expense_version2})
+
+    @patch("finance.mixins.workspace_membership.logger")
+    @patch("finance.mixins.target_user.logger")
+    def test_integrated_logging(self, mock_target_logger, mock_membership_logger):
+        """Test logging across all integrated mixins."""
+
+        class LoggingSerializer(
+            TargetUserMixin, WorkspaceMembershipMixin, serializers.Serializer
+        ):
+            pass
+
+        request = self.create_request(
+            user=self.admin_user, target_user=self.target_user, is_impersonation=True
+        )
+
+        serializer = LoggingSerializer(context={"request": request})
+
+        # Trigger both mixins
+        serializer.validate({})
         serializer._get_user_memberships(request)
-        serializer.validate({'version': self.category_version})
-        
-        debug_calls = [call for call in mock_logger.debug.call_args_list]
-        self.assertGreaterEqual(len(debug_calls), 2)
-        
-        cache_init_call = next(
-            (call for call in debug_calls 
-             if call[1]['extra'].get('action') == 'membership_cache_initialized'),
-            None
+
+        # Should have logs from both mixins
+        debug_calls_target = [call for call in mock_target_logger.debug.call_args_list]
+        debug_calls_membership = [call for call in mock_membership_logger.debug.call_args_list]
+        total_debug_calls = len(debug_calls_target) + len(debug_calls_membership)
+
+        self.assertGreaterEqual(total_debug_calls, 2)
+
+        target_user_log = next(
+            (
+                call
+                for call in debug_calls_target
+                if call[1]["extra"].get("action") == "target_user_assignment"
+            ),
+            None,
         )
-        target_user_call = next(
-            (call for call in debug_calls 
-             if call[1]['extra'].get('action') == 'target_user_assignment'),
-            None
+        cache_log = next(
+            (
+                call
+                for call in debug_calls_membership
+                if call[1]["extra"].get("action") == "membership_cache_initialized"
+            ),
+            None,
         )
+
+        self.assertIsNotNone(target_user_log)
+        self.assertIsNotNone(cache_log)
+
+
+class TestMixinEdgeCases(BaseMixinTest):
+    """Edge case tests for mixins."""
+
+    def test_target_user_mixin_with_anonymous_user(self):
+        """Test TargetUserMixin with anonymous user."""
+        from django.contrib.auth.models import AnonymousUser
+
+        request = self.create_request()
+        request.user = AnonymousUser()
+
+        serializer = self.create_serializer_with_mixin(
+            TargetUserMixin, context={"request": request}
+        )
+
+        result = serializer.validate({"field": "value"})
+        self.assertEqual(result, {"field": "value"})
+
+    def test_workspace_membership_with_no_memberships(self):
+        """Test WorkspaceMembershipMixin with user having no memberships."""
+        new_user = User.objects.create_user(
+            username="newuser",  # Pridaj username
+            email="new@test.com", 
+            password="testpass123"
+        )
+        request = self.create_request(user=new_user)
+
+        mixin = WorkspaceMembershipMixin()
+        memberships = mixin._get_user_memberships(request)
+
+        self.assertEqual(memberships, {})
+
+    def test_category_workspace_with_none_version(self):
+        """Test CategoryWorkspaceMixin with None version."""
+        request = self.create_request(workspace=self.workspace1)
+        serializer = self.create_serializer_with_mixin(
+            CategoryWorkspaceMixin, context={"request": request}
+        )
+
+        class MockInstance:
+            version = None
+
+        serializer.instance = MockInstance()
+        result = serializer.validate({"version": None})
+
+        self.assertEqual(result, {"version": None})
+
+    @patch("finance.mixins.workspace_context.WorkspaceContextMixin.context_service")
+    def test_workspace_context_with_invalid_request(self, mock_service):
+        """Test WorkspaceContextMixin with invalid request."""
+
+        mock_service.build_request_context.side_effect = Exception("Invalid request")
+
+
+        # Trieda, ktorá uzatvára reťazec super() volaní
+        class BaseTestView:
+            def initial(self, request, *args, **kwargs):
+                # Nič nerobí, len prijíma volanie
+                pass
+
+        class TestView(WorkspaceContextMixin, BaseTestView):
+            def initial(self, request, *args, **kwargs):
+                super().initial(request, *args, **kwargs)
+
+        view = TestView()
         
-        self.assertIsNotNone(cache_init_call)
-        self.assertIsNotNone(target_user_call)
+        # OPRAVA: Pridajte aspoň atribút 'user'
+        request = Mock()
+        request.user = Mock()
+        request.user.id = 1  # Pridajte aj ID
+
+        with self.assertRaises(Exception) as context:
+            view.initial(request, **{})  # OPRAVA: Volať s kwargs
+
+        # Service by mal hodiť našu exception
+        self.assertEqual(str(context.exception), "Invalid request")

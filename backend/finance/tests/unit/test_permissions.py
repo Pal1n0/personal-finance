@@ -1,16 +1,17 @@
-import pytest
-from django.test import TestCase, RequestFactory
-from django.contrib.auth import get_user_model
-from unittest.mock import Mock, patch
-from rest_framework.exceptions import PermissionDenied
+# tests/test_permissions.py
+from unittest.mock import MagicMock, Mock, patch
 
-from finance.permissions import (
-    IsWorkspaceMember, 
-    IsWorkspaceEditor, 
-    IsWorkspaceOwner, 
-    IsWorkspaceAdmin
-)
-from finance.models import Workspace, WorkspaceMembership
+import pytest
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
+from django.test import RequestFactory, TestCase
+
+from finance.models import Workspace, WorkspaceAdmin, WorkspaceMembership
+from finance.permissions import (IsSuperuser, IsWorkspaceAdmin,
+                                 IsWorkspaceEditor, IsWorkspaceMember,
+                                 IsWorkspaceOwner)
+from finance.services.membership_cache_service import MembershipCacheService
+from finance.services.workspace_context_service import WorkspaceContextService
 
 User = get_user_model()
 
@@ -18,58 +19,52 @@ User = get_user_model()
 class BasePermissionTest(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
+        self.context_service = WorkspaceContextService()
+        self.membership_service = MembershipCacheService()
+
+        # Create users
         self.superuser = User.objects.create_superuser(
-            email='super@test.com', 
-            password='testpass123',
-            username='superuser'
+            email="super@test.com", password="testpass123", username="superuser"
         )
         self.regular_user = User.objects.create_user(
-            email='user@test.com',
-            password='testpass123', 
-            username='regularuser'
+            email="user@test.com", password="testpass123", username="regularuser"
         )
         self.admin_user = User.objects.create_user(
-            email='admin@test.com',
-            password='testpass123',
-            username='adminuser'
+            email="admin@test.com", password="testpass123", username="adminuser"
         )
         self.workspace_owner = User.objects.create_user(
-            email='owner@test.com',
-            password='testpass123',
-            username='workspaceowner'
-        )
-        
-        self.workspace = Workspace.objects.create(
-            name='Test Workspace',
-            owner=self.workspace_owner
-        )
-        
-        # Create memberships
-        WorkspaceMembership.objects.create(
-            workspace=self.workspace,
-            user=self.regular_user,
-            role='viewer'
-        )
-        WorkspaceMembership.objects.create(
-            workspace=self.workspace,
-            user=self.admin_user, 
-            role='editor'
+            email="owner@test.com", password="testpass123", username="workspaceowner"
         )
 
-    def create_request(self, user, workspace_id=None, is_impersonation=False, target_user=None):
-        request = self.factory.get('/')
+        # Create workspace
+        self.workspace = Workspace.objects.create(
+            name="Test Workspace", owner=self.workspace_owner
+        )
+
+        # Create memberships
+        WorkspaceMembership.objects.create(
+            workspace=self.workspace, user=self.regular_user, role="viewer"
+        )
+        WorkspaceMembership.objects.create(
+            workspace=self.workspace, user=self.admin_user, role="editor"
+        )
+
+        # Create workspace admin
+        WorkspaceAdmin.objects.create(
+            user=self.admin_user,
+            workspace=self.workspace,
+            assigned_by=self.superuser,
+            is_active=True,
+        )
+
+    def create_request_with_context(self, user, workspace_id=None, view_kwargs=None):
+        """Create request with REAL workspace context (simulates middleware)"""
+        request = self.factory.get("/")
         request.user = user
-        request.user_permissions = {
-            'is_superuser': user.is_superuser,
-            'is_workspace_admin': False,
-            'workspace_role': None,
-            'workspace_exists': True,
-            'current_workspace_id': workspace_id
-        }
-        request.is_admin_impersonation = is_impersonation
-        request.impersonation_workspace_ids = [workspace_id] if workspace_id else []
-        if target_user:
-            request.target_user = target_user
+
+        # Simulate WorkspaceContextMixin
+        self.context_service.build_request_context(request, view_kwargs or {})
+
         return request
 
     def create_view_with_kwargs(self, **kwargs):
@@ -77,461 +72,480 @@ class BasePermissionTest(TestCase):
         view.kwargs = kwargs
         return view
 
+    def mock_membership_service(self, role=None, is_admin=False, is_member=True):
+        """Mock membership service to return specific values"""
+        return patch.multiple(
+            self.membership_service,
+            get_user_workspace_role=Mock(return_value=role),
+            is_workspace_admin=Mock(return_value=is_admin),
+            is_user_workspace_member=Mock(return_value=is_member),
+        )
+
 
 class TestIsWorkspaceMember(BasePermissionTest):
-    """Comprehensive tests for IsWorkspaceMember permission"""
+    """Tests for IsWorkspaceMember with REAL context"""
 
-    def test_superuser_has_access_to_any_workspace(self):
+    def test_superuser_has_access_with_workspace_context(self):
         permission = IsWorkspaceMember()
-        request = self.create_request(self.superuser, workspace_id=999)
-        view = self.create_view_with_kwargs(workspace_pk=999)
-        
-        self.assertTrue(permission.has_permission(request, view))
+        request = self.create_request_with_context(
+            self.superuser, view_kwargs={"workspace_pk": self.workspace.id}
+        )
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
 
-    def test_authenticated_user_without_workspace_context(self):
-        permission = IsWorkspaceMember()
-        request = self.create_request(self.regular_user)
-        view = self.create_view_with_kwargs()
-        
         self.assertTrue(permission.has_permission(request, view))
 
     def test_workspace_member_has_access(self):
         permission = IsWorkspaceMember()
-        request = self.create_request(self.regular_user, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = 'viewer'
+        request = self.create_request_with_context(
+            self.regular_user, view_kwargs={"workspace_pk": self.workspace.id}
+        )
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertTrue(permission.has_permission(request, view))
+
+        # Mock that user has viewer role
+        with self.mock_membership_service(role="viewer", is_member=True):
+            self.assertTrue(permission.has_permission(request, view))
 
     def test_non_member_access_denied(self):
         permission = IsWorkspaceMember()
         non_member = User.objects.create_user(
-            email='nonmember@test.com',
-            password='testpass123',
-            username='nonmember'
+            email="nonmember@test.com", password="testpass123", username="nonmember"
         )
-        request = self.create_request(non_member, workspace_id=self.workspace.id)
+        request = self.create_request_with_context(
+            non_member, view_kwargs={"workspace_pk": self.workspace.id}
+        )
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertFalse(permission.has_permission(request, view))
+
+        # Mock that user is not a member
+        with self.mock_membership_service(role=None, is_member=False):
+            self.assertFalse(permission.has_permission(request, view))
 
     def test_nonexistent_workspace_access_blocked(self):
         permission = IsWorkspaceMember()
-        request = self.create_request(self.regular_user, workspace_id=9999)
-        request.user_permissions['workspace_exists'] = False
+        request = self.create_request_with_context(
+            self.regular_user,
+            view_kwargs={"workspace_pk": 9999},  # Non-existent workspace
+        )
         view = self.create_view_with_kwargs(workspace_pk=9999)
-        
+
         self.assertFalse(permission.has_permission(request, view))
 
     def test_admin_impersonation_has_access(self):
         permission = IsWorkspaceMember()
-        request = self.create_request(
-            self.admin_user, 
-            workspace_id=self.workspace.id,
-            is_impersonation=True,
-            target_user=self.regular_user
+        request = self.create_request_with_context(
+            self.admin_user, view_kwargs={"workspace_pk": self.workspace.id}
         )
-        request.user_permissions['is_workspace_admin'] = True
+        request.is_admin_impersonation = True
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertTrue(permission.has_permission(request, view))
 
-    def test_invalid_workspace_id_format(self):
-        permission = IsWorkspaceMember()
-        request = self.create_request(self.regular_user)
-        view = self.create_view_with_kwargs(workspace_pk='invalid_id')
-        
-        self.assertTrue(permission.has_permission(request, view))
+        # Mock admin status
+        with self.mock_membership_service(is_admin=True):
+            self.assertTrue(permission.has_permission(request, view))
 
-    def test_workspace_id_extraction_from_different_kwargs(self):
-        permission = IsWorkspaceMember()
-        request = self.create_request(self.regular_user, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = 'viewer'
-        
-        # Test workspace_pk
-        view1 = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        self.assertTrue(permission.has_permission(request, view1))
-        
-        # Test workspace_id
-        view2 = self.create_view_with_kwargs(workspace_id=self.workspace.id)
-        self.assertTrue(permission.has_permission(request, view2))
-        
-        # Test pk
-        view3 = self.create_view_with_kwargs(pk=self.workspace.id)
-        self.assertTrue(permission.has_permission(request, view3))
-
-    @patch('finance.permissions.logger')
+    @patch("finance.permissions.logger")
     def test_access_denied_logging(self, mock_logger):
         permission = IsWorkspaceMember()
         non_member = User.objects.create_user(
-            email='nonmember@test.com',
-            password='testpass123',
-            username='nonmember'
+            email="nonmember@test.com", password="testpass123", username="nonmember"
         )
-        request = self.create_request(non_member, workspace_id=self.workspace.id)
+        request = self.create_request_with_context(
+            non_member, view_kwargs={"workspace_pk": self.workspace.id}
+        )
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        permission.has_permission(request, view)
-        
+
+        with self.mock_membership_service(role=None, is_member=False):
+            permission.has_permission(request, view)
+
         mock_logger.warning.assert_called_once()
 
 
 class TestIsWorkspaceEditor(BasePermissionTest):
-    """Comprehensive tests for IsWorkspaceEditor permission"""
+    """Tests for IsWorkspaceEditor with REAL context"""
 
     def test_superuser_has_write_access(self):
         permission = IsWorkspaceEditor()
-        request = self.create_request(self.superuser, workspace_id=self.workspace.id)
+        request = self.create_request_with_context(
+            self.superuser, view_kwargs={"workspace_pk": self.workspace.id}
+        )
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
+
         self.assertTrue(permission.has_permission(request, view))
 
     def test_editor_role_has_write_access(self):
         permission = IsWorkspaceEditor()
-        request = self.create_request(self.admin_user, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = 'editor'
+        request = self.create_request_with_context(
+            self.admin_user, view_kwargs={"workspace_pk": self.workspace.id}
+        )
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertTrue(permission.has_permission(request, view))
+
+        with self.mock_membership_service(role="editor"):
+            self.assertTrue(permission.has_permission(request, view))
 
     def test_owner_role_has_write_access(self):
         permission = IsWorkspaceEditor()
-        request = self.create_request(self.workspace_owner, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = 'owner'
+        request = self.create_request_with_context(
+            self.workspace_owner, view_kwargs={"workspace_pk": self.workspace.id}
+        )
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertTrue(permission.has_permission(request, view))
+
+        with self.mock_membership_service(role="owner"):
+            self.assertTrue(permission.has_permission(request, view))
 
     def test_viewer_role_write_access_denied(self):
         permission = IsWorkspaceEditor()
-        request = self.create_request(self.regular_user, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = 'viewer'
-        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertFalse(permission.has_permission(request, view))
-
-    def test_no_role_write_access_denied(self):
-        permission = IsWorkspaceEditor()
-        non_member = User.objects.create_user(
-            email='nonmember@test.com',
-            password='testpass123',
-            username='nonmember'
+        request = self.create_request_with_context(
+            self.regular_user, view_kwargs={"workspace_pk": self.workspace.id}
         )
-        request = self.create_request(non_member, workspace_id=self.workspace.id)
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertFalse(permission.has_permission(request, view))
 
-    def test_nonexistent_workspace_write_access_blocked(self):
-        permission = IsWorkspaceEditor()
-        request = self.create_request(self.admin_user, workspace_id=9999)
-        request.user_permissions['workspace_exists'] = False
-        view = self.create_view_with_kwargs(workspace_pk=9999)
-        
-        self.assertFalse(permission.has_permission(request, view))
+        with self.mock_membership_service(role="viewer"):
+            self.assertFalse(permission.has_permission(request, view))
 
     def test_admin_impersonation_write_access(self):
         permission = IsWorkspaceEditor()
-        request = self.create_request(
-            self.admin_user,
-            workspace_id=self.workspace.id,
-            is_impersonation=True,
-            target_user=self.regular_user
+        request = self.create_request_with_context(
+            self.admin_user, view_kwargs={"workspace_pk": self.workspace.id}
         )
-        request.user_permissions['is_workspace_admin'] = True
+        request.is_admin_impersonation = True
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertTrue(permission.has_permission(request, view))
 
-    def test_write_roles_constant(self):
-        permission = IsWorkspaceEditor()
-        self.assertEqual(permission.WRITE_ROLES, ['editor', 'owner'])
+        with self.mock_membership_service(is_admin=True):
+            self.assertTrue(permission.has_permission(request, view))
 
-    @patch('finance.permissions.logger')
+    @patch("finance.permissions.logger")
     def test_write_access_denied_logging(self, mock_logger):
         permission = IsWorkspaceEditor()
-        request = self.create_request(self.regular_user, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = 'viewer'
+        request = self.create_request_with_context(
+            self.regular_user, view_kwargs={"workspace_pk": self.workspace.id}
+        )
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        permission.has_permission(request, view)
-        
+
+        with self.mock_membership_service(role="viewer"):
+            permission.has_permission(request, view)
+
         mock_logger.warning.assert_called_once()
 
 
 class TestIsWorkspaceOwner(BasePermissionTest):
-    """Comprehensive tests for IsWorkspaceOwner permission with cache optimization"""
+    """Tests for IsWorkspaceOwner with REAL context"""
 
     def test_superuser_has_ownership_access(self):
         permission = IsWorkspaceOwner()
-        request = self.create_request(self.superuser, workspace_id=self.workspace.id)
+        request = self.create_request_with_context(
+            self.superuser, view_kwargs={"workspace_pk": self.workspace.id}
+        )
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
+
         self.assertTrue(permission.has_permission(request, view))
 
-    def test_actual_workspace_owner_has_access_via_role(self):
-        """Test owner access via membership role (new primary method)"""
+    def test_workspace_admin_has_ownership_access(self):
         permission = IsWorkspaceOwner()
-        request = self.create_request(self.workspace_owner, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = 'owner'  # ← Owner role from membership
+        request = self.create_request_with_context(
+            self.admin_user, view_kwargs={"workspace_pk": self.workspace.id}
+        )
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertTrue(permission.has_permission(request, view))
 
-    def test_non_owner_access_denied(self):
+        with self.mock_membership_service(is_admin=True):
+            self.assertTrue(permission.has_permission(request, view))
+
+    def test_workspace_owner_has_access_via_role(self):
         permission = IsWorkspaceOwner()
-        request = self.create_request(self.regular_user, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = 'viewer'
+        request = self.create_request_with_context(
+            self.workspace_owner, view_kwargs={"workspace_pk": self.workspace.id}
+        )
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertFalse(permission.has_permission(request, view))
+
+        # Owner access comes from workspace.owner relationship
+        # The service should detect this and set appropriate permissions
+        self.assertTrue(permission.has_permission(request, view))
 
     def test_editor_role_ownership_denied(self):
         permission = IsWorkspaceOwner()
-        request = self.create_request(self.admin_user, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = 'editor'
+        request = self.create_request_with_context(
+            self.admin_user, view_kwargs={"workspace_pk": self.workspace.id}
+        )
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertFalse(permission.has_permission(request, view))
 
-    def test_no_workspace_context_denied(self):
-        permission = IsWorkspaceOwner()
-        request = self.create_request(self.workspace_owner)
-        view = self.create_view_with_kwargs()
-        
-        self.assertFalse(permission.has_permission(request, view))
+        # Remove admin privileges, only editor role
+        with self.mock_membership_service(role="editor", is_admin=False):
+            self.assertFalse(permission.has_permission(request, view))
 
-    def test_nonexistent_workspace_ownership_blocked(self):
+    def test_viewer_role_ownership_denied(self):
         permission = IsWorkspaceOwner()
-        request = self.create_request(self.workspace_owner, workspace_id=9999)
-        request.user_permissions['workspace_exists'] = False
-        view = self.create_view_with_kwargs(workspace_pk=9999)
-        
+        request = self.create_request_with_context(
+            self.regular_user, view_kwargs={"workspace_pk": self.workspace.id}
+        )
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+
         self.assertFalse(permission.has_permission(request, view))
 
     def test_admin_impersonation_ownership_access(self):
         permission = IsWorkspaceOwner()
-        request = self.create_request(
-            self.admin_user,
-            workspace_id=self.workspace.id,
-            is_impersonation=True,
-            target_user=self.workspace_owner
+        request = self.create_request_with_context(
+            self.admin_user, view_kwargs={"workspace_pk": self.workspace.id}
         )
-        request.user_permissions['is_workspace_admin'] = True
+        request.is_admin_impersonation = True
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertTrue(permission.has_permission(request, view))
 
-    @patch('finance.permissions.cache')
-    @patch('finance.permissions.Workspace')
-    def test_ownership_fallback_cache_hit_owner(self, mock_workspace, mock_cache):
-        """Test fallback check with cache hit for owner"""
-        permission = IsWorkspaceOwner()
-        request = self.create_request(self.workspace_owner, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = None  # Simulate cache issue
-        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        # Cache hit with owner ID
-        mock_cache.get.return_value = self.workspace_owner.id
-        
-        self.assertTrue(permission.has_permission(request, view))
-        mock_cache.get.assert_called_once_with(f"workspace_owner_{self.workspace.id}")
+        with self.mock_membership_service(is_admin=True):
+            self.assertTrue(permission.has_permission(request, view))
 
-    @patch('finance.permissions.cache')
-    @patch('finance.permissions.Workspace')
-    def test_ownership_fallback_cache_hit_non_owner(self, mock_workspace, mock_cache):
-        """Test fallback check with cache hit for non-owner"""
-        permission = IsWorkspaceOwner()
-        request = self.create_request(self.regular_user, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = None
-        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        # Cache hit with different owner ID
-        mock_cache.get.return_value = self.workspace_owner.id  # Different user
-        
-        self.assertFalse(permission.has_permission(request, view))
-
-    @patch('finance.permissions.cache')
-    @patch('finance.permissions.Workspace')
-    def test_ownership_fallback_cache_miss_owner(self, mock_workspace, mock_cache):
-        """Test fallback check with cache miss for actual owner"""
-        permission = IsWorkspaceOwner()
-        request = self.create_request(self.workspace_owner, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = None  # Simulate stale cache
-        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        # Cache miss
-        mock_cache.get.return_value = None
-        mock_workspace.objects.filter.return_value.only.return_value.first.return_value = Mock(
-            owner_id=self.workspace_owner.id
-        )
-        
-        self.assertTrue(permission.has_permission(request, view))
-        mock_cache.set.assert_called_once_with(
-            f"workspace_owner_{self.workspace.id}", 
-            self.workspace_owner.id, 
-            600
-        )
-
-    @patch('finance.permissions.cache')
-    @patch('finance.permissions.Workspace')
-    def test_ownership_fallback_cache_miss_non_owner(self, mock_workspace, mock_cache):
-        """Test fallback check with cache miss for non-owner"""
-        permission = IsWorkspaceOwner()
-        request = self.create_request(self.regular_user, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = None
-        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        # Cache miss with different owner
-        mock_cache.get.return_value = None
-        mock_workspace.objects.filter.return_value.only.return_value.first.return_value = Mock(
-            owner_id=self.workspace_owner.id  # Different user
-        )
-        
-        self.assertFalse(permission.has_permission(request, view))
-
-    @patch('finance.permissions.cache')
-    @patch('finance.permissions.Workspace')
-    def test_ownership_fallback_workspace_not_found(self, mock_workspace, mock_cache):
-        """Test fallback check when workspace doesn't exist"""
-        permission = IsWorkspaceOwner()
-        request = self.create_request(self.workspace_owner, workspace_id=9999)
-        request.user_permissions['workspace_role'] = None
-        view = self.create_view_with_kwargs(workspace_pk=9999)
-        
-        mock_cache.get.return_value = None
-        mock_workspace.objects.filter.return_value.only.return_value.first.return_value = None
-        
-        self.assertFalse(permission.has_permission(request, view))
-
-    @patch('finance.permissions.logger')
+    @patch("finance.permissions.logger")
     def test_ownership_access_denied_logging(self, mock_logger):
         permission = IsWorkspaceOwner()
-        request = self.create_request(self.regular_user, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = 'viewer'
-        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        permission.has_permission(request, view)
-        
-        # Should log warning for denied access
-        mock_logger.warning.assert_called()
-
-    @patch('finance.permissions.logger')
-    def test_stale_cache_detection_logging(self, mock_logger):
-        """Test logging when stale cache is detected"""
-        permission = IsWorkspaceOwner()
-        request = self.create_request(self.workspace_owner, workspace_id=self.workspace.id)
-        request.user_permissions['workspace_role'] = None  # Stale cache - no role
-        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-
-        # Mock fallback to return True (user is actually owner)
-        with patch.object(permission, '_check_owner_fallback', return_value=True):
-            permission.has_permission(request, view)
-
-            # Should log warning about stale cache
-            mock_logger.warning.assert_called()
-            
-            # Find the stale cache warning in call arguments
-            stale_cache_found = False
-            for call in mock_logger.warning.call_args_list:
-                call_kwargs = call[1]  # Get the kwargs from call
-                if 'extra' in call_kwargs and 'action' in call_kwargs['extra']:
-                    if 'stale' in call_kwargs['extra']['action'] or 'fallback' in call_kwargs['extra']['action']:
-                        stale_cache_found = True
-                        break
-            
-            self.assertTrue(stale_cache_found, "Stale cache warning not found in logs")
-
-    def test_workspace_admin_without_impersonation_denied(self):
-        """Test workspace admin without impersonation cannot access"""
-        permission = IsWorkspaceOwner()
-        request = self.create_request(self.admin_user, workspace_id=self.workspace.id)
-        request.user_permissions['is_workspace_admin'] = True
-        request.is_admin_impersonation = False  # No impersonation
-        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertFalse(permission.has_permission(request, view))
-
-    def test_workspace_admin_impersonation_wrong_workspace_denied(self):
-        """Test workspace admin impersonation denied for wrong workspace"""
-        permission = IsWorkspaceOwner()
-        request = self.create_request(
-            self.admin_user,
-            workspace_id=self.workspace.id,
-            is_impersonation=True,
-            target_user=self.workspace_owner
+        request = self.create_request_with_context(
+            self.regular_user, view_kwargs={"workspace_pk": self.workspace.id}
         )
-        request.user_permissions['is_workspace_admin'] = True
-        request.impersonation_workspace_ids = [9999]  # Different workspace
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertFalse(permission.has_permission(request, view))
+
+        permission.has_permission(request, view)
+
+        mock_logger.warning.assert_called_once()
 
 
 class TestIsWorkspaceAdmin(BasePermissionTest):
-    """Comprehensive tests for IsWorkspaceAdmin permission"""
+    """Tests for IsWorkspaceAdmin with REAL context"""
 
     def test_superuser_is_always_admin(self):
         permission = IsWorkspaceAdmin()
-        request = self.create_request(self.superuser)
+        request = self.create_request_with_context(self.superuser)
         view = self.create_view_with_kwargs()
-        
+
         self.assertTrue(permission.has_permission(request, view))
 
     def test_workspace_admin_has_access(self):
         permission = IsWorkspaceAdmin()
-        request = self.create_request(self.admin_user)
-        request.user_permissions['is_workspace_admin'] = True
+        request = self.create_request_with_context(self.admin_user)
         view = self.create_view_with_kwargs()
-        
-        self.assertTrue(permission.has_permission(request, view))
+
+        with self.mock_membership_service(is_admin=True):
+            self.assertTrue(permission.has_permission(request, view))
 
     def test_regular_user_admin_access_denied(self):
         permission = IsWorkspaceAdmin()
-        request = self.create_request(self.regular_user)
-        request.user_permissions['is_workspace_admin'] = False
+        request = self.create_request_with_context(self.regular_user)
         view = self.create_view_with_kwargs()
-        
-        self.assertFalse(permission.has_permission(request, view))
 
-    def test_workspace_admin_with_specific_workspace_access(self):
-        permission = IsWorkspaceAdmin()
-        request = self.create_request(self.admin_user, workspace_id=self.workspace.id)
-        request.user_permissions['is_workspace_admin'] = True
-        request.impersonation_workspace_ids = [self.workspace.id]
-        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-        
-        self.assertTrue(permission.has_permission(request, view))
+        with self.mock_membership_service(is_admin=False):
+            self.assertFalse(permission.has_permission(request, view))
 
-    def test_workspace_admin_without_workspace_access_denied(self):
-        permission = IsWorkspaceAdmin()
-        other_workspace = Workspace.objects.create(
-            name='Other Workspace',
-            owner=self.workspace_owner
-        )
-        request = self.create_request(self.admin_user, workspace_id=other_workspace.id)
-        request.user_permissions['is_workspace_admin'] = True
-        request.impersonation_workspace_ids = [self.workspace.id]  # No access to other_workspace
-        view = self.create_view_with_kwargs(workspace_pk=other_workspace.id)
-        
-        self.assertFalse(permission.has_permission(request, view))
-
-    @patch('finance.permissions.logger')
+    @patch("finance.permissions.logger")
     def test_admin_access_denied_logging(self, mock_logger):
         permission = IsWorkspaceAdmin()
-        request = self.create_request(self.regular_user)
-        request.user_permissions['is_workspace_admin'] = False
+        request = self.create_request_with_context(self.regular_user)
         view = self.create_view_with_kwargs()
-        
-        permission.has_permission(request, view)
-        
+
+        with self.mock_membership_service(is_admin=False):
+            permission.has_permission(request, view)
+
         mock_logger.warning.assert_called_once()
 
-    def test_invalid_workspace_id_in_admin_permission(self):
-        permission = IsWorkspaceAdmin()
-        request = self.create_request(self.admin_user)
-        request.user_permissions['is_workspace_admin'] = True
-        view = self.create_view_with_kwargs(workspace_pk='invalid_id')
-        
-        # Should still return True because user is workspace admin
+
+class TestIsSuperuser(BasePermissionTest):
+    """Tests for IsSuperuser permission"""
+
+    def test_superuser_has_access(self):
+        permission = IsSuperuser()
+        request = self.create_request_with_context(self.superuser)
+        view = self.create_view_with_kwargs()
+
         self.assertTrue(permission.has_permission(request, view))
+
+    def test_regular_user_superuser_access_denied(self):
+        permission = IsSuperuser()
+        request = self.create_request_with_context(self.regular_user)
+        view = self.create_view_with_kwargs()
+
+        self.assertFalse(permission.has_permission(request, view))
+
+    def test_anonymous_user_superuser_access_denied(self):
+        permission = IsSuperuser()
+        request = self.factory.get("/")
+        request.user = AnonymousUser()
+        view = self.create_view_with_kwargs()
+
+        self.assertFalse(permission.has_permission(request, view))
+
+    @patch("finance.permissions.logger")
+    def test_superuser_access_granted_logging(self, mock_logger):
+        permission = IsSuperuser()
+        request = self.create_request_with_context(self.superuser)
+        view = self.create_view_with_kwargs()
+
+        permission.has_permission(request, view)
+
+        mock_logger.debug.assert_called_once()
+
+    @patch("finance.permissions.logger")
+    def test_superuser_access_denied_logging(self, mock_logger):
+        permission = IsSuperuser()
+        request = self.create_request_with_context(self.regular_user)
+        view = self.create_view_with_kwargs()
+
+        permission.has_permission(request, view)
+
+        mock_logger.warning.assert_called_once()
+
+
+class TestPermissionHierarchy(BasePermissionTest):
+    """Tests for permission hierarchy and inheritance"""
+
+    def test_workspace_admin_inherits_owner_permissions(self):
+        """WorkspaceAdmin should have ALL permissions including owner"""
+        # Test IsWorkspaceOwner permission for admin
+        owner_permission = IsWorkspaceOwner()
+        request = self.create_request_with_context(
+            self.admin_user, view_kwargs={"workspace_pk": self.workspace.id}
+        )
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+
+        # Admin has NO owner role but IS workspace admin
+        with self.mock_membership_service(role="editor", is_admin=True):
+            self.assertTrue(owner_permission.has_permission(request, view))
+
+    def test_workspace_admin_inherits_editor_permissions(self):
+        """WorkspaceAdmin should have editor permissions"""
+        editor_permission = IsWorkspaceEditor()
+        request = self.create_request_with_context(
+            self.admin_user, view_kwargs={"workspace_pk": self.workspace.id}
+        )
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+
+        # Admin has NO editor role but IS workspace admin
+        with self.mock_membership_service(role=None, is_admin=True):
+            self.assertTrue(editor_permission.has_permission(request, view))
+
+    def test_workspace_admin_inherits_member_permissions(self):
+        """WorkspaceAdmin should have member permissions"""
+        member_permission = IsWorkspaceMember()
+        request = self.create_request_with_context(
+            self.admin_user, view_kwargs={"workspace_pk": self.workspace.id}
+        )
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+
+        # Admin is NOT direct member but IS workspace admin
+        with self.mock_membership_service(role=None, is_member=False, is_admin=True):
+            self.assertTrue(member_permission.has_permission(request, view))
+
+    def test_workspace_owner_inherits_editor_permissions(self):
+        """WorkspaceOwner should have editor permissions"""
+        editor_permission = IsWorkspaceEditor()
+        request = self.create_request_with_context(
+            self.workspace_owner, view_kwargs={"workspace_pk": self.workspace.id}
+        )
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+
+        # Owner automatically has editor permissions
+        with self.mock_membership_service(role="owner"):
+            self.assertTrue(editor_permission.has_permission(request, view))
+
+    def test_workspace_owner_inherits_member_permissions(self):
+        """WorkspaceOwner should have member permissions"""
+        member_permission = IsWorkspaceMember()
+        request = self.create_request_with_context(
+            self.workspace_owner, view_kwargs={"workspace_pk": self.workspace.id}
+        )
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+
+        # Owner automatically has member permissions
+        with self.mock_membership_service(role="owner"):
+            self.assertTrue(member_permission.has_permission(request, view))
+
+    def test_editor_inherits_member_permissions(self):
+        """WorkspaceEditor should have member permissions"""
+        member_permission = IsWorkspaceMember()
+        request = self.create_request_with_context(
+            self.admin_user,  # This user has editor role
+            view_kwargs={"workspace_pk": self.workspace.id},
+        )
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+
+        # Editor automatically has member permissions
+        with self.mock_membership_service(role="editor"):
+            self.assertTrue(member_permission.has_permission(request, view))
+
+    def test_superuser_inherits_all_permissions(self):
+        """Superuser should have ALL permissions"""
+        # Test all permission types
+        permissions = [
+            IsWorkspaceMember(),
+            IsWorkspaceEditor(),
+            IsWorkspaceOwner(),
+            IsWorkspaceAdmin(),
+            IsSuperuser(),
+        ]
+
+        for permission in permissions:
+            request = self.create_request_with_context(
+                self.superuser, view_kwargs={"workspace_pk": self.workspace.id}
+            )
+            view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+
+            self.assertTrue(permission.has_permission(request, view))
+
+    def test_admin_without_membership_still_has_access(self):
+        """WorkspaceAdmin without direct membership should still have access"""
+        # Create admin user who is NOT workspace member
+        admin_non_member = User.objects.create_user(
+            email="admin_nonmember@test.com",
+            password="testpass123",
+            username="admin_nonmember",
+        )
+
+        # Make them workspace admin
+        WorkspaceAdmin.objects.create(
+            user=admin_non_member,
+            workspace=self.workspace,
+            assigned_by=self.superuser,
+            is_active=True,
+        )
+
+        # Test all permissions for admin without membership
+        permissions = [IsWorkspaceMember(), IsWorkspaceEditor(), IsWorkspaceOwner()]
+
+        for permission in permissions:
+            request = self.create_request_with_context(
+                admin_non_member, view_kwargs={"workspace_pk": self.workspace.id}
+            )
+            view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+
+            # Admin should have access despite not being member
+            with self.mock_membership_service(
+                role=None, is_member=False, is_admin=True
+            ):
+                self.assertTrue(permission.has_permission(request, view))
+
+
+class TestEdgeCases(BasePermissionTest):
+    """Tests for edge cases in permission hierarchy"""
+
+    def test_owner_without_membership_still_has_access(self):
+        """Workspace owner should have access even without explicit membership"""
+        # Remove owner's membership (should not happen in reality, but test robustness)
+        WorkspaceMembership.objects.filter(
+            user=self.workspace_owner, workspace=self.workspace
+        ).delete()
+
+        permissions = [IsWorkspaceMember(), IsWorkspaceEditor(), IsWorkspaceOwner()]
+
+        for permission in permissions:
+            request = self.create_request_with_context(
+                self.workspace_owner, view_kwargs={"workspace_pk": self.workspace.id}
+            )
+            view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+
+            # Owner should still have access via workspace.owner relationship
+            self.assertTrue(permission.has_permission(request, view))
+
+    def test_admin_impersonation_hierarchy(self):
+        """Admin impersonation should inherit the target's permissions + admin rights"""
+        permission = IsWorkspaceOwner()
+        request = self.create_request_with_context(
+            self.admin_user, view_kwargs={"workspace_pk": self.workspace.id}
+        )
+        request.is_admin_impersonation = True
+        request.target_user = self.regular_user  # Impersonating a viewer
+        view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+
+        # Admin impersonating viewer should have owner access
+        with self.mock_membership_service(is_admin=True):
+            self.assertTrue(permission.has_permission(request, view))

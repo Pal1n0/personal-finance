@@ -6,10 +6,10 @@ and transaction amount recalculations with proper error handling and logging.
 """
 
 import logging
-from decimal import Decimal, ROUND_HALF_UP
 from collections import defaultdict
 from datetime import date
-from typing import List, Dict, Optional
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Dict, List, Optional
 
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
@@ -17,8 +17,14 @@ logger = logging.getLogger(__name__)
 
 class CurrencyConversionError(Exception):
     """Custom exception for currency conversion failures."""
-    
-    def __init__(self, message: str, currency: str = None, tx_date: date = None, transaction_id: int = None):
+
+    def __init__(
+        self,
+        message: str,
+        currency: str = None,
+        tx_date: date = None,
+        transaction_id: int = None,
+    ):
         self.message = message
         self.currency = currency
         self.tx_date = tx_date
@@ -26,21 +32,23 @@ class CurrencyConversionError(Exception):
         super().__init__(self.message)
 
 
-def get_exchange_rates_for_range(currencies: List[str], date_from: date, date_to: date) -> Dict[str, Dict[date, Decimal]]:
+def get_exchange_rates_for_range(
+    currencies: List[str], date_from: date, date_to: date
+) -> Dict[str, Dict[date, Decimal]]:
     """
     Retrieve exchange rates for specified currencies and date range.
-    
+
     Fetches historical exchange rates from the database for the given currencies
     and date range, excluding EUR as it's the base currency.
-    
+
     Args:
         currencies: List of currency codes to fetch rates for
         date_from: Start date of the range (inclusive)
         date_to: End date of the range (inclusive)
-        
+
     Returns:
         Dictionary mapping currency codes to dictionaries of date-rate pairs
-        
+
     Raises:
         CurrencyConversionError: If no rates found for required currencies
     """
@@ -54,29 +62,30 @@ def get_exchange_rates_for_range(currencies: List[str], date_from: date, date_to
             "component": "get_exchange_rates_for_range",
         },
     )
-    
+
     rates = defaultdict(dict)
-    
+
     # Remove duplicates and EUR if present in currencies
     currencies = list(set(currencies))
-    
+
     # Load rates for all currencies EXCEPT EUR
-    non_eur_currencies = [c for c in currencies if c != 'EUR']
-    
+    non_eur_currencies = [c for c in currencies if c != "EUR"]
+
     from ..models import ExchangeRate
+
     if non_eur_currencies:
         qs = ExchangeRate.objects.filter(
-            currency__in=non_eur_currencies,
-            date__gte=date_from,
-            date__lte=date_to
-        ).order_by('currency', 'date')
+            currency__in=non_eur_currencies, date__gte=date_from, date__lte=date_to
+        ).order_by("currency", "date")
 
         for rate_record in qs:
             currency_key = rate_record.currency.upper()
             rates[currency_key][rate_record.date] = Decimal(rate_record.rate_to_eur)
-    
+
     # Validate that we have rates for all required currencies (except EUR)
-    missing_currencies = [curr for curr in non_eur_currencies if curr not in rates or not rates[curr]]
+    missing_currencies = [
+        curr for curr in non_eur_currencies if curr not in rates or not rates[curr]
+    ]
     if missing_currencies:
         logger.error(
             "Missing exchange rates for required currencies",
@@ -93,7 +102,7 @@ def get_exchange_rates_for_range(currencies: List[str], date_from: date, date_to
             f"No exchange rates found for currencies: {', '.join(missing_currencies)} "
             f"in date range {date_from} to {date_to}"
         )
-    
+
     logger.debug(
         "Exchange rates fetched successfully",
         extra={
@@ -105,25 +114,27 @@ def get_exchange_rates_for_range(currencies: List[str], date_from: date, date_to
             "component": "get_exchange_rates_for_range",
         },
     )
-    
+
     return rates
 
 
-def find_closest_rate(rates: Dict[str, Dict[date, Decimal]], currency: str, tx_date: date) -> Decimal:
+def find_closest_rate(
+    rates: Dict[str, Dict[date, Decimal]], currency: str, tx_date: date
+) -> Decimal:
     """
     Find the closest available exchange rate for a currency on or before transaction date.
-    
+
     Searches for the most recent exchange rate that is available on or before
     the transaction date to ensure historical accuracy.
-    
+
     Args:
         rates: Dictionary of currency rates from get_exchange_rates_for_range
         currency: Currency code to find rate for
         tx_date: Transaction date to find closest rate for
-        
+
     Returns:
         Decimal exchange rate
-        
+
     Raises:
         CurrencyConversionError: If no suitable rate found
     """
@@ -139,10 +150,9 @@ def find_closest_rate(rates: Dict[str, Dict[date, Decimal]], currency: str, tx_d
             },
         )
         raise CurrencyConversionError(
-            f"No exchange rates available for currency: {currency}",
-            currency=currency
+            f"No exchange rates available for currency: {currency}", currency=currency
         )
-    
+
     currency_rates = rates[currency]
     if not currency_rates:
         logger.error(
@@ -156,11 +166,13 @@ def find_closest_rate(rates: Dict[str, Dict[date, Decimal]], currency: str, tx_d
         )
         raise CurrencyConversionError(
             f"No exchange rate records found for currency: {currency}",
-            currency=currency
+            currency=currency,
         )
-    
+
     # Find all dates on or before transaction date
-    possible_dates = [rate_date for rate_date in currency_rates.keys() if rate_date <= tx_date]
+    possible_dates = [
+        rate_date for rate_date in currency_rates.keys() if rate_date <= tx_date
+    ]
     if not possible_dates:
         logger.error(
             "No suitable rates found for currency before transaction date",
@@ -176,13 +188,13 @@ def find_closest_rate(rates: Dict[str, Dict[date, Decimal]], currency: str, tx_d
         raise CurrencyConversionError(
             f"No exchange rate found for {currency} on or before {tx_date}",
             currency=currency,
-            tx_date=tx_date
+            tx_date=tx_date,
         )
-    
+
     # Get the closest date (maximum date that is <= tx_date)
     closest_date = max(possible_dates)
     closest_rate = currency_rates[closest_date]
-    
+
     logger.debug(
         "Closest rate found successfully",
         extra={
@@ -195,26 +207,26 @@ def find_closest_rate(rates: Dict[str, Dict[date, Decimal]], currency: str, tx_d
             "component": "find_closest_rate",
         },
     )
-    
+
     return closest_rate
 
 
 def convert_amount_to_domestic(
-    original_amount: Decimal, 
-    original_currency: str, 
-    domestic_currency: str, 
-    tx_date: date, 
+    original_amount: Decimal,
+    original_currency: str,
+    domestic_currency: str,
+    tx_date: date,
     rates: Dict[str, Dict[date, Decimal]],
-    transaction_id: int = None
+    transaction_id: int = None,
 ) -> Decimal:
     """
     Convert transaction amount from original currency to domestic currency.
-    
+
     Handles three conversion scenarios:
     1. Same currency: Direct return
     2. Domestic is EUR: Convert via EUR rate
     3. Different currencies: Convert via EUR intermediary
-    
+
     Args:
         original_amount: Amount in original currency
         original_currency: Source currency code
@@ -222,10 +234,10 @@ def convert_amount_to_domestic(
         tx_date: Transaction date for rate lookup
         rates: Dictionary of exchange rates
         transaction_id: Optional transaction ID for error context
-        
+
     Returns:
         Converted amount in domestic currency
-        
+
     Raises:
         CurrencyConversionError: If conversion fails for any reason
         ValueError: If input parameters are invalid
@@ -233,10 +245,10 @@ def convert_amount_to_domestic(
     # Input validation
     if not isinstance(original_amount, (Decimal, int, float)):
         raise ValueError("original_amount must be a numeric type")
-    
+
     if not original_currency or not domestic_currency:
         raise ValueError("Currency codes cannot be empty")
-    
+
     logger.debug(
         "Currency conversion started",
         extra={
@@ -249,7 +261,7 @@ def convert_amount_to_domestic(
             "component": "convert_amount_to_domestic",
         },
     )
-    
+
     # Same currency - no conversion needed
     if original_currency == domestic_currency:
         logger.debug(
@@ -261,15 +273,17 @@ def convert_amount_to_domestic(
             },
         )
         return Decimal(original_amount)
-    
+
     original_amount_decimal = Decimal(original_amount)
-    
+
     try:
         # Case 1: Domestic currency is EUR
-        if domestic_currency == 'EUR':
+        if domestic_currency == "EUR":
             rate = find_closest_rate(rates, original_currency, tx_date)
-            converted_amount = (original_amount_decimal * rate).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
-            
+            converted_amount = (original_amount_decimal * rate).quantize(
+                Decimal("0.0001"), rounding=ROUND_HALF_UP
+            )
+
             logger.debug(
                 "Conversion to EUR completed",
                 extra={
@@ -282,12 +296,14 @@ def convert_amount_to_domestic(
                 },
             )
             return converted_amount
-        
+
         # Case 2: Original currency is EUR
-        elif original_currency == 'EUR':
+        elif original_currency == "EUR":
             rate_domestic = find_closest_rate(rates, domestic_currency, tx_date)
-            converted_amount = (original_amount_decimal / rate_domestic).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
-            
+            converted_amount = (original_amount_decimal / rate_domestic).quantize(
+                Decimal("0.0001"), rounding=ROUND_HALF_UP
+            )
+
             logger.debug(
                 "Conversion from EUR completed",
                 extra={
@@ -300,16 +316,18 @@ def convert_amount_to_domestic(
                 },
             )
             return converted_amount
-        
+
         # Case 3: Different currencies - convert via EUR
         else:
             rate_orig = find_closest_rate(rates, original_currency, tx_date)
             rate_domestic = find_closest_rate(rates, domestic_currency, tx_date)
-            
+
             # Convert: original → EUR → domestic
             amount_in_eur = original_amount_decimal * rate_orig
-            converted_amount = (amount_in_eur / rate_domestic).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
-            
+            converted_amount = (amount_in_eur / rate_domestic).quantize(
+                Decimal("0.0001"), rounding=ROUND_HALF_UP
+            )
+
             logger.debug(
                 "Cross-currency conversion completed",
                 extra={
@@ -323,7 +341,7 @@ def convert_amount_to_domestic(
                 },
             )
             return converted_amount
-            
+
     except CurrencyConversionError as e:
         # Re-raise with transaction context
         logger.error(
@@ -343,31 +361,31 @@ def convert_amount_to_domestic(
             f"Failed to convert {original_amount} {original_currency} to {domestic_currency}: {e.message}",
             currency=original_currency,
             tx_date=tx_date,
-            transaction_id=transaction_id
+            transaction_id=transaction_id,
         ) from e
 
 
 def recalculate_transactions_domestic_amount(transactions: List, workspace) -> List:
     """
     Recalculate domestic amounts for transactions based on workspace currency.
-    
+
     Processes a list of transactions and updates their domestic_amount fields
     based on current exchange rates and workspace domestic currency settings.
-    
+
     For transactions where original currency matches domestic currency,
     domestic_amount is set directly to original_amount. For other transactions,
     currency conversion is performed using exchange rates.
-    
+
     Args:
         transactions: List of Transaction instances to recalculate
         workspace: Workspace instance containing currency settings
-        
+
     Returns:
         List of Transaction instances with updated domestic_amount fields
-        
+
     Raises:
         CurrencyConversionError: If any transaction conversion fails
-        
+
     Example:
         >>> updated_transactions = recalculate_transactions_domestic_amount(transactions, workspace)
     """
@@ -381,9 +399,9 @@ def recalculate_transactions_domestic_amount(transactions: List, workspace) -> L
             },
         )
         return transactions
-    
+
     domestic_currency = workspace.settings.domestic_currency
-    
+
     logger.info(
         "Transaction domestic amount recalculation started",
         extra={
@@ -394,17 +412,17 @@ def recalculate_transactions_domestic_amount(transactions: List, workspace) -> L
             "component": "recalculate_transactions_domestic_amount",
         },
     )
-    
+
     # Separate transactions into two groups
     same_currency_transactions = []
     different_currency_transactions = []
-    
+
     for transaction in transactions:
         if transaction.original_currency == domestic_currency:
             same_currency_transactions.append(transaction)
         else:
             different_currency_transactions.append(transaction)
-    
+
     # Process same currency transactions - set domestic_amount = original_amount
     for transaction in same_currency_transactions:
         transaction.amount_domestic = transaction.original_amount
@@ -419,7 +437,7 @@ def recalculate_transactions_domestic_amount(transactions: List, workspace) -> L
                 "component": "recalculate_transactions_domestic_amount",
             },
         )
-    
+
     # Process different currency transactions - perform conversion
     if different_currency_transactions:
         # Determine date range and currency list
@@ -438,11 +456,13 @@ def recalculate_transactions_domestic_amount(transactions: List, workspace) -> L
             raise CurrencyConversionError(
                 "Cannot recalculate transactions: no valid dates found in transactions"
             )
-            
+
         date_from, date_to = min(all_dates), max(all_dates)
-        currencies = list({t.original_currency for t in different_currency_transactions})
+        currencies = list(
+            {t.original_currency for t in different_currency_transactions}
+        )
         currencies.append(domestic_currency)
-        
+
         logger.debug(
             "Recalculation parameters determined",
             extra={
@@ -454,11 +474,11 @@ def recalculate_transactions_domestic_amount(transactions: List, workspace) -> L
                 "component": "recalculate_transactions_domestic_amount",
             },
         )
-        
+
         try:
             # Load exchange rates - this will fail if rates are missing
             rates = get_exchange_rates_for_range(currencies, date_from, date_to)
-            
+
             # Recalculate amounts - any failure will raise CurrencyConversionError
             for transaction in different_currency_transactions:
                 domestic_amount = convert_amount_to_domestic(
@@ -467,10 +487,10 @@ def recalculate_transactions_domestic_amount(transactions: List, workspace) -> L
                     domestic_currency,
                     transaction.date,
                     rates,
-                    transaction_id=transaction.id
+                    transaction_id=transaction.id,
                 )
                 transaction.amount_domestic = domestic_amount
-                
+
                 logger.debug(
                     "Transaction domestic amount converted successfully",
                     extra={
@@ -483,7 +503,7 @@ def recalculate_transactions_domestic_amount(transactions: List, workspace) -> L
                         "component": "recalculate_transactions_domestic_amount",
                     },
                 )
-                
+
         except CurrencyConversionError as e:
             logger.error(
                 "Transaction domestic amount recalculation failed",
@@ -500,7 +520,7 @@ def recalculate_transactions_domestic_amount(transactions: List, workspace) -> L
             )
             # Re-raise to ensure atomic rollback in calling code
             raise
-    
+
     logger.info(
         "Transaction domestic amount recalculation completed successfully",
         extra={
@@ -512,5 +532,5 @@ def recalculate_transactions_domestic_amount(transactions: List, workspace) -> L
             "component": "recalculate_transactions_domestic_amount",
         },
     )
-    
+
     return transactions

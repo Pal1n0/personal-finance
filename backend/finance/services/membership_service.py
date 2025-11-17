@@ -5,12 +5,13 @@ with comprehensive security validation and audit logging.
 """
 
 import logging
-from django.db import transaction, DatabaseError
+
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.db import DatabaseError, transaction
 from rest_framework.exceptions import PermissionDenied
 
-from ..models import WorkspaceMembership, Workspace, WorkspaceAdmin
+from ..models import Workspace, WorkspaceAdmin, WorkspaceMembership
 from .membership_cache_service import MembershipCacheService
 
 logger = logging.getLogger(__name__)
@@ -27,20 +28,21 @@ class MembershipService:
         self.cache_service = cache_service or MembershipCacheService()
 
     @transaction.atomic
-    def update_member_role(self, workspace: Workspace, target_user_id: int, 
-                          new_role: str, requesting_user) -> WorkspaceMembership:
+    def update_member_role(
+        self, workspace: Workspace, target_user_id: int, new_role: str, requesting_user
+    ) -> WorkspaceMembership:
         """
         Atomically update workspace member role with permission validation.
-        
+
         Args:
             workspace: Workspace instance
             target_user_id: ID of user whose role is being updated
             new_role: New role ('viewer', 'editor', 'owner')
             requesting_user: User initiating the role change
-            
+
         Returns:
             WorkspaceMembership: Updated membership instance
-            
+
         Raises:
             PermissionDenied: If user cannot manage members
             ValidationError: If role change is invalid
@@ -71,18 +73,21 @@ class MembershipService:
                         "severity": "high",
                     },
                 )
-                raise PermissionDenied("You don't have permission to manage workspace members")
+                raise PermissionDenied(
+                    "You don't have permission to manage workspace members"
+                )
 
             # Validate role - ONLY member roles (admin is separate)
-            valid_member_roles = ['viewer', 'editor', 'owner']
+            valid_member_roles = ["viewer", "editor", "owner"]
             if new_role not in valid_member_roles:
-                raise ValidationError(f"Invalid member role. Must be one of: {', '.join(valid_member_roles)}")
+                raise ValidationError(
+                    f"Invalid member role. Must be one of: {', '.join(valid_member_roles)}"
+                )
 
             # Get target membership
             try:
                 target_membership = WorkspaceMembership.objects.get(
-                    workspace=workspace,
-                    user_id=target_user_id
+                    workspace=workspace, user_id=target_user_id
                 )
             except WorkspaceMembership.DoesNotExist:
                 raise ValidationError("User is not a member of this workspace")
@@ -133,19 +138,20 @@ class MembershipService:
             raise
 
     @transaction.atomic
-    def remove_member(self, workspace: Workspace, target_user_id: int, 
-                     requesting_user) -> bool:
+    def remove_member(
+        self, workspace: Workspace, target_user_id: int, requesting_user
+    ) -> bool:
         """
         Atomically remove member from workspace with permission validation.
-        
+
         Args:
             workspace: Workspace instance
             target_user_id: ID of user to remove
             requesting_user: User initiating the removal
-            
+
         Returns:
             bool: True if member was removed, False if not found
-            
+
         Raises:
             PermissionDenied: If user cannot manage members
             ValidationError: If removal is invalid
@@ -176,7 +182,9 @@ class MembershipService:
                         "severity": "high",
                     },
                 )
-                raise PermissionDenied("You don't have permission to remove workspace members")
+                raise PermissionDenied(
+                    "You don't have permission to remove workspace members"
+                )
 
             # Prevent removing owner
             if target_user_id == workspace.owner_id:
@@ -185,8 +193,7 @@ class MembershipService:
             # Get target membership
             try:
                 target_membership = WorkspaceMembership.objects.get(
-                    workspace=workspace,
-                    user_id=target_user_id
+                    workspace=workspace, user_id=target_user_id
                 )
             except WorkspaceMembership.DoesNotExist:
                 logger.debug(
@@ -202,8 +209,7 @@ class MembershipService:
 
             # Also deactivate any admin assignments
             WorkspaceAdmin.objects.filter(
-                workspace=workspace,
-                user_id=target_user_id
+                workspace=workspace, user_id=target_user_id
             ).update(is_active=False)
 
             # Remove membership
@@ -246,17 +252,19 @@ class MembershipService:
             )
             raise
 
-    def get_workspace_members_with_roles(self, workspace: Workspace, requesting_user) -> list:
+    def get_workspace_members_with_roles(
+        self, workspace: Workspace, requesting_user
+    ) -> list:
         """
         Get all workspace members with their roles and permissions.
-        
+
         Args:
             workspace: Workspace instance
             requesting_user: User requesting the member list
-            
+
         Returns:
             list: Members with role and permission data
-            
+
         Raises:
             PermissionDenied: If user cannot view workspace members
         """
@@ -273,24 +281,30 @@ class MembershipService:
         try:
             # Validate user can view workspace members using cache
             if not self._can_view_members(workspace, requesting_user):
-                raise PermissionDenied("You don't have permission to view workspace members")
+                raise PermissionDenied(
+                    "You don't have permission to view workspace members"
+                )
 
             # Use cache service to get members
-            user_data = self.cache_service.get_comprehensive_user_data(requesting_user.id)
-            memberships_data = user_data.get('memberships', {})
-            
+            user_data = self.cache_service.get_comprehensive_user_data(
+                requesting_user.id
+            )
+            memberships_data = user_data.get("memberships", {})
+
             # Get all members for this workspace from cache
             all_members_data = []
             for user_id, user_cache_data in memberships_data.items():
-                if user_cache_data.get('workspace_id') == workspace.id:
+                if user_cache_data.get("workspace_id") == workspace.id:
                     member_data = {
-                        'user_id': user_id,
-                        'username': user_cache_data.get('user__username', ''),
-                        'email': user_cache_data.get('user__email', ''),
-                        'role': user_cache_data.get('role'),
-                        'joined_at': user_cache_data.get('joined_at'),
-                        'is_owner': workspace.owner_id == user_id,
-                        'is_admin': self.cache_service.is_workspace_admin(user_id, workspace.id)
+                        "user_id": user_id,
+                        "username": user_cache_data.get("user__username", ""),
+                        "email": user_cache_data.get("user__email", ""),
+                        "role": user_cache_data.get("role"),
+                        "joined_at": user_cache_data.get("joined_at"),
+                        "is_owner": workspace.owner_id == user_id,
+                        "is_admin": self.cache_service.is_workspace_admin(
+                            user_id, workspace.id
+                        ),
                     }
                     all_members_data.append(member_data)
 
@@ -326,11 +340,11 @@ class MembershipService:
     def get_user_workspace_permissions(self, user, workspace: Workspace) -> dict:
         """
         Get comprehensive permissions for user in workspace using cache.
-        
+
         Args:
             user: User instance
             workspace: Workspace instance
-            
+
         Returns:
             dict: Comprehensive permission set
         """
@@ -347,13 +361,13 @@ class MembershipService:
         try:
             # Get user data from cache
             user_data = self.cache_service.get_comprehensive_user_data(user.id)
-            memberships = user_data.get('memberships', {})
-            
+            memberships = user_data.get("memberships", {})
+
             # Get user role from cache
             user_role = None
             workspace_membership = memberships.get(workspace.id)
             if workspace_membership:
-                user_role = workspace_membership.get('role')
+                user_role = workspace_membership.get("role")
 
             # Check admin status from cache
             is_admin = self.cache_service.is_workspace_admin(user.id, workspace.id)
@@ -399,11 +413,11 @@ class MembershipService:
     def _can_manage_members(self, workspace: Workspace, user) -> bool:
         """
         Check if user can manage workspace members using cache.
-        
+
         Args:
             workspace: Workspace instance
             user: User instance
-            
+
         Returns:
             bool: True if user can manage members
         """
@@ -412,21 +426,21 @@ class MembershipService:
 
         if user.is_anonymous:
             return False
-            
+
         # Use cache to check membership and role
         user_role = self.cache_service.get_user_workspace_role(user.id, workspace.id)
         is_admin = self.cache_service.is_workspace_admin(user.id, workspace.id)
-        
-        return user_role in ['admin', 'owner'] or is_admin
+
+        return user_role in ["admin", "owner"] or is_admin
 
     def _can_view_members(self, workspace: Workspace, user) -> bool:
         """
         Check if user can view workspace members using cache.
-        
+
         Args:
             workspace: Workspace instance
             user: User instance
-            
+
         Returns:
             bool: True if user can view members
         """
@@ -436,19 +450,24 @@ class MembershipService:
         # Use cache to check membership
         return self.cache_service.is_user_workspace_member(user.id, workspace.id)
 
-    def _calculate_permissions(self, user_role: str, is_owner: bool, 
-                             is_admin: bool, is_superuser: bool, 
-                             workspace_active: bool) -> dict:
+    def _calculate_permissions(
+        self,
+        user_role: str,
+        is_owner: bool,
+        is_admin: bool,
+        is_superuser: bool,
+        workspace_active: bool,
+    ) -> dict:
         """
         Calculate comprehensive user permissions based on role and status.
-        
+
         Args:
             user_role: User's role in workspace (viewer, editor, owner)
             is_owner: Whether user is workspace owner
             is_admin: Whether user is workspace admin (separate from membership)
             is_superuser: Whether user is superuser
             workspace_active: Whether workspace is active
-            
+
         Returns:
             dict: Comprehensive permission set
         """
@@ -457,39 +476,40 @@ class MembershipService:
         can_see_inactive = is_owner or is_admin or is_superuser
 
         # Role-based permissions
-        is_editor = user_role in ['editor', 'owner']  # Admin is NOT editor unless also member
-        can_manage_members = user_role in ['owner'] or is_admin or is_superuser  # Only owners and admins
+        is_editor = user_role in [
+            "editor",
+            "owner",
+        ]  # Admin is NOT editor unless also member
+        can_manage_members = (
+            user_role in ["owner"] or is_admin or is_superuser
+        )  # Only owners and admins
 
         permissions = {
             # Basic permissions
-            'can_view': can_view,
-            'can_see_inactive': can_see_inactive,
-            
+            "can_view": can_view,
+            "can_see_inactive": can_see_inactive,
             # Workspace management
-            'can_edit': (is_owner or is_admin) and workspace_active,
-            'can_activate': (is_owner or is_admin) and not workspace_active,
-            'can_deactivate': (is_owner or is_admin) and workspace_active,
-            'can_soft_delete': (is_owner or is_admin) and workspace_active,
-            
+            "can_edit": (is_owner or is_admin) and workspace_active,
+            "can_activate": (is_owner or is_admin or is_superuser) and not workspace_active,
+            "can_deactivate": (is_owner or is_admin or is_superuser) and workspace_active,
+            "can_soft_delete": (is_owner or is_admin or is_superuser) and workspace_active,
             # Member management
-            'can_manage_members': can_manage_members and workspace_active,
-            'can_invite': can_manage_members and workspace_active,
-            'can_view_members': can_view,
-            
+            "can_manage_members": can_manage_members and workspace_active,
+            "can_invite": can_manage_members and workspace_active,
+            "can_view_members": can_view,
             # Data management
-            'can_create_transactions': (is_editor or is_admin) and workspace_active,  # Admins can create too
-            'can_view_transactions': can_view,
-            'can_manage_categories': (is_owner or is_admin) and workspace_active,
-            
+            "can_create_transactions": (is_editor or is_admin or is_superuser)
+            and workspace_active,  # Admins can create too
+            "can_view_transactions": can_view,
+            "can_manage_categories": (is_owner or is_admin) and workspace_active,
             # Ownership-specific permissions
-            'can_hard_delete': is_owner,
-            'can_transfer_ownership': is_owner and workspace_active,
-            
+            "can_hard_delete": is_owner or is_superuser,
+            "can_transfer_ownership": is_owner and workspace_active,
             # Admin permissions
-            'is_superuser': is_superuser,
-            'is_workspace_admin': is_admin,  # Separate from membership
-            'is_workspace_owner': is_owner,
-            'workspace_role': user_role,  # Membership role (viewer, editor, owner)
+            "is_superuser": is_superuser,
+            "is_workspace_admin": is_admin,  # Separate from membership
+            "is_workspace_owner": is_owner,
+            "workspace_role": user_role,  # Membership role (viewer, editor, owner)
         }
 
         return permissions

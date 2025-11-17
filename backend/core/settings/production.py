@@ -6,8 +6,9 @@ This configuration extends base settings with production-specific values
 including maximum security, production services, and monitored logging.
 """
 
-from .base import *
 import logging
+
+from .base import *
 from .utils import load_environment_config
 
 # Load environment configuration
@@ -80,7 +81,7 @@ DATABASES = {
         "CONN_MAX_AGE": 60,  # Connection pooling 1 minute
         "OPTIONS": {
             "connect_timeout": 5,  # Max 5 second waiting for DB connection
-        }
+        },
     }
 }
 

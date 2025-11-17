@@ -17,7 +17,6 @@ from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.validators import UniqueValidator
 
-
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -413,16 +412,16 @@ class SocialCompleteProfileSerializer(serializers.ModelSerializer):
         validators=[
             UniqueValidator(
                 queryset=User.objects.all(),
-                message="This username is already taken. Please choose a different one."
+                message="This username is already taken. Please choose a different one.",
             )
         ],
-        help_text="Must be unique and 3-30 characters long"
+        help_text="Must be unique and 3-30 characters long",
     )
     password = serializers.CharField(
-        write_only=True, 
-        required=True, 
+        write_only=True,
+        required=True,
         validators=[validate_password],
-        help_text="Must meet password strength requirements"
+        help_text="Must meet password strength requirements",
     )
 
     class Meta:
@@ -434,24 +433,26 @@ class SocialCompleteProfileSerializer(serializers.ModelSerializer):
         Validate username for profile completion.
         """
         value = value.strip()
-        
+
         # Basic validation
         if len(value) < 3:
-            raise serializers.ValidationError("Username must be at least 3 characters long.")
-        
+            raise serializers.ValidationError(
+                "Username must be at least 3 characters long."
+            )
+
         if len(value) > 30:
             raise serializers.ValidationError("Username cannot exceed 30 characters.")
-        
+
         # Check for allowed characters
-        if not re.match(r'^[a-zA-Z0-9_\.]+$', value):
+        if not re.match(r"^[a-zA-Z0-9_\.]+$", value):
             raise serializers.ValidationError(
                 "Username can only contain letters, numbers, underscores and dots."
             )
-        
+
         # Check if username already exists (redundant but safe)
         if User.objects.filter(username=value).exists():
             raise serializers.ValidationError("This username is already taken.")
-        
+
         logger.info(
             "Username validation successful",
             extra={
@@ -466,23 +467,25 @@ class SocialCompleteProfileSerializer(serializers.ModelSerializer):
         """
         Validate profile completion data.
         """
-        username = attrs.get('username', '').strip()
-        
+        username = attrs.get("username", "").strip()
+
         # Final uniqueness check before save
         if username and User.objects.filter(username=username).exists():
             logger.warning(
                 "Username uniqueness validation failed in final check",
                 extra={
                     "username": username,
-                    "action": "uniqueness_validation_failure", 
+                    "action": "uniqueness_validation_failure",
                     "component": "SocialCompleteProfileSerializer",
                     "severity": "medium",
                 },
             )
-            raise serializers.ValidationError({
-                "username": "This username is already taken. Please choose a different one."
-            })
-        
+            raise serializers.ValidationError(
+                {
+                    "username": "This username is already taken. Please choose a different one."
+                }
+            )
+
         logger.info(
             "Social profile completion validation successful",
             extra={
@@ -499,7 +502,7 @@ class SocialCompleteProfileSerializer(serializers.ModelSerializer):
         Update user instance with profile completion data.
         """
         username = validated_data["username"]
-        
+
         logger.info(
             "Initiating social profile completion",
             extra={
@@ -539,7 +542,7 @@ class SocialCompleteProfileSerializer(serializers.ModelSerializer):
                 },
             )
             return instance
-            
+
         except Exception as e:
             logger.error(
                 "Social profile completion failed",
@@ -554,6 +557,6 @@ class SocialCompleteProfileSerializer(serializers.ModelSerializer):
                 },
                 exc_info=True,
             )
-            raise serializers.ValidationError({
-                "non_field_errors": "Profile completion failed. Please try again."
-            })
+            raise serializers.ValidationError(
+                {"non_field_errors": "Profile completion failed. Please try again."}
+            )

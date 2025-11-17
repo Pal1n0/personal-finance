@@ -12,6 +12,7 @@ This test module covers:
 
 import re
 from unittest.mock import MagicMock, patch
+
 from allauth.account.adapter import get_adapter
 from allauth.account.models import EmailAddress, EmailConfirmation
 from allauth.socialaccount.models import SocialLogin
@@ -634,11 +635,9 @@ class UserAuthTests(APITestCase):
                 )
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-
     # =========================================================================
     # PERFORMANCE & EDGE CASE TESTS
     # =========================================================================
-
 
     def test_large_payload_handling(self):
         """Test that very large payloads are handled gracefully."""
@@ -653,17 +652,19 @@ class UserAuthTests(APITestCase):
         # Should return 400, not 500 or timeout
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    # missing test for coverage  
+    # missing test for coverage
 
     def test_email_confirmation_database_error(self):
         """Test email confirmation handles database errors gracefully."""
-        with patch('allauth.account.models.EmailConfirmation.objects.get') as mock_get:
+        with patch("allauth.account.models.EmailConfirmation.objects.get") as mock_get:
             mock_get.side_effect = Exception("Database connection failed")
-            
+
             # POUŽI NOVÝ CUSTOM ENDPOINT
             url = reverse("custom_account_confirm_email", kwargs={"key": "some-key"})
             response = self.client.get(url)
-            self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)  
+            self.assertNotEqual(
+                response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     def test_email_confirmation_invalid_key(self):
         """Test email confirmation with invalid/non-existent key returns JSON."""
@@ -671,7 +672,7 @@ class UserAuthTests(APITestCase):
         # POUŽI NOVÝ CUSTOM ENDPOINT
         url = reverse("custom_account_confirm_email", kwargs={"key": invalid_key})
         response = self.client.get(url)
-        
+
         # Teraz by malo vracať 400 z tvojho CustomConfirmEmailView
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", response.data)
@@ -681,48 +682,47 @@ class UserAuthTests(APITestCase):
         """Test successful email confirmation returns redirect."""
         # Create unconfirmed user
         user = User.objects.create_user(
-            username="unconfirmed", 
-            email="unconfirmed@example.com", 
+            username="unconfirmed",
+            email="unconfirmed@example.com",
             password="testpass123",
-            is_active=False
+            is_active=False,
         )
         email_addr = EmailAddress.objects.create(
-            user=user, 
-            email=user.email, 
-            verified=False,
-            primary=True
+            user=user, email=user.email, verified=False, primary=True
         )
         confirmation = EmailConfirmation.create(email_addr)
 
         confirmation.sent = timezone.now()
         confirmation.save()
-        
+
         # POUŽI NOVÝ CUSTOM ENDPOINT
         url = reverse("custom_account_confirm_email", kwargs={"key": confirmation.key})
         response = self.client.get(url)
-        
+
         # Debug výpis pre istotu
         print(f"Response status: {response.status_code}")
         print(f"Redirect to: {getattr(response, 'url', 'No redirect')}")
-        
+
         # Môže vracať 302 Redirect alebo 200 JSON
         self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_302_FOUND])
-        
+
         # Verify user is activated (TO JE HLAVNÉ!)
         user.refresh_from_db()
         self.assertTrue(user.is_active)
-        email_addr.refresh_from_db() 
+        email_addr.refresh_from_db()
         self.assertTrue(email_addr.verified)
 
     def test_email_confirmation_expired_key(self):
         """Test email confirmation with expired key."""
         # Create confirmation with past expiration
         user = User.objects.create(email="expired@example.com", is_active=False)
-        email_addr = EmailAddress.objects.create(user=user, email=user.email, verified=False)
+        email_addr = EmailAddress.objects.create(
+            user=user, email=user.email, verified=False
+        )
         confirmation = EmailConfirmation.create(email_addr)
         confirmation.sent = timezone.now() - timezone.timedelta(days=10)
         confirmation.save()
-        
+
         # POUŽI NOVÝ CUSTOM ENDPOINT
         url = reverse("custom_account_confirm_email", kwargs={"key": confirmation.key})
         response = self.client.get(url)
@@ -732,24 +732,28 @@ class UserAuthTests(APITestCase):
     def test_email_confirmation_already_verified(self):
         """Test confirming already verified email."""
         user = User.objects.create(email="verified@example.com", is_active=True)
-        email_addr = EmailAddress.objects.create(user=user, email=user.email, verified=True)
+        email_addr = EmailAddress.objects.create(
+            user=user, email=user.email, verified=True
+        )
         confirmation = EmailConfirmation.create(email_addr)
-        
+
         # POUŽI NOVÝ CUSTOM ENDPOINT
         url = reverse("custom_account_confirm_email", kwargs={"key": confirmation.key})
         response = self.client.get(url)
         # Should handle gracefully
         self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    @patch('allauth.socialaccount.providers.google.views.GoogleOAuth2Adapter.complete_login')
+    @patch(
+        "allauth.socialaccount.providers.google.views.GoogleOAuth2Adapter.complete_login"
+    )
     def test_google_login_authentication_failure(self, mock_complete_login):
         """Test Google OAuth2 login handles authentication failures gracefully."""
         mock_complete_login.side_effect = Exception("OAuth authentication failed")
-        
-        response = self.client.post(reverse("google_login"), 
-                                {"access_token": "invalid-token"}, 
-                                format="json")
-        
+
+        response = self.client.post(
+            reverse("google_login"), {"access_token": "invalid-token"}, format="json"
+        )
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Google authentication failed", response.data.get("detail", ""))
 
@@ -764,16 +768,16 @@ class UserAuthTests(APITestCase):
         # Create social user with UNIQUE email
         social_user = User.objects.create(
             email="unique_social_test@example.com",
-            is_social_account=True, 
+            is_social_account=True,
             profile_completed=False,
-            username=None
+            username=None,
         )
         self.client.force_authenticate(user=social_user)
-        
+
         # Try to use existing username
         data = {"username": "testuser", "password": "StrongPass123!"}
         response = self.client.put(self.social_complete_url, data, format="json")
-        
+
         # Should return 400 with validation error
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("username", response.data)
@@ -787,14 +791,16 @@ class UserAuthTests(APITestCase):
             "",  # Empty token
             None,  # None token
         ]
-        
+
         for token in malformed_tokens:
             with self.subTest(token=token):
                 data = {"refresh": token} if token is not None else {}
                 response = self.client.post(self.logout_url, data, format="json")
-                
+
                 # CRITICAL: Should never crash or return 500
-                self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+                self.assertNotEqual(
+                    response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
                 # Should return 200 even with invalid tokens for security
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -807,59 +813,63 @@ class UserAuthTests(APITestCase):
     def test_lockout_with_email_authentication(self):
         """Test lockout mechanism works with email-based authentication."""
         reset()
-        
+
         # Failed attempts with email
         for i in range(5):
             response = self.client.post(
                 self.login_url,
                 {"email": "test@example.com", "password": "wrongpass"},
-                format="json"
+                format="json",
             )
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        
+
         # 6th attempt should be blocked
         response = self.client.post(
             self.login_url,
-            {"email": "test@example.com", "password": "strongpass123"},  # Correct password but locked
-            format="json"
+            {
+                "email": "test@example.com",
+                "password": "strongpass123",
+            },  # Correct password but locked
+            format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_lockout_reset_after_successful_login(self):
         """Test lockout counter resets after successful login."""
         from axes.models import AccessAttempt
+
         reset()
-        
+
         # 3 failed attempts
         for i in range(3):
             response = self.client.post(
                 self.login_url,
                 {"username": "testuser", "password": "wrongpass"},
-                format="json"
+                format="json",
             )
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        
+
         # One successful login - RESETS the counter
         response = self.client.post(
             self.login_url,
             {"username": "testuser", "password": "strongpass123"},
-            format="json"
+            format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+
         # Manual reset of AccessAttempt for clean test
         try:
             attempt = AccessAttempt.objects.get(username="testuser")
             attempt.delete()
         except AccessAttempt.DoesNotExist:
             pass
-        
+
         # Now 3 more failures - should NOT trigger lockout yet
         for i in range(3):
             response = self.client.post(
                 self.login_url,
                 {"username": "testuser", "password": "wrongpass"},
-                format="json"
+                format="json",
             )
             # Should still be 401, not 403 (locked)
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -868,13 +878,11 @@ class UserAuthTests(APITestCase):
         """Test login fails for inactive users."""
         inactive_user = User.objects.create_user(
             username="inactive",
-            email="inactive@example.com", 
+            email="inactive@example.com",
             password="testpass123",
-            is_active=False
+            is_active=False,
         )
-        
+
         data = {"username": "inactive", "password": "testpass123"}
         response = self.client.post(self.login_url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-

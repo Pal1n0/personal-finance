@@ -6,7 +6,8 @@ including RESTful routes for resources and custom action endpoints.
 """
 
 import logging
-from django.urls import path, include
+
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from . import views
@@ -18,184 +19,141 @@ logger = logging.getLogger(__name__)
 router = DefaultRouter()
 
 # User settings endpoints
-router.register(
-    r'user-settings', 
-    views.UserSettingsViewSet, 
-    basename='user-settings'
-)
+router.register(r"user-settings", views.UserSettingsViewSet, basename="user-settings")
 
 # Workspace settings endpoints with atomic currency changes
 router.register(
-    r'workspace-settings', 
-    views.WorkspaceSettingsViewSet, 
-    basename='workspacesettings'
+    r"workspace-settings", views.WorkspaceSettingsViewSet, basename="workspacesettings"
 )
 
 # Transaction management endpoints
-router.register(
-    r'transactions', 
-    views.TransactionViewSet, 
-    basename='transaction'
-)
+router.register(r"transactions", views.TransactionViewSet, basename="transaction")
 
 # Expense categories endpoints (read-only)
 router.register(
-    r'expense-categories', 
-    views.ExpenseCategoryViewSet, 
-    basename='expensecategory'
+    r"expense-categories", views.ExpenseCategoryViewSet, basename="expensecategory"
 )
 
 # Income categories endpoints (read-only)
 router.register(
-    r'income-categories', 
-    views.IncomeCategoryViewSet, 
-    basename='incomecategory'
+    r"income-categories", views.IncomeCategoryViewSet, basename="incomecategory"
 )
 
 # Exchange rates endpoints (read-only)
-router.register(
-    r'exchange-rates', 
-    views.ExchangeRateViewSet, 
-    basename='exchange-rate'
-)
+router.register(r"exchange-rates", views.ExchangeRateViewSet, basename="exchange-rate")
 
 # Workspace management endpoints
-router.register(
-    r'workspaces', 
-    views.WorkspaceViewSet, 
-    basename='workspace'
-)
+router.register(r"workspaces", views.WorkspaceViewSet, basename="workspace")
 
 # Transaction drafts management endpoints
 router.register(
-    r'transaction-drafts',
-    views.TransactionDraftViewSet,
-    basename='transactiondraft'
+    r"transaction-drafts", views.TransactionDraftViewSet, basename="transactiondraft"
 )
 
 # Workspace admin management endpoints
 router.register(
-    r'workspace-admins', 
-    views.WorkspaceAdminViewSet, 
-    basename='workspaceadmin'
+    r"workspace-admins", views.WorkspaceAdminViewSet, basename="workspaceadmin"
 )
 
-router.register(
-    r'category-sync', 
-    views.CategorySyncViewSet, 
-    basename='category-sync'
-)
+router.register(r"category-sync", views.CategorySyncViewSet, basename="category-sync")
 
 
 # Custom API endpoints for bulk operations and synchronization
 urlpatterns = [
     # Include all router-generated URLs
-    path('', include(router.urls)),
-    
+    path("", include(router.urls)),
     # Workspace members endpoint
     path(
-        'workspaces/<int:pk>/members/',
-        views.WorkspaceViewSet.as_view({'get': 'members'}),
-        name='workspace-members'
+        "workspaces/<int:pk>/members/",
+        views.WorkspaceViewSet.as_view({"get": "members"}),
+        name="workspace-members",
     ),
-    
-    # Workspace settings endpoint  
+    # Workspace settings endpoint
     path(
-        'workspaces/<int:pk>/settings/',
-        views.WorkspaceViewSet.as_view({'get': 'workspace_settings'}),
-        name='workspace-settings'
+        "workspaces/<int:pk>/settings/",
+        views.WorkspaceViewSet.as_view({"get": "workspace_settings"}),
+        name="workspace-settings",
     ),
-    
     # Workspace hard delete endpoint (PRIBUDOL - existuje v views)
     path(
-        'workspaces/<int:pk>/hard-delete/',
-        views.WorkspaceViewSet.as_view({'delete': 'hard_delete'}),
-        name='workspace-hard-delete'
+        "workspaces/<int:pk>/hard-delete/",
+        views.WorkspaceViewSet.as_view({"delete": "hard_delete"}),
+        name="workspace-hard-delete",
     ),
-    
     # Workspace activate endpoint (PRIBUDOL - existuje v views)
     path(
-        'workspaces/<int:pk>/activate/',
-        views.WorkspaceViewSet.as_view({'post': 'activate'}),
-        name='workspace-activate'
+        "workspaces/<int:pk>/activate/",
+        views.WorkspaceViewSet.as_view({"post": "activate"}),
+        name="workspace-activate",
     ),
-    
     # Workspace membership info endpoint (PRIBUDOL - existuje v views)
     path(
-        'workspaces/<int:pk>/membership-info/',
-        views.WorkspaceViewSet.as_view({'get': 'membership_info'}),
-        name='workspace-membership-info'
+        "workspaces/<int:pk>/membership-info/",
+        views.WorkspaceViewSet.as_view({"get": "membership_info"}),
+        name="workspace-membership-info",
     ),
-    
     # Transaction bulk delete endpoint
     path(
-        'transactions/bulk-delete/',
-        views.TransactionViewSet.as_view({'post': 'bulk_delete'}),
-        name='transaction-bulk-delete'
+        "transactions/bulk-delete/",
+        views.TransactionViewSet.as_view({"post": "bulk_delete"}),
+        name="transaction-bulk-delete",
     ),
-    
     # Bulk transaction synchronization endpoint
     path(
-        'workspaces/<int:workspace_id>/transactions/bulk-sync/',
-        views.TransactionViewSet.as_view({'post': 'bulk_sync'}),
-        name='bulk-sync-transactions'
+        "workspaces/<int:workspace_id>/transactions/bulk-sync/",
+        views.TransactionViewSet.as_view({"post": "bulk_sync"}),
+        name="bulk-sync-transactions",
     ),
-    
     # Transaction draft save endpoint (PRIBUDOL - existuje v views)
     path(
-        'workspaces/<int:workspace_pk>/transaction-drafts/save-draft/',
-        views.TransactionDraftViewSet.as_view({'post': 'save_draft'}),
-        name='transaction-draft-save'
+        "workspaces/<int:workspace_pk>/transaction-drafts/save-draft/",
+        views.TransactionDraftViewSet.as_view({"post": "save_draft"}),
+        name="transaction-draft-save",
     ),
-    
     # Transaction draft get workspace draft endpoint (PRIBUDOL - existuje v views)
     path(
-        'workspaces/<int:workspace_pk>/transaction-drafts/get-workspace-draft/',
-        views.TransactionDraftViewSet.as_view({'get': 'get_workspace_draft'}),
-        name='transaction-draft-get-workspace'
+        "workspaces/<int:workspace_pk>/transaction-drafts/get-workspace-draft/",
+        views.TransactionDraftViewSet.as_view({"get": "get_workspace_draft"}),
+        name="transaction-draft-get-workspace",
     ),
-    
     # Transaction draft discard endpoint (PRIBUDOL - existuje v views)
     path(
-        'transaction-drafts/<int:pk>/discard/',
-        views.TransactionDraftViewSet.as_view({'delete': 'discard'}),
-        name='transaction-draft-discard'
+        "transaction-drafts/<int:pk>/discard/",
+        views.TransactionDraftViewSet.as_view({"delete": "discard"}),
+        name="transaction-draft-discard",
     ),
-
     # Category usage endpoints
     path(
-        'expense-categories/<int:pk>/usage/',
-        views.ExpenseCategoryViewSet.as_view({'get': 'usage'}),
-        name='expense-category-usage'
+        "expense-categories/<int:pk>/usage/",
+        views.ExpenseCategoryViewSet.as_view({"get": "usage"}),
+        name="expense-category-usage",
     ),
     path(
-        'income-categories/<int:pk>/usage/',
-        views.IncomeCategoryViewSet.as_view({'get': 'usage'}),
-        name='income-category-usage'
+        "income-categories/<int:pk>/usage/",
+        views.IncomeCategoryViewSet.as_view({"get": "usage"}),
+        name="income-category-usage",
     ),
-    
     # Workspace admin management
     path(
-        'workspaces/<int:workspace_pk>/assign-admin/',
-        views.WorkspaceAdminViewSet.as_view({'post': 'assign_admin'}),
-        name='workspace-assign-admin'
+        "workspaces/<int:workspace_pk>/assign-admin/",
+        views.WorkspaceAdminViewSet.as_view({"post": "assign_admin"}),
+        name="workspace-assign-admin",
     ),
     path(
-        'workspace-admins/<int:pk>/deactivate/',
-        views.WorkspaceAdminViewSet.as_view({'post': 'deactivate_admin'}),
-        name='workspace-deactivate-admin'
+        "workspace-admins/<int:pk>/deactivate/",
+        views.WorkspaceAdminViewSet.as_view({"post": "deactivate_admin"}),
+        name="workspace-deactivate-admin",
     ),
-    
     # Workspace member management
     path(
-        'workspaces/<int:pk>/change-owner/',
-        views.WorkspaceViewSet.as_view({'post': 'change_owner'}),
-        name='workspace-change-owner'
+        "workspaces/<int:pk>/change-owner/",
+        views.WorkspaceViewSet.as_view({"post": "change_owner"}),
+        name="workspace-change-owner",
     ),
     path(
-        'workspaces/<int:pk>/update-member-role/',
-        views.WorkspaceViewSet.as_view({'post': 'update_member_role'}),
-        name='workspace-update-member-role'
+        "workspaces/<int:pk>/update-member-role/",
+        views.WorkspaceViewSet.as_view({"post": "update_member_role"}),
+        name="workspace-update-member-role",
     ),
 ]
 
@@ -220,17 +178,21 @@ logger.debug(
             {
                 "prefix": route[0],
                 "viewset": route[1].__class__.__name__,
-                "basename": route[2]
+                "basename": route[2],
             }
             for route in router.registry
         ],
         "custom_routes": [
             {
-                "pattern": pattern.pattern._route if hasattr(pattern.pattern, '_route') else str(pattern.pattern),
-                "name": getattr(pattern, 'name', 'unnamed') 
+                "pattern": (
+                    pattern.pattern._route
+                    if hasattr(pattern.pattern, "_route")
+                    else str(pattern.pattern)
+                ),
+                "name": getattr(pattern, "name", "unnamed"),
             }
-            for pattern in urlpatterns 
-            if hasattr(pattern, 'pattern')
+            for pattern in urlpatterns
+            if hasattr(pattern, "pattern")
         ],
         "action": "route_detailed_log",
         "component": "urls",

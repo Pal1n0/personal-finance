@@ -452,7 +452,6 @@ class InactiveAccountView(APIView):
         return ip
 
 
-
 class CustomConfirmEmailView(APIView):
     """
     Custom email confirmation view that returns JSON responses instead of rendering templates.
@@ -460,15 +459,16 @@ class CustomConfirmEmailView(APIView):
     Overrides the default allauth behavior to provide API-friendly JSON responses
     for email confirmation in a REST API context.
     """
+
     permission_classes = [permissions.AllowAny]
-    http_method_names = ['get']
+    http_method_names = ["get"]
 
     def get(self, request, *args, **kwargs):
         """
         Handle email confirmation GET requests with JSON response.
         """
         key = self.kwargs.get("key", "")
-        
+
         logger.info(
             "Email confirmation request received",
             extra={
@@ -483,20 +483,20 @@ class CustomConfirmEmailView(APIView):
             logger.warning(
                 "Email confirmation failed - missing key",
                 extra={
-                    "action": "email_confirmation_failure", 
+                    "action": "email_confirmation_failure",
                     "component": "CustomConfirmEmailView",
                     "reason": "missing_key",
                 },
             )
             return Response(
                 {"detail": "Confirmation key is required."},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
             # Retrieve confirmation object
             confirmation = EmailConfirmation.objects.get(key=key)
-            
+
             logger.info(
                 "Email confirmation object found",
                 extra={
@@ -511,7 +511,7 @@ class CustomConfirmEmailView(APIView):
             )
 
             user = confirmation.email_address.user
-            
+
             # Confirm email address using allauth's logic
             confirmation.confirm(request)
 
@@ -567,9 +567,9 @@ class CustomConfirmEmailView(APIView):
             )
             return Response(
                 {"detail": "Invalid confirmation link."},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
-            
+
         except Exception as e:
             logger.error(
                 "Email confirmation processing failed",
@@ -584,18 +584,19 @@ class CustomConfirmEmailView(APIView):
                 exc_info=True,
             )
             return Response(
-                {"detail": "Confirmation failed. Please try again or request a new confirmation email."},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    "detail": "Confirmation failed. Please try again or request a new confirmation email."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
     def _get_client_ip(self, request) -> str:
         """
         Extract client IP address from request for security logging.
         """
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
+            ip = x_forwarded_for.split(",")[0]
         else:
-            ip = request.META.get('REMOTE_ADDR', 'unknown')
-        return ip 
-
+            ip = request.META.get("REMOTE_ADDR", "unknown")
+        return ip

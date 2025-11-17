@@ -5,12 +5,15 @@ with comprehensive security validation and audit logging.
 """
 
 import logging
-from django.db import transaction, DatabaseError
+
 from django.core.exceptions import ValidationError
+from django.db import DatabaseError, transaction
 from rest_framework.exceptions import PermissionDenied
 
-from ..models import ExpenseCategory, IncomeCategory, ExpenseCategoryVersion, IncomeCategoryVersion, Transaction
-from ..utils.category_utils import sync_categories_tree, validate_category_hierarchy, check_category_usage, validate_category_hierarchy  
+from ..models import (ExpenseCategory, ExpenseCategoryVersion, IncomeCategory,
+                      IncomeCategoryVersion, Transaction)
+from ..utils.category_utils import (check_category_usage, sync_categories_tree,
+                                    validate_category_hierarchy)
 
 logger = logging.getLogger(__name__)
 
@@ -22,21 +25,23 @@ class CategoryService:
     """
 
     @transaction.atomic
-    def sync_categories_tree(self, categories_data: list, version, category_model) -> dict:
+    def sync_categories_tree(
+        self, categories_data: list, version, category_model
+    ) -> dict:
         """
         Atomically synchronize category hierarchy for specific version.
-        
+
         Wrapper around existing sync_categories_tree function with service-level logging
         and error handling.
-        
+
         Args:
             categories_data: List of category data dictionaries
             version: CategoryVersion instance (ExpenseCategoryVersion or IncomeCategoryVersion)
             category_model: Category model class (ExpenseCategory or IncomeCategory)
-            
+
         Returns:
             dict: Synchronization results with created, updated, deleted counts
-            
+
         Raises:
             ValidationError: If category data is invalid
             PermissionDenied: If user cannot modify categories
@@ -57,7 +62,7 @@ class CategoryService:
         try:
             # Use existing sync function
             results = sync_categories_tree(categories_data, version, category_model)
-            
+
             logger.info(
                 "Category tree synchronization completed via service",
                 extra={
@@ -103,12 +108,12 @@ class CategoryService:
     def validate_category_usage(self, category) -> dict:
         """
         Check if category is used in transactions and determine move restrictions.
-        
+
         Enhanced version with comprehensive usage analysis and move restrictions.
-        
+
         Args:
             category: Category instance to check
-            
+
         Returns:
             dict: Usage information and move restrictions
         """
@@ -128,21 +133,30 @@ class CategoryService:
             is_used = check_category_usage(category.id, type(category))
 
             # Enhanced move restriction analysis
-            can_be_moved = not is_used or category.level != 5  # Non-leaf or unused leaf can be moved
-            
+            can_be_moved = (
+                not is_used or category.level != 5
+            )  # Non-leaf or unused leaf can be moved
+
             move_restrictions = {
-                'reason': 'Used in transactions' if is_used and category.level == 5 else 'None',
-                'requires_confirmation': category.level != 5 and not is_used,  # Non-leaf categories need confirmation
-                'transaction_count': self._get_category_transaction_count(category) if is_used else 0
+                "reason": (
+                    "Used in transactions"
+                    if is_used and category.level == 5
+                    else "None"
+                ),
+                "requires_confirmation": category.level != 5
+                and not is_used,  # Non-leaf categories need confirmation
+                "transaction_count": (
+                    self._get_category_transaction_count(category) if is_used else 0
+                ),
             }
 
             result = {
-                'category_id': category.id,
-                'category_name': category.name,
-                'level': category.level,
-                'is_used': is_used,
-                'can_be_moved': can_be_moved,
-                'move_restrictions': move_restrictions
+                "category_id": category.id,
+                "category_name": category.name,
+                "level": category.level,
+                "is_used": is_used,
+                "can_be_moved": can_be_moved,
+                "move_restrictions": move_restrictions,
             }
 
             logger.info(
@@ -175,14 +189,14 @@ class CategoryService:
     def get_categories_for_workspace(self, workspace, category_type: str):
         """
         Get categories for workspace with proper scoping and optimization.
-        
+
         Args:
             workspace: Workspace instance
             category_type: 'expense' or 'income'
-            
+
         Returns:
             QuerySet: Filtered categories with prefetched relationships
-            
+
         Raises:
             ValidationError: If category_type is invalid
         """
@@ -197,26 +211,30 @@ class CategoryService:
         )
 
         try:
-            if category_type == 'expense':
+            if category_type == "expense":
                 active_versions = ExpenseCategoryVersion.objects.filter(
-                    workspace=workspace,
-                    is_active=True
+                    workspace=workspace, is_active=True
                 )
-                categories = ExpenseCategory.objects.filter(
-                    version__in=active_versions
-                ).select_related('version').prefetch_related('property', 'children')
-                
-            elif category_type == 'income':
+                categories = (
+                    ExpenseCategory.objects.filter(version__in=active_versions)
+                    .select_related("version")
+                    .prefetch_related("property", "children")
+                )
+
+            elif category_type == "income":
                 active_versions = IncomeCategoryVersion.objects.filter(
-                    workspace=workspace,
-                    is_active=True
+                    workspace=workspace, is_active=True
                 )
-                categories = IncomeCategory.objects.filter(
-                    version__in=active_versions
-                ).select_related('version').prefetch_related('property', 'children')
-                
+                categories = (
+                    IncomeCategory.objects.filter(version__in=active_versions)
+                    .select_related("version")
+                    .prefetch_related("property", "children")
+                )
+
             else:
-                raise ValidationError('Invalid category type. Must be "expense" or "income".')
+                raise ValidationError(
+                    'Invalid category type. Must be "expense" or "income".'
+                )
 
             logger.debug(
                 "Workspace categories retrieved successfully via service",
@@ -251,11 +269,11 @@ class CategoryService:
     def get_category_tree_structure(self, workspace, category_type: str) -> list:
         """
         Get hierarchical category tree structure for frontend consumption.
-        
+
         Args:
             workspace: Workspace instance
             category_type: 'expense' or 'income'
-            
+
         Returns:
             list: Nested category tree structure
         """
@@ -283,37 +301,37 @@ class CategoryService:
                     },
                 )
                 return []
-            
+
             # Build tree structure
             category_dict = {}
             root_categories = []
-            
+
             # First pass: create all nodes
             for category in categories:
                 category_dict[category.id] = {
-                    'id': category.id,
-                    'name': category.name,
-                    'description': category.description,
-                    'level': category.level,
-                    'is_active': category.is_active,
-                    'is_leaf': category.is_leaf,
-                    'is_root': category.is_root,
-                    'children': []
+                    "id": category.id,
+                    "name": category.name,
+                    "description": category.description,
+                    "level": category.level,
+                    "is_active": category.is_active,
+                    "is_leaf": category.is_leaf,
+                    "is_root": category.is_root,
+                    "children": [],
                 }
-            
+
             # Second pass: build hierarchy
             for category in categories:
                 node = category_dict[category.id]
-                
+
                 # Add to parent's children or to root
                 parents = category.parents.all()
                 if parents.exists():
                     for parent in parents:
                         if parent.id in category_dict:
-                            category_dict[parent.id]['children'].append(node)
+                            category_dict[parent.id]["children"].append(node)
                 else:
                     root_categories.append(node)
-            
+
             logger.debug(
                 "Category tree structure built successfully via service",
                 extra={
@@ -325,7 +343,7 @@ class CategoryService:
                     "component": "CategoryService",
                 },
             )
-            
+
             return root_categories
 
         except Exception as e:
@@ -343,15 +361,17 @@ class CategoryService:
             )
             raise
 
-    def validate_category_operations(self, workspace, category_type: str, operations_data: dict) -> dict:
+    def validate_category_operations(
+        self, workspace, category_type: str, operations_data: dict
+    ) -> dict:
         """
         Validate category operations before execution.
-        
+
         Args:
             workspace: Workspace instance
             category_type: 'expense' or 'income'
             operations_data: Dictionary with create, update, delete operations
-            
+
         Returns:
             dict: Validation results with warnings and errors
         """
@@ -360,9 +380,9 @@ class CategoryService:
             extra={
                 "workspace_id": workspace.id,
                 "category_type": category_type,
-                "operations_count": len(operations_data.get('create', [])) + 
-                                  len(operations_data.get('update', [])) + 
-                                  len(operations_data.get('delete', [])),
+                "operations_count": len(operations_data.get("create", []))
+                + len(operations_data.get("update", []))
+                + len(operations_data.get("delete", [])),
                 "action": "category_operations_validation_service",
                 "component": "CategoryService",
             },
@@ -371,40 +391,44 @@ class CategoryService:
         try:
             # Get appropriate version and model
 
-            if category_type == 'expense':
+            if category_type == "expense":
                 try:
-                    version = ExpenseCategoryVersion.objects.get(workspace=workspace, is_active=True)
+                    version = ExpenseCategoryVersion.objects.get(
+                        workspace=workspace, is_active=True
+                    )
                 except ExpenseCategoryVersion.DoesNotExist:
-                    raise ValidationError("No active expense category version found for workspace")
+                    raise ValidationError(
+                        "No active expense category version found for workspace"
+                    )
                 category_model = ExpenseCategory
             else:
                 try:
-                    version = IncomeCategoryVersion.objects.get(workspace=workspace, is_active=True)
+                    version = IncomeCategoryVersion.objects.get(
+                        workspace=workspace, is_active=True
+                    )
                 except IncomeCategoryVersion.DoesNotExist:
-                    raise ValidationError("No active income category version found for workspace")
+                    raise ValidationError(
+                        "No active income category version found for workspace"
+                    )
                 category_model = IncomeCategory
 
             # Use existing validation function
             validate_category_hierarchy(operations_data, version, category_model)
 
             # Additional service-level validations
-            validation_results = {
-                'is_valid': True,
-                'warnings': [],
-                'errors': []
-            }
+            validation_results = {"is_valid": True, "warnings": [], "errors": []}
 
             # Check for potential data loss
-            delete_ids = operations_data.get('delete', [])
+            delete_ids = operations_data.get("delete", [])
             if delete_ids:
                 used_categories = []
                 for category_id in delete_ids:
                     if check_category_usage(category_id, category_model):
                         category = category_model.objects.get(id=category_id)
                         used_categories.append(f"'{category.name}' (ID: {category_id})")
-                
+
                 if used_categories:
-                    validation_results['warnings'].append(
+                    validation_results["warnings"].append(
                         f"Deleting categories used in transactions: {', '.join(used_categories)}"
                     )
 
@@ -412,15 +436,15 @@ class CategoryService:
                 "Category operations validation completed via service",
                 extra={
                     "workspace_id": workspace.id,
-                    "is_valid": validation_results['is_valid'],
-                    "warning_count": len(validation_results['warnings']),
+                    "is_valid": validation_results["is_valid"],
+                    "warning_count": len(validation_results["warnings"]),
                     "action": "category_operations_validation_service_completed",
                     "component": "CategoryService",
                 },
             )
 
             return validation_results
-    
+
         except ValidationError as e:
             logger.warning(
                 "Category operations validation failed - business rules",
@@ -433,11 +457,7 @@ class CategoryService:
                     "severity": "medium",
                 },
             )
-            return {
-                'is_valid': False,
-                'warnings': [],
-                'errors': [str(e)]
-            }
+            return {"is_valid": False, "warnings": [], "errors": [str(e)]}
 
         except Exception as e:
             logger.error(
@@ -457,10 +477,10 @@ class CategoryService:
     def _get_category_transaction_count(self, category) -> int:
         """
         Get count of transactions using this category.
-        
+
         Args:
             category: Category instance
-            
+
         Returns:
             int: Number of transactions using this category
         """

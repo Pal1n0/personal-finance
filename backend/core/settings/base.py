@@ -54,12 +54,12 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
-    'EXCEPTION_HANDLER': 'rest_framework.views.exception_handler',
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination', 
-    'PAGE_SIZE': 50,
-    'DEFAULT_RENDERER_CLASSES': [
-        'rest_framework.renderers.JSONRenderer', 
-    ]
+    "EXCEPTION_HANDLER": "rest_framework.views.exception_handler",
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 50,
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
 }
 
 # Authentication backends configuration
@@ -99,10 +99,10 @@ ACCOUNT_EMAIL_CONFIRMATION_HMAC = True
 ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 3
 
 PROTECTED_SUPERUSER_EMAILS = [
-    'admin@financeapp.com',
-    'superuser@financeapp.com', 
-    'tech@financeapp.com',
-    'system@financeapp.com'
+    "admin@financeapp.com",
+    "superuser@financeapp.com",
+    "tech@financeapp.com",
+    "system@financeapp.com",
 ]
 
 # REST Auth configuration
@@ -279,7 +279,7 @@ LOGGING = {
         },
         "finance": {
             "handlers": ["console"],
-            "level": "DEBUG", 
+            "level": "DEBUG",
             "propagate": False,
         },
         "axes": {

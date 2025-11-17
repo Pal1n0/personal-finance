@@ -6,8 +6,9 @@ This configuration extends base settings with development-specific values
 including local database, relaxed security, and verbose logging.
 """
 
-from .base import *
 import logging
+
+from .base import *
 from .utils import load_environment_config
 
 # Load environment configuration
@@ -152,20 +153,20 @@ LOGGING["loggers"]["django.db.backends"] = {
 # Insert query monitoring middleware after security middleware but before CommonMiddleware
 try:
     # Find position after SecurityMiddleware
-    security_index = MIDDLEWARE.index('django.middleware.security.SecurityMiddleware')
-    
+    security_index = MIDDLEWARE.index("django.middleware.security.SecurityMiddleware")
+
     # Insert our query monitoring middleware
-    MIDDLEWARE.insert(security_index + 1, 'core.middleware.QueryCountMiddleware')
-    
+    MIDDLEWARE.insert(security_index + 1, "core.middleware.QueryCountMiddleware")
+
     # Optional: Add debug middleware for detailed SQL output
     if QUERY_DEBUG_ENABLED:
-        MIDDLEWARE.insert(security_index + 2, 'core.middleware.QueryDebugMiddleware')
-        
+        MIDDLEWARE.insert(security_index + 2, "core.middleware.QueryDebugMiddleware")
+
 except ValueError:
     # Fallback: add to beginning if SecurityMiddleware not found
-    MIDDLEWARE.insert(0, 'core.middleware.query_monitoring.QueryCountMiddleware')
+    MIDDLEWARE.insert(0, "core.middleware.query_monitoring.QueryCountMiddleware")
     if QUERY_DEBUG_ENABLED:
-        MIDDLEWARE.insert(1, 'core.middleware.query_monitoring.QueryDebugMiddleware')
+        MIDDLEWARE.insert(1, "core.middleware.query_monitoring.QueryDebugMiddleware")
 
 # =============================================================================
 # DEVELOPMENT TOOLBAR CONFIGURATION (OPTIONAL)

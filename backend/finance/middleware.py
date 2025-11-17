@@ -1,17 +1,20 @@
 # finance/middleware.py
 import logging
-from django.core.cache import cache
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import DatabaseError
-from .models import WorkspaceAdmin, WorkspaceMembership, Workspace
+
+from .models import Workspace, WorkspaceAdmin, WorkspaceMembership
 
 logger = logging.getLogger(__name__)
 
-class AdminImpersonationMiddleware():
+
+class AdminImpersonationMiddleware:
     """
     Enterprise-grade middleware for secure admin impersonation and permission caching.
-    
+
     Provides:
     - Secure admin impersonation with comprehensive security checks
     - Optimized permission caching with Redis backend
@@ -23,16 +26,16 @@ class AdminImpersonationMiddleware():
     def __init__(self, get_response=None):
         """
         Initialize middleware with Django's get_response callable.
-        
+
         Args:
             get_response: Django callable that takes request and returns response
         """
         self.get_response = get_response
-        
+
         logger.debug(
             "AdminImpersonationMiddleware initialized",
             extra={
-                "action": "middleware_initialized", 
+                "action": "middleware_initialized",
                 "component": "AdminImpersonationMiddleware",
                 "max_impersonations_per_minute": self.MAX_IMPERSONATIONS_PER_MINUTE,
                 "impersonation_cache_timeout": self.IMPERSONATION_CACHE_TIMEOUT,
@@ -45,26 +48,26 @@ class AdminImpersonationMiddleware():
         """
         # Zavolaj tvoj process_view logic
         # self.process_view(request, None, None, None)
-        
-        if hasattr(self, 'get_response') and self.get_response:
+
+        if hasattr(self, "get_response") and self.get_response:
             return self.get_response(request)
         return None
-    
+
     # Security constants
     MAX_IMPERSONATIONS_PER_MINUTE = 10
     IMPERSONATION_CACHE_TIMEOUT = 60  # seconds
     ALLOWED_SUPERUSER_EMAILS = settings.PROTECTED_SUPERUSER_EMAILS
-    
+
     def process_view(self, request, view_func, view_args, view_kwargs):
         """
         Process request for secure impersonation and permission resolution.
-        
+
         Args:
             request: HTTP request object
             view_func: Target view function
             view_args: View arguments
             view_kwargs: View keyword arguments
-            
+
         Returns:
             None: Always returns None to continue request processing
         """
@@ -72,18 +75,18 @@ class AdminImpersonationMiddleware():
         try:
             # Initialize secure defaults for all requests
             self._initialize_request_defaults(request)
-            
+
             # Terminate processing for unauthenticated requests
             if not request.user.is_authenticated:
                 return None
-            
+
             # Extract and validate key parameters
             user_id_param = self._get_user_id_param(request)
             workspace_id = self._get_validated_workspace_id(request, view_kwargs)
-            
+
             # Set basic user permissions without database queries
             self._set_basic_permissions(request)
-            
+
             # Process impersonation with comprehensive security checks
             if user_id_param:
                 if not self._check_impersonation_rate_limit(request):
@@ -97,17 +100,19 @@ class AdminImpersonationMiddleware():
                         },
                     )
                     return None
-                    
-                self._process_impersonation_request(request, user_id_param, workspace_id)
+
+                self._process_impersonation_request(
+                    request, user_id_param, workspace_id
+                )
             elif workspace_id:
                 # Non-impersonation request with workspace context
                 self._process_workspace_access(request, workspace_id)
-                
+
         except DatabaseError as e:
             logger.error(
                 "Database error during permission resolution",
                 extra={
-                    "user_id": getattr(request.user, 'id', 'anonymous'),
+                    "user_id": getattr(request.user, "id", "anonymous"),
                     "error": str(e),
                     "action": "database_error",
                     "component": "AdminImpersonationMiddleware",
@@ -120,7 +125,7 @@ class AdminImpersonationMiddleware():
             logger.error(
                 "Unexpected error in permission middleware",
                 extra={
-                    "user_id": getattr(request.user, 'id', 'anonymous'),
+                    "user_id": getattr(request.user, "id", "anonymous"),
                     "error": str(e),
                     "action": "middleware_error",
                     "component": "AdminImpersonationMiddleware",
@@ -130,36 +135,35 @@ class AdminImpersonationMiddleware():
             # Fail securely
             self._reset_impersonation(request)
 
- 
-        
         return None
 
     def _initialize_request_defaults(self, request):
         """Initialize all request attributes with secure, production-ready defaults."""
-        request.target_user = getattr(request, 'user', None)
+        request.target_user = getattr(request, "user", None)
         request.is_admin_impersonation = False
         request.impersonation_type = None
         request.impersonation_workspace_ids = []
         request.workspace = None
-        
+
         request.user_permissions = {
-            'is_superuser': False,
-            'is_workspace_admin': None,  # None = not calculated yet
-            'workspace_role': None,      # Role in current workspace (if any)
-            'current_workspace_id': None,
-            'workspace_exists': False,   # Explicit workspace validation flag
+            "is_superuser": False,
+            "is_workspace_admin": None,  # None = not calculated yet
+            "workspace_role": None,  # Role in current workspace (if any)
+            "current_workspace_id": None,
+            "workspace_exists": False,  # Explicit workspace validation flag
         }
 
     def _get_user_id_param(self, request):
         """
         Securely extract and validate user_id parameter from request.
-        
+
         Returns:
             int or None: Validated user ID or None if invalid/absent
         """
-        user_id = (request.GET.get('user_id') or 
-                  getattr(request, 'data', {}).get('user_id'))
-        
+        user_id = request.GET.get("user_id") or getattr(request, "data", {}).get(
+            "user_id"
+        )
+
         if user_id:
             try:
                 return int(user_id)
@@ -178,17 +182,17 @@ class AdminImpersonationMiddleware():
     def _get_validated_workspace_id(self, request, view_kwargs):
         """
         Extract and validate workspace ID with existence check.
-        
+
         Unified workspace validation - single source of truth for workspace existence.
         Handles workspace ID extraction from both URL path parameters and query parameters.
-        
+
         Args:
             request: HTTP request object with user context
             view_kwargs: View keyword arguments containing URL parameters
-            
+
         Returns:
             int or None: Valid workspace ID if exists and validated, None otherwise
-            
+
         Security Features:
         - Workspace existence validation to prevent ID enumeration attacks
         - Comprehensive input validation and type checking
@@ -196,16 +200,18 @@ class AdminImpersonationMiddleware():
         - Audit logging for security compliance
         """
         # Extract workspace ID from all supported sources
-        workspace_id = (view_kwargs.get('workspace_pk') or
-                    view_kwargs.get('workspace_id') or
-                    view_kwargs.get('pk') or
-                    request.GET.get('workspace_id'))
-        
+        workspace_id = (
+            view_kwargs.get("workspace_pk")
+            or view_kwargs.get("workspace_id")
+            or view_kwargs.get("pk")
+            or request.GET.get("workspace_id")
+        )
+
         # Reset permission state for request isolation
-        request.user_permissions['workspace_exists'] = False
-        request.user_permissions['current_workspace_id'] = None
+        request.user_permissions["workspace_exists"] = False
+        request.user_permissions["current_workspace_id"] = None
         request.workspace = None
-        
+
         # Early return if no workspace context
         if not workspace_id:
             logger.debug(
@@ -217,16 +223,16 @@ class AdminImpersonationMiddleware():
                 },
             )
             return None
-            
+
         try:
             # Type safety: Ensure workspace ID is integer
             workspace_id = int(workspace_id)
-            
+
             # Critical security: Validate workspace existence
             workspace_exists = Workspace.objects.filter(id=workspace_id).exists()
-            request.user_permissions['workspace_exists'] = workspace_exists
-            request.user_permissions['current_workspace_id'] = workspace_id
-            
+            request.user_permissions["workspace_exists"] = workspace_exists
+            request.user_permissions["current_workspace_id"] = workspace_id
+
             if workspace_exists:
                 # Cache workspace object for subsequent access
                 request.workspace = Workspace.objects.get(id=workspace_id)
@@ -250,11 +256,11 @@ class AdminImpersonationMiddleware():
                         "severity": "medium",
                     },
                 )
-            
+
             # Return workspace ID only if it exists
             # Permission classes use workspace_exists flag for access decisions
             return workspace_id if workspace_exists else None
-                
+
         except (ValueError, TypeError):
             logger.warning(
                 "Invalid workspace ID format",
@@ -266,26 +272,26 @@ class AdminImpersonationMiddleware():
                 },
             )
             # Ensure consistent permission state for invalid formats
-            request.user_permissions['workspace_exists'] = False
+            request.user_permissions["workspace_exists"] = False
             return None
 
     def _set_basic_permissions(self, request):
         """Set basic user permissions without database queries."""
-        request.user_permissions['is_superuser'] = request.user.is_superuser
+        request.user_permissions["is_superuser"] = request.user.is_superuser
 
     def _check_impersonation_rate_limit(self, request):
         """
         Implement rate limiting for impersonation requests.
-        
+
         Returns:
             bool: True if within rate limits, False if exceeded
         """
         cache_key = f"impersonation_rate_{request.user.id}"
         current_count = cache.get(cache_key, 0)
-        
+
         if current_count >= self.MAX_IMPERSONATIONS_PER_MINUTE:
             return False
-            
+
         cache.set(cache_key, current_count + 1, self.IMPERSONATION_CACHE_TIMEOUT)
         return True
 
@@ -301,21 +307,23 @@ class AdminImpersonationMiddleware():
                 "component": "AdminImpersonationMiddleware",
             },
         )
-        
+
         try:
             User = get_user_model()
             target_user = User.objects.get(id=user_id_param)
-            
+
             # Critical security: Prevent self-impersonation and system account access
             if not self._validate_impersonation_target(request.user, target_user):
                 self._reset_impersonation(request)
                 return
-                
-            if request.user_permissions['is_superuser']:
+
+            if request.user_permissions["is_superuser"]:
                 self._handle_superuser_impersonation(request, target_user, workspace_id)
             else:
-                self._handle_workspace_admin_impersonation(request, target_user, workspace_id)
-                
+                self._handle_workspace_admin_impersonation(
+                    request, target_user, workspace_id
+                )
+
         except User.DoesNotExist:
             logger.warning(
                 "Impersonation failed - target user not found",
@@ -342,11 +350,11 @@ class AdminImpersonationMiddleware():
             )
             return False
         return True
-    
+
     def _validate_impersonation_target(self, admin_user, target_user):
         """
         Validate impersonation target for security compliance.
-        
+
         Returns:
             bool: True if target is valid for impersonation
         """
@@ -362,8 +370,8 @@ class AdminImpersonationMiddleware():
                 },
             )
             return False
-            
-        # Prevent non-superusers from impersonating superusers  
+
+        # Prevent non-superusers from impersonating superusers
         if target_user.is_superuser and not admin_user.is_superuser:
             logger.warning(
                 "Non-superuser attempted to impersonate superuser",
@@ -376,7 +384,7 @@ class AdminImpersonationMiddleware():
                 },
             )
             return False
-            
+
         # Validate superuser emails for security
         if not self._validate_superuser_email(target_user):
             logger.warning(
@@ -391,19 +399,20 @@ class AdminImpersonationMiddleware():
                 },
             )
             return False
-            
+
         return True
 
     def _handle_superuser_impersonation(self, request, target_user, workspace_id):
         """Handle superuser impersonation with enhanced security controls."""
         request.target_user = target_user
         request.is_admin_impersonation = True
-        request.impersonation_type = 'superuser'
-        
+        request.impersonation_type = "superuser"
+
         if workspace_id:
             # Single workspace impersonation with validation
-            if (request.user_permissions.get('workspace_exists') and 
-                self._is_user_workspace_member(target_user, workspace_id)):
+            if request.user_permissions.get(
+                "workspace_exists"
+            ) and self._is_user_workspace_member(target_user, workspace_id):
                 request.impersonation_workspace_ids = [workspace_id]
                 logger.info(
                     "Superuser impersonation activated for specific workspace",
@@ -422,7 +431,9 @@ class AdminImpersonationMiddleware():
                         "admin_id": request.user.id,
                         "target_user_id": target_user.id,
                         "workspace_id": workspace_id,
-                        "workspace_exists": request.user_permissions.get('workspace_exists'),
+                        "workspace_exists": request.user_permissions.get(
+                            "workspace_exists"
+                        ),
                         "action": "superuser_impersonation_validation_failed",
                         "component": "AdminImpersonationMiddleware",
                     },
@@ -447,8 +458,11 @@ class AdminImpersonationMiddleware():
         """Handle workspace admin impersonation with scope validation."""
         if workspace_id:
             # Single workspace impersonation
-            if (request.user_permissions.get('workspace_exists') and 
-                self._can_admin_impersonate_in_workspace(request.user, target_user, workspace_id)):
+            if request.user_permissions.get(
+                "workspace_exists"
+            ) and self._can_admin_impersonate_in_workspace(
+                request.user, target_user, workspace_id
+            ):
                 self._grant_workspace_impersonation(request, target_user, workspace_id)
             else:
                 logger.warning(
@@ -457,7 +471,9 @@ class AdminImpersonationMiddleware():
                         "admin_id": request.user.id,
                         "target_user_id": target_user.id,
                         "workspace_id": workspace_id,
-                        "workspace_exists": request.user_permissions.get('workspace_exists'),
+                        "workspace_exists": request.user_permissions.get(
+                            "workspace_exists"
+                        ),
                         "action": "workspace_admin_impersonation_denied",
                         "component": "AdminImpersonationMiddleware",
                         "severity": "medium",
@@ -465,9 +481,13 @@ class AdminImpersonationMiddleware():
                 )
         else:
             # Multiple workspaces impersonation
-            common_workspaces = self._get_common_admin_workspaces(request.user, target_user)
+            common_workspaces = self._get_common_admin_workspaces(
+                request.user, target_user
+            )
             if common_workspaces:
-                self._grant_multiple_workspaces_impersonation(request, target_user, common_workspaces)
+                self._grant_multiple_workspaces_impersonation(
+                    request, target_user, common_workspaces
+                )
             else:
                 logger.warning(
                     "Workspace admin impersonation - no common workspaces",
@@ -483,7 +503,7 @@ class AdminImpersonationMiddleware():
     def _process_workspace_access(self, request, workspace_id):
         """Process non-impersonation workspace access with validation."""
         # Only process if workspace exists
-        if not request.user_permissions.get('workspace_exists'):
+        if not request.user_permissions.get("workspace_exists"):
             logger.warning(
                 "Workspace access attempt to non-existent workspace",
                 extra={
@@ -499,18 +519,20 @@ class AdminImpersonationMiddleware():
         # Set workspace role for permission checks
         role = self._get_user_workspace_role(request.user, workspace_id)
         if role:
-            request.user_permissions['workspace_role'] = role
-            request.user_permissions['is_workspace_admin'] = self._is_workspace_admin(
+            request.user_permissions["workspace_role"] = role
+            request.user_permissions["is_workspace_admin"] = self._is_workspace_admin(
                 request.user, workspace_id
             )
-            
+
             logger.debug(
                 "Workspace access permissions validated and set",
                 extra={
                     "user_id": request.user.id,
                     "workspace_id": workspace_id,
                     "role": role,
-                    "is_workspace_admin": request.user_permissions['is_workspace_admin'],
+                    "is_workspace_admin": request.user_permissions[
+                        "is_workspace_admin"
+                    ],
                     "action": "workspace_permissions_set",
                     "component": "AdminImpersonationMiddleware",
                 },
@@ -527,7 +549,9 @@ class AdminImpersonationMiddleware():
                 },
             )
 
-    def _can_admin_impersonate_in_workspace(self, admin_user, target_user, workspace_id):
+    def _can_admin_impersonate_in_workspace(
+        self, admin_user, target_user, workspace_id
+    ):
         """Check if admin can impersonate target user in specific workspace."""
         return self._is_workspace_admin(admin_user, workspace_id)
 
@@ -535,16 +559,14 @@ class AdminImpersonationMiddleware():
         """Check if user is admin of specific workspace with caching."""
         cache_key = f"workspace_admin_{user.id}_{workspace_id}"
         cached_result = cache.get(cache_key)
-        
+
         if cached_result is not None:
             return cached_result
-            
+
         result = WorkspaceAdmin.objects.filter(
-            user=user,
-            workspace_id=workspace_id,
-            is_active=True
+            user=user, workspace_id=workspace_id, is_active=True
         ).exists()
-        
+
         # Cache for 5 minutes to reduce database load
         cache.set(cache_key, result, 300)
         return result
@@ -553,15 +575,14 @@ class AdminImpersonationMiddleware():
         """Check if user is member of specific workspace with caching."""
         cache_key = f"workspace_member_{user.id}_{workspace_id}"
         cached_result = cache.get(cache_key)
-        
+
         if cached_result is not None:
             return cached_result
-            
+
         result = WorkspaceMembership.objects.filter(
-            user=user,
-            workspace_id=workspace_id
+            user=user, workspace_id=workspace_id
         ).exists()
-        
+
         # Cache for 5 minutes
         cache.set(cache_key, result, 300)
         return result
@@ -570,11 +591,11 @@ class AdminImpersonationMiddleware():
         """Get user's role in specific workspace with caching."""
         cache_key = f"workspace_role_{user.id}_{workspace_id}"
         cached_result = cache.get(cache_key)
-        
+
         if cached_result is not None:
             return cached_result
-        
-          # DEBUG: Log the query
+
+        # DEBUG: Log the query
         logger.debug(
             "Fetching role from database",
             extra={
@@ -584,13 +605,14 @@ class AdminImpersonationMiddleware():
                 "component": "AdminImpersonationMiddleware",
             },
         )
-                
-        membership = WorkspaceMembership.objects.filter(
-            user=user,
-            workspace_id=workspace_id
-        ).values('role').first()
-        
-        result = membership['role'] if membership else None
+
+        membership = (
+            WorkspaceMembership.objects.filter(user=user, workspace_id=workspace_id)
+            .values("role")
+            .first()
+        )
+
+        result = membership["role"] if membership else None
 
         # DEBUG: Log the result
         logger.debug(
@@ -612,35 +634,39 @@ class AdminImpersonationMiddleware():
         """Get all workspace IDs where user is a member with caching."""
         cache_key = f"user_workspaces_{user.id}"
         cached_result = cache.get(cache_key)
-        
+
         if cached_result is not None:
             return cached_result
-            
-        result = list(WorkspaceMembership.objects.filter(
-            user=user
-        ).values_list('workspace_id', flat=True))
-        
+
+        result = list(
+            WorkspaceMembership.objects.filter(user=user).values_list(
+                "workspace_id", flat=True
+            )
+        )
+
         cache.set(cache_key, result, 300)
         return result
 
     def _get_common_admin_workspaces(self, admin_user, target_user):
         """Get common workspaces where admin has rights and target user is member."""
-        admin_workspaces = set(WorkspaceAdmin.objects.filter(
-            user=admin_user, is_active=True
-        ).values_list('workspace_id', flat=True))
-        
+        admin_workspaces = set(
+            WorkspaceAdmin.objects.filter(user=admin_user, is_active=True).values_list(
+                "workspace_id", flat=True
+            )
+        )
+
         target_workspaces = set(self._get_user_workspace_ids(target_user))
-        
+
         return list(admin_workspaces & target_workspaces)
 
     def _grant_workspace_impersonation(self, request, target_user, workspace_id):
         """Grant impersonation access for specific workspace."""
         request.target_user = target_user
         request.is_admin_impersonation = True
-        request.impersonation_type = 'workspace_admin'
+        request.impersonation_type = "workspace_admin"
         request.impersonation_workspace_ids = [workspace_id]
-        request.user_permissions['is_workspace_admin'] = True
-        
+        request.user_permissions["is_workspace_admin"] = True
+
         logger.info(
             "Workspace admin impersonation granted",
             extra={
@@ -652,14 +678,16 @@ class AdminImpersonationMiddleware():
             },
         )
 
-    def _grant_multiple_workspaces_impersonation(self, request, target_user, workspace_ids):
+    def _grant_multiple_workspaces_impersonation(
+        self, request, target_user, workspace_ids
+    ):
         """Grant impersonation access for multiple workspaces."""
         request.target_user = target_user
         request.is_admin_impersonation = True
-        request.impersonation_type = 'workspace_admin'
+        request.impersonation_type = "workspace_admin"
         request.impersonation_workspace_ids = workspace_ids
-        request.user_permissions['is_workspace_admin'] = True
-        
+        request.user_permissions["is_workspace_admin"] = True
+
         logger.info(
             "Multiple workspaces impersonation granted",
             extra={
