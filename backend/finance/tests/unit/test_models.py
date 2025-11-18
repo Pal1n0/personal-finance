@@ -90,12 +90,33 @@ class TestWorkspace:
         assert membership.role == "owner"
 
     def test_workspace_change_owner_method(self, test_workspace, test_user2):
-        """Test metódy change_owner"""
+        """Test metódy change_owner - kompletný flow"""
         old_owner = test_workspace.owner
+        
+        # 1. Najprv over že new owner NIE JE členom - change_owner by mal zlyhať
+        with pytest.raises(ValidationError, match="New owner must be a member of the workspace"):
+            test_workspace.change_owner(test_user2, old_owner, old_owner_action="editor")
+        
+        # 2. Pridaj new ownera ako člena
+        WorkspaceMembership.objects.create(
+            workspace=test_workspace, 
+            user=test_user2, 
+            role="editor"
+        )
+        
+        # 3. Teraz by change_owner mal prejsť
         test_workspace.change_owner(test_user2, old_owner, old_owner_action="editor")
-
+        
+        # 4. Over že owner sa naozaj zmenil
+        test_workspace.refresh_from_db()
         assert test_workspace.owner == test_user2
-        # Over že starý owner má novú rolu
+        
+        # 5. Over že old owner má novú rolu
+        old_owner_membership = WorkspaceMembership.objects.get(
+            workspace=test_workspace, 
+            user=old_owner
+        )
+        assert old_owner_membership.role == "editor"
 
     def test_get_user_role_in_workspace(
         self, test_workspace, test_user, workspace_member
@@ -192,10 +213,13 @@ class TestWorkspaceMembership:
 
     def test_workspace_owner_cannot_be_regular_member(self, test_workspace, test_user):
         """Test že owner nemôže byť pridaný ako regular member"""
+        # Owner je už automaticky v memberships, takže testujeme validáciu
+        membership = WorkspaceMembership.objects.get(workspace=test_workspace, user=test_user)
+        
+        # Pokus o zmenu roly owner na editor by mal zlyhať
         with pytest.raises(ValidationError):
-            WorkspaceMembership.objects.create(
-                workspace=test_workspace, user=test_user, role="editor"  # Owner
-            )
+            membership.role = "editor"
+            membership.clean()  # Toto by malo vyhodiť ValidationError
 
 
 # =============================================================================
@@ -609,6 +633,16 @@ class TestTransaction:
         self, transaction_usd_currency, exchange_rate_usd
     ):
         """Test automatického prepočtu domácej sumy"""
+        WorkspaceSettings.objects.create(
+            workspace=transaction_usd_currency.workspace,
+            domestic_currency="EUR"  # Alebo čo používaš
+        )
+
+        ExchangeRate.objects.create(
+            currency="USD",
+            rate_to_eur=Decimal("0.85"),
+            date=transaction_usd_currency.date  # DÔLEŽITÉ: rovnaký dátum ako transakcia
+        )
         original_domestic = transaction_usd_currency.amount_domestic
 
         # Zmena pôvodnej sumy

@@ -6,11 +6,13 @@ including workspaces, transactions, categories, exchange rates, and user setting
 """
 
 import logging
+import collections
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
-from time import timezone
+from django.utils import timezone
+
 
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
@@ -188,18 +190,61 @@ class Workspace(models.Model):
         """
         # Validate permission to change ownership
         if not self._can_change_ownership(changed_by):
+            logger.warning(
+                "Workspace ownership change permission denied",
+                extra={
+                    "workspace_id": self.id,
+                    "requested_by_id": changed_by.id,
+                    "current_owner_id": self.owner.id,
+                    "new_owner_id": new_owner.id,
+                    "action": "ownership_change_permission_denied",
+                    "component": "Workspace",
+                    "severity": "high",
+                },
+            )
             raise PermissionError("User cannot change workspace ownership.")
 
         # Validate new owner
         if new_owner == self.owner:
+            logger.warning(
+                "Workspace ownership change to same owner attempted",
+                extra={
+                    "workspace_id": self.id,
+                    "owner_id": self.owner.id,
+                    "action": "ownership_change_same_owner",
+                    "component": "Workspace",
+                    "severity": "medium",
+                },
+            )
             raise ValidationError("New owner cannot be the same as current owner.")
 
         if not self.members.filter(id=new_owner.id).exists():
+            logger.warning(
+                "Workspace ownership change to non-member attempted",
+                extra={
+                    "workspace_id": self.id,
+                    "new_owner_id": new_owner.id,
+                    "action": "ownership_change_non_member",
+                    "component": "Workspace",
+                    "severity": "medium",
+                },
+            )
             raise ValidationError("New owner must be a member of the workspace.")
 
         # Validate old_owner_action
         valid_actions = ["editor", "viewer", "remove"]
         if old_owner_action not in valid_actions:
+            logger.warning(
+                "Invalid old_owner_action provided",
+                extra={
+                    "workspace_id": self.id,
+                    "old_owner_action": old_owner_action,
+                    "valid_actions": valid_actions,
+                    "action": "ownership_change_invalid_action",
+                    "component": "Workspace",
+                    "severity": "medium",
+                },
+            )
             raise ValidationError(
                 f"old_owner_action must be one of: {', '.join(valid_actions)}"
             )
@@ -207,11 +252,7 @@ class Workspace(models.Model):
         old_owner = self.owner
 
         try:
-            # 1. Update workspace owner
-            self.owner = new_owner
-            self.save()  # This will trigger _sync_owner_to_membership
-
-            # 2. Handle old owner based on action parameter
+            # CRITICAL: First handle old owner to avoid duplicate owners
             if old_owner_action == "remove":
                 # Remove old owner completely from workspace
                 WorkspaceMembership.objects.filter(
@@ -221,13 +262,36 @@ class Workspace(models.Model):
                     is_active=False
                 )
                 new_role = None
-
+                logger.debug(
+                    "Old owner removed from workspace",
+                    extra={
+                        "workspace_id": self.id,
+                        "old_owner_id": old_owner.id,
+                        "action": "old_owner_removed",
+                        "component": "Workspace",
+                    },
+                )
             else:  # 'editor' or 'viewer'
-                # Change old owner's role to specified role
-                WorkspaceMembership.objects.filter(
+                # Change old owner's role to specified role FIRST
+                updated_count = WorkspaceMembership.objects.filter(
                     workspace=self, user=old_owner
                 ).update(role=old_owner_action)
                 new_role = old_owner_action
+                logger.debug(
+                    "Old owner role updated",
+                    extra={
+                        "workspace_id": self.id,
+                        "old_owner_id": old_owner.id,
+                        "new_role": old_owner_action,
+                        "updated_count": updated_count,
+                        "action": "old_owner_role_updated",
+                        "component": "Workspace",
+                    },
+                )
+
+            # NOW update workspace owner - this will create/update new owner membership
+            self.owner = new_owner
+            self.save()  # This will trigger _sync_owner_to_membership for NEW owner
 
             logger.info(
                 "Workspace ownership changed successfully",
@@ -260,22 +324,30 @@ class Workspace(models.Model):
 
     def _sync_owner_to_membership(self, is_new):
         """
-        Synchronize workspace owner to membership table.
+        Synchronize workspace owner to membership table with constraint safety.
         """
         try:
-            WorkspaceMembership.objects.update_or_create(
-                workspace=self, user=self.owner, defaults={"role": "owner"}
+            # Use update_or_create to handle both new and existing memberships safely
+            membership, created = WorkspaceMembership.objects.update_or_create(
+                workspace=self, 
+                user=self.owner, 
+                defaults={"role": "owner"}
             )
+            
             logger.debug(
                 "Owner synchronized to membership",
                 extra={
                     "workspace_id": self.id,
                     "owner_id": self.owner.id,
                     "is_new_workspace": is_new,
+                    "membership_created": created,
+                    "existing_role_updated": not created,
+                    "previous_role": membership.role if not created else "new",
                     "action": "owner_sync_completed",
                     "component": "Workspace",
                 },
             )
+            
         except Exception as e:
             logger.error(
                 "Failed to sync owner to membership",
@@ -690,35 +762,190 @@ class ExpenseCategory(models.Model):
         return not self.parents.exists()
 
     def add_child(self, child):
-        """Safely add child category with validation."""
+        """Safely add child category with comprehensive validation."""
+        # 1. Validate self-reference
+        if child.id and child.id == self.id:
+            logger.warning(
+                "Self-reference attempt blocked",
+                extra={
+                    "category_id": self.id,
+                    "category_name": self.name,
+                    "action": "self_reference_blocked",
+                    "component": "ExpenseCategory",
+                    "severity": "high",
+                },
+            )
+            raise ValidationError("Cannot add category as its own child")
+
+        # 2. Validate existing parent
         if child.parents.exists():
             logger.warning(
                 "Attempt to add child with existing parent",
                 extra={
                     "parent_id": self.id,
+                    "parent_name": self.name,
                     "child_id": child.id,
                     "child_name": child.name,
-                    "action": "child_addition_failed",
+                    "existing_parents_count": child.parents.count(),
+                    "action": "child_addition_failed_existing_parent",
                     "component": "ExpenseCategory",
                     "severity": "medium",
                 },
             )
-            raise ValidationError(f"Category {child.name} already has a parent")
+            raise ValidationError(f"Category '{child.name}' already has a parent")
 
+        # 3. Validate circular reference
+        if self._is_ancestor_of(child):
+            logger.warning(
+                "Circular reference attempt blocked",
+                extra={
+                    "parent_id": self.id,
+                    "parent_name": self.name,
+                    "child_id": child.id,
+                    "child_name": child.name,
+                    "action": "circular_reference_blocked",
+                    "component": "ExpenseCategory",
+                    "severity": "high",
+                },
+            )
+            raise ValidationError("Circular reference detected - cannot create category cycle")
+
+        # 4. Validate level hierarchy
+        if child.level <= self.level:
+            logger.warning(
+                "Invalid level hierarchy attempt",
+                extra={
+                    "parent_id": self.id,
+                    "parent_level": self.level,
+                    "child_id": child.id,
+                    "child_level": child.level,
+                    "action": "invalid_level_hierarchy",
+                    "component": "ExpenseCategory",
+                    "severity": "medium",
+                },
+            )
+            raise ValidationError("Child category must have higher level than parent")
+
+        # All validations passed - add child
         self.children.add(child)
 
         logger.debug(
             "Child category added successfully",
             extra={
                 "parent_id": self.id,
+                "parent_name": self.name,
+                "parent_level": self.level,
                 "child_id": child.id,
+                "child_name": child.name,
+                "child_level": child.level,
                 "action": "child_addition_success",
                 "component": "ExpenseCategory",
             },
         )
 
+    def _is_ancestor_of(self, potential_child):
+        """
+        Production-grade cycle detection using optimized BFS.
+        
+        Args:
+            potential_child: Category to check for ancestry relationship
+            
+        Returns:
+            bool: True if this category is an ancestor of potential_child
+        """
+        if not potential_child.id:
+            return False
+
+        visited = set()
+        queue = collections.deque([self])
+        
+        logger.debug(
+            "Initiating ancestry check",
+            extra={
+                "root_category_id": self.id,
+                "target_category_id": potential_child.id,
+                "action": "ancestry_check_started",
+                "component": "ExpenseCategory",
+            },
+        )
+
+        nodes_checked = 0
+        max_depth = 100  # Safety limit for very deep trees
+        
+        while queue and nodes_checked < max_depth:
+            current = queue.popleft()
+            
+            # Skip already visited nodes
+            if current.id in visited:
+                continue
+                
+            visited.add(current.id)
+            nodes_checked += 1
+
+            # Found potential child in ancestry - cycle detected
+            if current.id == potential_child.id:
+                logger.debug(
+                    "Cycle detected in ancestry check",
+                    extra={
+                        "root_category_id": self.id,
+                        "target_category_id": potential_child.id,
+                        "nodes_checked": nodes_checked,
+                        "action": "cycle_detected",
+                        "component": "ExpenseCategory",
+                    },
+                )
+                return True
+
+            # Efficiently fetch and process children
+            try:
+                children = current.children.all().only('id')
+                for child in children:
+                    if child.id not in visited:
+                        queue.append(child)
+            except Exception as e:
+                logger.error(
+                    "Error during ancestry check",
+                    extra={
+                        "current_category_id": current.id,
+                        "error": str(e),
+                        "action": "ancestry_check_error",
+                        "component": "ExpenseCategory",
+                        "severity": "medium",
+                    },
+                )
+                # On error, assume safe to prevent false negatives
+                return False
+
+        # Safety limit reached - log warning but allow operation
+        if nodes_checked >= max_depth:
+            logger.warning(
+                "Ancestry check depth limit reached",
+                extra={
+                    "root_category_id": self.id,
+                    "target_category_id": potential_child.id,
+                    "nodes_checked": nodes_checked,
+                    "max_depth": max_depth,
+                    "action": "ancestry_check_depth_limit",
+                    "component": "ExpenseCategory",
+                    "severity": "low",
+                },
+            )
+
+        logger.debug(
+            "Ancestry check completed - no cycle detected",
+            extra={
+                "root_category_id": self.id,
+                "target_category_id": potential_child.id,
+                "nodes_checked": nodes_checked,
+                "action": "ancestry_check_completed",
+                "component": "ExpenseCategory",
+            },
+        )
+        
+        return False
+
     def clean(self):
-        """Validate category data and relationships."""
+        """Validate category data and relationships with comprehensive checks."""
         super().clean()
 
         # Validate level constraints
@@ -729,29 +956,65 @@ class ExpenseCategory(models.Model):
         if not self.name or len(self.name.strip()) < 2:
             raise ValidationError("Category name must be at least 2 characters long")
 
-        # Validate child relationships
+        # Validate child relationships with enhanced checks
         for child in self.children.all():
+            # Check for multiple parents (should not happen with proper add_child usage)
             if child.parents.exclude(pk=self.pk).exists():
                 logger.warning(
                     "Category validation failed - child has other parents",
                     extra={
                         "category_id": self.id,
+                        "category_name": self.name,
                         "child_id": child.id,
-                        "action": "category_validation_failed",
+                        "child_name": child.name,
+                        "conflicting_parents_count": child.parents.exclude(pk=self.pk).count(),
+                        "action": "category_validation_failed_multiple_parents",
                         "component": "ExpenseCategory",
-                        "severity": "medium",
+                        "severity": "high",  # Increased severity as this indicates data inconsistency
                     },
                 )
-                raise ValidationError(f"Child {child.name} already has another parent")
+                raise ValidationError(f"Child '{child.name}' already has another parent")
+
+            # Check level hierarchy in existing relationships
+            if child.level <= self.level:
+                logger.warning(
+                    "Invalid level hierarchy in existing relationship",
+                    extra={
+                        "parent_id": self.id,
+                        "parent_level": self.level,
+                        "child_id": child.id,
+                        "child_level": child.level,
+                        "action": "invalid_level_hierarchy_existing",
+                        "component": "ExpenseCategory",
+                        "severity": "high",
+                    },
+                )
+                raise ValidationError("Child category must have higher level than parent")
+
+            # Check for circular references in existing relationships
+            if self._is_ancestor_of(child):
+                logger.error(
+                    "Circular reference detected in existing data",
+                    extra={
+                        "parent_id": self.id,
+                        "child_id": child.id,
+                        "action": "circular_reference_existing_data",
+                        "component": "ExpenseCategory",
+                        "severity": "critical",  # Critical as this indicates corrupted data
+                    },
+                )
+                raise ValidationError("Circular reference detected in category hierarchy")
 
         logger.debug(
-            "ExpenseCategory validation completed",
+            "ExpenseCategory validation completed successfully",
             extra={
                 "category_id": self.id if self.id else "new",
                 "category_name": self.name,
                 "level": self.level,
                 "child_count": self.children.count(),
-                "action": "expense_category_validation",
+                "is_leaf": not self.children.exists(),
+                "is_root": not self.parents.exists(),
+                "action": "expense_category_validation_success",
                 "component": "ExpenseCategory",
             },
         )
@@ -850,35 +1113,190 @@ class IncomeCategory(models.Model):
         return not self.parents.exists()
 
     def add_child(self, child):
-        """Safely add child category with validation."""
+        """Safely add child category with comprehensive validation."""
+        # 1. Validate self-reference
+        if child.id and child.id == self.id:
+            logger.warning(
+                "Self-reference attempt blocked",
+                extra={
+                    "category_id": self.id,
+                    "category_name": self.name,
+                    "action": "self_reference_blocked",
+                    "component": "IncomeCategory",
+                    "severity": "high",
+                },
+            )
+            raise ValidationError("Cannot add category as its own child")
+
+        # 2. Validate existing parent
         if child.parents.exists():
             logger.warning(
                 "Attempt to add child with existing parent",
                 extra={
                     "parent_id": self.id,
+                    "parent_name": self.name,
                     "child_id": child.id,
                     "child_name": child.name,
-                    "action": "child_addition_failed",
+                    "existing_parents_count": child.parents.count(),
+                    "action": "child_addition_failed_existing_parent",
                     "component": "IncomeCategory",
                     "severity": "medium",
                 },
             )
-            raise ValidationError(f"Category {child.name} already has a parent")
+            raise ValidationError(f"Category '{child.name}' already has a parent")
 
+        # 3. Validate circular reference
+        if self._is_ancestor_of(child):
+            logger.warning(
+                "Circular reference attempt blocked",
+                extra={
+                    "parent_id": self.id,
+                    "parent_name": self.name,
+                    "child_id": child.id,
+                    "child_name": child.name,
+                    "action": "circular_reference_blocked",
+                    "component": "IncomeCategory",
+                    "severity": "high",
+                },
+            )
+            raise ValidationError("Circular reference detected - cannot create category cycle")
+
+        # 4. Validate level hierarchy
+        if child.level <= self.level:
+            logger.warning(
+                "Invalid level hierarchy attempt",
+                extra={
+                    "parent_id": self.id,
+                    "parent_level": self.level,
+                    "child_id": child.id,
+                    "child_level": child.level,
+                    "action": "invalid_level_hierarchy",
+                    "component": "IncomeCategory",
+                    "severity": "medium",
+                },
+            )
+            raise ValidationError("Child category must have higher level than parent")
+
+        # All validations passed - add child
         self.children.add(child)
 
         logger.debug(
             "Child category added successfully",
             extra={
                 "parent_id": self.id,
+                "parent_name": self.name,
+                "parent_level": self.level,
                 "child_id": child.id,
+                "child_name": child.name,
+                "child_level": child.level,
                 "action": "child_addition_success",
                 "component": "IncomeCategory",
             },
         )
 
+    def _is_ancestor_of(self, potential_child):
+        """
+        Production-grade cycle detection using optimized BFS.
+        
+        Args:
+            potential_child: Category to check for ancestry relationship
+            
+        Returns:
+            bool: True if this category is an ancestor of potential_child
+        """
+        if not potential_child.id:
+            return False
+
+        visited = set()
+        queue = collections.deque([self])
+        
+        logger.debug(
+            "Initiating ancestry check",
+            extra={
+                "root_category_id": self.id,
+                "target_category_id": potential_child.id,
+                "action": "ancestry_check_started",
+                "component": "IncomeCategory",
+            },
+        )
+
+        nodes_checked = 0
+        max_depth = 100  # Safety limit for very deep trees
+        
+        while queue and nodes_checked < max_depth:
+            current = queue.popleft()
+            
+            # Skip already visited nodes
+            if current.id in visited:
+                continue
+                
+            visited.add(current.id)
+            nodes_checked += 1
+
+            # Found potential child in ancestry - cycle detected
+            if current.id == potential_child.id:
+                logger.debug(
+                    "Cycle detected in ancestry check",
+                    extra={
+                        "root_category_id": self.id,
+                        "target_category_id": potential_child.id,
+                        "nodes_checked": nodes_checked,
+                        "action": "cycle_detected",
+                        "component": "IncomeCategory",
+                    },
+                )
+                return True
+
+            # Efficiently fetch and process children
+            try:
+                children = current.children.all().only('id')
+                for child in children:
+                    if child.id not in visited:
+                        queue.append(child)
+            except Exception as e:
+                logger.error(
+                    "Error during ancestry check",
+                    extra={
+                        "current_category_id": current.id,
+                        "error": str(e),
+                        "action": "ancestry_check_error",
+                        "component": "IncomeCategory",
+                        "severity": "medium",
+                    },
+                )
+                # On error, assume safe to prevent false negatives
+                return False
+
+        # Safety limit reached - log warning but allow operation
+        if nodes_checked >= max_depth:
+            logger.warning(
+                "Ancestry check depth limit reached",
+                extra={
+                    "root_category_id": self.id,
+                    "target_category_id": potential_child.id,
+                    "nodes_checked": nodes_checked,
+                    "max_depth": max_depth,
+                    "action": "ancestry_check_depth_limit",
+                    "component": "IncomeCategory",
+                    "severity": "low",
+                },
+            )
+
+        logger.debug(
+            "Ancestry check completed - no cycle detected",
+            extra={
+                "root_category_id": self.id,
+                "target_category_id": potential_child.id,
+                "nodes_checked": nodes_checked,
+                "action": "ancestry_check_completed",
+                "component": "IncomeCategory",
+            },
+        )
+        
+        return False
+
     def clean(self):
-        """Validate category data and relationships."""
+        """Validate category data and relationships with comprehensive checks."""
         super().clean()
 
         # Validate level constraints
@@ -889,29 +1307,65 @@ class IncomeCategory(models.Model):
         if not self.name or len(self.name.strip()) < 2:
             raise ValidationError("Category name must be at least 2 characters long")
 
-        # Validate child relationships
+        # Validate child relationships with enhanced checks
         for child in self.children.all():
+            # Check for multiple parents (should not happen with proper add_child usage)
             if child.parents.exclude(pk=self.pk).exists():
                 logger.warning(
                     "Category validation failed - child has other parents",
                     extra={
                         "category_id": self.id,
+                        "category_name": self.name,
                         "child_id": child.id,
-                        "action": "category_validation_failed",
+                        "child_name": child.name,
+                        "conflicting_parents_count": child.parents.exclude(pk=self.pk).count(),
+                        "action": "category_validation_failed_multiple_parents",
                         "component": "IncomeCategory",
-                        "severity": "medium",
+                        "severity": "high",
                     },
                 )
-                raise ValidationError(f"Child {child.name} already has another parent")
+                raise ValidationError(f"Child '{child.name}' already has another parent")
+
+            # Check level hierarchy in existing relationships
+            if child.level <= self.level:
+                logger.warning(
+                    "Invalid level hierarchy in existing relationship",
+                    extra={
+                        "parent_id": self.id,
+                        "parent_level": self.level,
+                        "child_id": child.id,
+                        "child_level": child.level,
+                        "action": "invalid_level_hierarchy_existing",
+                        "component": "IncomeCategory",
+                        "severity": "high",
+                    },
+                )
+                raise ValidationError("Child category must have higher level than parent")
+
+            # Check for circular references in existing relationships
+            if self._is_ancestor_of(child):
+                logger.error(
+                    "Circular reference detected in existing data",
+                    extra={
+                        "parent_id": self.id,
+                        "child_id": child.id,
+                        "action": "circular_reference_existing_data",
+                        "component": "IncomeCategory",
+                        "severity": "critical",
+                    },
+                )
+                raise ValidationError("Circular reference detected in category hierarchy")
 
         logger.debug(
-            "IncomeCategory validation completed",
+            "IncomeCategory validation completed successfully",
             extra={
                 "category_id": self.id if self.id else "new",
                 "category_name": self.name,
                 "level": self.level,
                 "child_count": self.children.count(),
-                "action": "income_category_validation",
+                "is_leaf": not self.children.exists(),
+                "is_root": not self.parents.exists(),
+                "action": "income_category_validation_success",
                 "component": "IncomeCategory",
             },
         )

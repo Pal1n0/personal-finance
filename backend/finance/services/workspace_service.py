@@ -672,3 +672,93 @@ class WorkspaceService:
                         },
                     }
                 )
+
+    @transaction.atomic
+    def deactivate_workspace_admin(self, admin_assignment_id: int, deactivated_by) -> bool:
+        """
+        Atomically deactivate workspace admin assignment with security validation.
+        
+        Args:
+            admin_assignment_id: WorkspaceAdmin instance ID
+            deactivated_by: User performing the deactivation
+            
+        Returns:
+            bool: True if deactivated, False if already inactive
+            
+        Raises:
+            PermissionDenied: If user cannot deactivate admin
+            ValidationError: If admin assignment not found
+        """
+        logger.info(
+            "Workspace admin deactivation initiated",
+            extra={
+                "admin_assignment_id": admin_assignment_id,
+                "deactivated_by_id": deactivated_by.id,
+                "action": "workspace_admin_deactivation_start",
+                "component": "WorkspaceService",
+            },
+        )
+
+        try:
+            # Get admin assignment with related data
+            admin_assignment = WorkspaceAdmin.objects.select_related('user', 'workspace').get(id=admin_assignment_id)
+            
+            # Security validation - only superusers can deactivate
+            if not deactivated_by.is_superuser:
+                logger.warning(
+                    "Workspace admin deactivation permission denied",
+                    extra={
+                        "admin_assignment_id": admin_assignment_id,
+                        "attempted_by_id": deactivated_by.id,
+                        "action": "workspace_admin_deactivation_denied",
+                        "component": "WorkspaceService",
+                        "severity": "high",
+                    },
+                )
+                raise PermissionDenied("Only superusers can deactivate workspace admins")
+                
+            # Deactivate using model method
+            admin_assignment.deactivate(deactivated_by=deactivated_by)
+            
+            # Invalidate relevant caches
+            self.membership_service.invalidate_user_cache(admin_assignment.user.id)
+            
+            logger.info(
+                "Workspace admin deactivated successfully",
+                extra={
+                    "admin_assignment_id": admin_assignment_id,
+                    "admin_user_id": admin_assignment.user.id,
+                    "workspace_id": admin_assignment.workspace.id,
+                    "deactivated_by_id": deactivated_by.id,
+                    "action": "workspace_admin_deactivation_success",
+                    "component": "WorkspaceService",
+                },
+            )
+            
+            return True
+            
+        except WorkspaceAdmin.DoesNotExist:
+            logger.warning(
+                "Workspace admin assignment not found for deactivation",
+                extra={
+                    "admin_assignment_id": admin_assignment_id,
+                    "deactivated_by_id": deactivated_by.id,
+                    "action": "workspace_admin_deactivation_not_found",
+                    "component": "WorkspaceService",
+                },
+            )
+            raise ValidationError("Workspace admin assignment not found")
+        except Exception as e:
+            logger.error(
+                "Workspace admin deactivation failed",
+                extra={
+                    "admin_assignment_id": admin_assignment_id,
+                    "deactivated_by_id": deactivated_by.id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "action": "workspace_admin_deactivation_failed",
+                    "component": "WorkspaceService",
+                    "severity": "high",
+                },
+            )
+            raise

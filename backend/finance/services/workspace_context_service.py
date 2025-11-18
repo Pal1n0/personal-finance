@@ -37,6 +37,7 @@ class WorkspaceContextService:
             Exception: On unexpected critical errors
         """
         try:
+
             self._initialize_request_defaults(request)
 
             if not request.user.is_authenticated:
@@ -91,7 +92,7 @@ class WorkspaceContextService:
 
         request.user_permissions = {
             "is_superuser": False,
-            "is_workspace_admin": None,
+            "is_workspace_admin": False,
             "workspace_role": None,
             "current_workspace_id": None,
             "workspace_exists": False,
@@ -128,8 +129,27 @@ class WorkspaceContextService:
         3. Query parameters
         4. Request data
         """
+        logger.debug(
+            "🔍 DEBUG _get_validated_workspace_id - STARTING EXTRACTION",
+            extra={
+                "user_id": getattr(request.user, "id", "anonymous"),
+                "view_kwargs_provided": view_kwargs is not None,
+                "action": "debug_extraction_start",
+                "component": "WorkspaceContextService",
+            },
+        )
         # Priority 1: Explicit view kwargs (highest priority for tests)
         workspace_id = self._extract_from_view_kwargs(view_kwargs)
+
+        logger.debug(
+            "🔍 DEBUG: After view_kwargs extraction",
+            extra={
+                "workspace_id": workspace_id,
+                "source": "view_kwargs",
+                "action": "debug_extraction_step",
+                "component": "WorkspaceContextService",
+            },
+        )
 
         # Priority 2: Request kwargs (URL parameters)
         if not workspace_id:
@@ -187,8 +207,21 @@ class WorkspaceContextService:
         )
 
     def _validate_workspace_existence(self, request, workspace_id):
-        """Validate workspace existence and set request permissions."""
-        # Reset workspace state
+        """
+        Validate workspace existence, fetch the object, and set request permissions.
+
+        Optimized to use a single database query (get) instead of two (filter/exists and get).
+        """
+        """DEBUG VERSION - Add this temporarily"""
+        logger.debug(
+            "🔍 DEBUG _validate_workspace_existence",
+            extra={
+                "workspace_id": workspace_id,
+                "workspace_id_type": type(workspace_id).__name__,
+                "workspace_id_repr": repr(workspace_id),
+            },
+        )
+        # Reset workspace state to secure defaults
         request.user_permissions["workspace_exists"] = False
         request.user_permissions["current_workspace_id"] = None
         request.workspace = None
@@ -205,38 +238,32 @@ class WorkspaceContextService:
             return None
 
         try:
+            # 1. Clean and validate ID format
             workspace_id = int(workspace_id)
-            workspace_exists = Workspace.objects.filter(id=workspace_id).exists()
-            request.user_permissions["workspace_exists"] = workspace_exists
+            
+            # 2. OPTIMIZATION: Single database query to fetch the object
+            # Using select_related('owner') to preemptively optimize owner access
+            workspace = Workspace.objects.select_related('owner').get(id=workspace_id)
+            
+            # 3. Set successful context
+            request.workspace = workspace
+            request.user_permissions["workspace_exists"] = True
             request.user_permissions["current_workspace_id"] = workspace_id
 
-            if workspace_exists:
-                # Use select_related/prefetch_related if needed for performance
-                request.workspace = Workspace.objects.get(id=workspace_id)
-                logger.debug(
-                    "Workspace validated successfully",
-                    extra={
-                        "user_id": getattr(request.user, "id", "anonymous"),
-                        "workspace_id": workspace_id,
-                        "action": "workspace_validation_success",
-                        "component": "WorkspaceContextService",
-                    },
-                )
-            else:
-                logger.warning(
-                    "Access attempt to non-existent workspace",
-                    extra={
-                        "user_id": getattr(request.user, "id", "anonymous"),
-                        "workspace_id": workspace_id,
-                        "action": "workspace_not_found",
-                        "component": "WorkspaceContextService",
-                        "severity": "medium",
-                    },
-                )
-
-            return workspace_id if workspace_exists else None
+            logger.debug(
+                "Workspace validated and retrieved successfully",
+                extra={
+                    "user_id": getattr(request.user, "id", "anonymous"),
+                    "workspace_id": workspace_id,
+                    "action": "workspace_validation_success",
+                    "component": "WorkspaceContextService",
+                },
+            )
+            
+            return workspace_id
 
         except (ValueError, TypeError):
+            # Handles non-integer ID format
             logger.warning(
                 "Invalid workspace ID format",
                 extra={
@@ -244,9 +271,27 @@ class WorkspaceContextService:
                     "workspace_id": workspace_id,
                     "action": "invalid_workspace_id",
                     "component": "WorkspaceContextService",
+                    "severity": "medium",
                 },
             )
-            request.user_permissions["workspace_exists"] = False
+            return None
+            
+        except Workspace.DoesNotExist:
+            # Handles valid integer ID for a non-existent workspace
+            # We set current_workspace_id for consistent logging/error tracing
+            request.user_permissions["current_workspace_id"] = workspace_id
+            
+            logger.warning(
+                "Access attempt to non-existent workspace",
+                extra={
+                    "user_id": getattr(request.user, "id", "anonymous"),
+                    "workspace_id": workspace_id,
+                    "action": "workspace_not_found",
+                    "component": "WorkspaceContextService",
+                    "severity": "medium",
+                },
+            )
+            # request.user_permissions["workspace_exists"] remains False
             return None
 
     def _set_basic_permissions(self, request):
@@ -294,6 +339,16 @@ class WorkspaceContextService:
             )
         else:
             self._reset_impersonation(request)
+            logger.warning(
+            "Impersonation denied/failed",
+            extra={
+                "admin_id": request.user.id,
+                "target_user_id": user_id_param,
+                "action": "impersonation_denied",
+                "component": "WorkspaceContextService",
+                "severity": "medium",
+            },
+        )
 
     def _process_workspace_context(self, request, workspace_id):
         """Process workspace context with optimized data access."""

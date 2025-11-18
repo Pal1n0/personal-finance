@@ -220,6 +220,8 @@ class ImpersonationService:
                 target_user.id
             )
 
+
+
             common_workspaces = admin_data["admin_workspaces"] & set(
                 target_data["all_workspace_ids"]
             )

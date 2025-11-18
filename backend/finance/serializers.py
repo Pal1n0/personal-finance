@@ -23,7 +23,7 @@ from .mixins.workspace_membership import WorkspaceMembershipMixin
 from .models import (ExchangeRate, ExpenseCategory, ExpenseCategoryVersion,
                      IncomeCategory, IncomeCategoryVersion, Transaction,
                      TransactionDraft, UserSettings, Workspace,
-                     WorkspaceMembership, WorkspaceSettings)
+                     WorkspaceMembership, WorkspaceSettings, WorkspaceAdmin)
 from .services.category_service import CategoryService
 from .services.draft_service import DraftService
 from .services.transaction_service import TransactionService
@@ -438,6 +438,61 @@ class WorkspaceMembershipSerializer(serializers.ModelSerializer):
 
         return value
 
+# -------------------------------------------------------------------
+# WORKSPACE ADMIN SERIALIZER
+# -------------------------------------------------------------------
+
+class WorkspaceAdminSerializer(serializers.ModelSerializer):
+    """
+    Production-ready serializer for workspace administrator assignments.
+    Minimalist version with essential security and logging.
+    """
+
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
+    username = serializers.CharField(source="user.username", read_only=True)
+    workspace_id = serializers.IntegerField(source="workspace.id", read_only=True)
+    workspace_name = serializers.CharField(source="workspace.name", read_only=True)
+    assigned_by_username = serializers.CharField(source="assigned_by.username", read_only=True)
+
+    class Meta:
+        model = WorkspaceAdmin
+        fields = [
+            "id",
+            "user_id",
+            "username",
+            "workspace_id", 
+            "workspace_name",
+            "assigned_by_username",
+            "assigned_at",
+            "deactivated_at",
+            "is_active",
+            "can_impersonate",
+            "can_manage_users",
+        ]
+        read_only_fields = [
+            "id", "user_id", "username", "workspace_id", "workspace_name",
+            "assigned_by_username", "assigned_at", "deactivated_at"
+        ]
+
+    def validate(self, attrs):
+        """Basic validation for permission changes."""
+        request = self.context.get("request")
+        instance = self.instance
+
+        # Only superusers can modify permissions
+        if instance and request and not request.user.is_superuser:
+            if any(field in attrs for field in ["can_impersonate", "can_manage_users"]):
+                raise serializers.ValidationError(
+                    "Only superusers can modify admin permissions."
+                )
+
+        return attrs
+
+    def create(self, validated_data):
+        """Prevent direct creation via serializer."""
+        raise serializers.ValidationError(
+            "Use the assign-admin endpoint to create workspace admin assignments."
+        )
 
 # -------------------------------------------------------------------
 # WORKSPACE SETTINGS SERIALIZER
@@ -586,19 +641,14 @@ class TransactionSerializer(
         # SECURITY: Workspace-scoped categories from request cache
         request = self.context.get("request")
         if request and hasattr(request, "workspace"):
-            # Use cached categories to avoid database queries
-            expense_categories = getattr(request, "_cached_expense_categories", [])
-            income_categories = getattr(request, "_cached_income_categories", [])
 
-            self.fields["expense_category"].queryset = expense_categories
-            self.fields["income_category"].queryset = income_categories
+            self.fields["expense_category"].queryset = ExpenseCategory.objects.all()
+            self.fields["income_category"].queryset = IncomeCategory.objects.all()
 
             logger.debug(
                 "TransactionSerializer initialized with cached categories",
                 extra={
                     "workspace_id": request.workspace.id,
-                    "expense_categories_count": len(expense_categories),
-                    "income_categories_count": len(income_categories),
                     "action": "serializer_initialized_with_cache",
                     "component": "TransactionSerializer",
                 },

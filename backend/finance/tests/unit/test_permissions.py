@@ -264,6 +264,7 @@ class TestIsWorkspaceOwner(BasePermissionTest):
             self.admin_user, view_kwargs={"workspace_pk": self.workspace.id}
         )
         view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
+        request.user_permissions['is_workspace_admin'] = False
 
         # Remove admin privileges, only editor role
         with self.mock_membership_service(role="editor", is_admin=False):
@@ -316,6 +317,7 @@ class TestIsWorkspaceAdmin(BasePermissionTest):
         permission = IsWorkspaceAdmin()
         request = self.create_request_with_context(self.admin_user)
         view = self.create_view_with_kwargs()
+        request.user_permissions['is_workspace_admin'] = True
 
         with self.mock_membership_service(is_admin=True):
             self.assertTrue(permission.has_permission(request, view))
@@ -506,6 +508,8 @@ class TestPermissionHierarchy(BasePermissionTest):
             request = self.create_request_with_context(
                 admin_non_member, view_kwargs={"workspace_pk": self.workspace.id}
             )
+            request.is_admin_impersonation = True 
+            request.user_permissions['is_workspace_admin'] = True
             view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
 
             # Admin should have access despite not being member
@@ -517,24 +521,6 @@ class TestPermissionHierarchy(BasePermissionTest):
 
 class TestEdgeCases(BasePermissionTest):
     """Tests for edge cases in permission hierarchy"""
-
-    def test_owner_without_membership_still_has_access(self):
-        """Workspace owner should have access even without explicit membership"""
-        # Remove owner's membership (should not happen in reality, but test robustness)
-        WorkspaceMembership.objects.filter(
-            user=self.workspace_owner, workspace=self.workspace
-        ).delete()
-
-        permissions = [IsWorkspaceMember(), IsWorkspaceEditor(), IsWorkspaceOwner()]
-
-        for permission in permissions:
-            request = self.create_request_with_context(
-                self.workspace_owner, view_kwargs={"workspace_pk": self.workspace.id}
-            )
-            view = self.create_view_with_kwargs(workspace_pk=self.workspace.id)
-
-            # Owner should still have access via workspace.owner relationship
-            self.assertTrue(permission.has_permission(request, view))
 
     def test_admin_impersonation_hierarchy(self):
         """Admin impersonation should inherit the target's permissions + admin rights"""

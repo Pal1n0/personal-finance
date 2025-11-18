@@ -30,7 +30,7 @@ from .permissions import (IsSuperuser, IsWorkspaceAdmin, IsWorkspaceEditor,
 from .serializers import (ExchangeRateSerializer, ExpenseCategorySerializer,
                           IncomeCategorySerializer, TransactionDraftSerializer,
                           TransactionListSerializer, TransactionSerializer,
-                          UserSettingsSerializer,
+                          UserSettingsSerializer, WorkspaceAdminSerializer,
                           WorkspaceMembershipSerializer, WorkspaceSerializer,
                           WorkspaceSettingsSerializer)
 from .services.currency_service import CurrencyService
@@ -76,9 +76,17 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
     Uses ServiceExceptionHandlerMixin for unified error handling and BaseWorkspaceViewSet for context.
     """
 
-    serializer_class = None
+    serializer_class = WorkspaceAdminSerializer  
     permission_classes = [IsAuthenticated, IsSuperuser]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workspace_service = WorkspaceService()
+
+    def get_permissions(self):
+        """Enforce superuser requirement for all administrative actions."""
+        return [IsAuthenticated(), IsSuperuser()]
+    
     def get_queryset(self):
         """
         Secure queryset - returns empty for non-superusers to prevent information leakage.
@@ -86,14 +94,16 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
         if not self.request.user.is_superuser:
             return WorkspaceAdmin.objects.none()
 
-        return WorkspaceAdmin.objects.select_related(
+        queryset = WorkspaceAdmin.objects.select_related(
             "user", "workspace", "assigned_by"
         ).order_by("-assigned_at")
 
-    def get_permissions(self):
-        """Enforce superuser requirement for all administrative actions."""
-        return [IsAuthenticated(), IsSuperuser()]
-
+        workspace_id = self.request.query_params.get('workspace')
+        if workspace_id:
+            queryset = queryset.filter(workspace_id=workspace_id)
+            
+        return queryset
+    
     @action(detail=False, methods=["post"])
     def assign_admin(self, request, workspace_pk=None):
         """
@@ -256,6 +266,53 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             },
         )
 
+    @action(detail=True, methods=['post'])
+    def deactivate_admin(self, request, pk=None):
+        """
+        THIN deactivate admin - delegates to WorkspaceService.
+        """
+        logger.info(
+            "Workspace admin deactivation delegated to service",
+            extra={
+                "admin_assignment_id": pk,
+                "deactivated_by_id": request.user.id,
+                "action": "workspace_admin_deactivation_delegated",
+                "component": "WorkspaceAdminViewSet",
+            },
+        )
+
+        try:
+            # Delegate to service
+            deactivated = self.handle_service_call(
+                self.workspace_service.deactivate_workspace_admin,
+                admin_assignment_id=pk,
+                deactivated_by=request.user,
+            )
+
+            if deactivated:
+                return Response(
+                    {
+                        "message": "Workspace admin deactivated successfully",
+                        "admin_assignment_id": pk,
+                    },
+                    status=status.HTTP_200_OK
+                )
+            else:
+                return Response(
+                    {"error": "Workspace admin assignment not found or already inactive"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        except WorkspaceAdmin.DoesNotExist:
+            return Response(
+                {"error": "Workspace admin assignment not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except ValidationError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 # -------------------------------------------------------------------
 # WORKSPACE MANAGEMENT
@@ -281,7 +338,7 @@ class WorkspaceViewSet(
 
     def get_permissions(self):
         """THIN permissions - iba access control"""
-        if self.action in ["create"]:
+        if self.action in ["list", "create"]:
             return [IsAuthenticated()]
         elif self.action in ["update", "partial_update", "activate"]:
             return [IsAuthenticated(), IsWorkspaceEditor()]
@@ -290,28 +347,31 @@ class WorkspaceViewSet(
         elif self.action in ["change_owner"]:
             return [IsAuthenticated(), IsWorkspaceAdmin()]
         return [IsAuthenticated(), IsWorkspaceMember()]
-
+    
     def get_queryset(self):
-        """THIN queryset - iba security filtering"""
+        """THIN queryset - only security filtering"""
         target_user = self.request.target_user
+    
+        # Build query - get all workspaces where user is member
+        workspaces = Workspace.objects.filter(members=target_user)
 
-        workspaces = (
-            Workspace.objects.filter(members=target_user.id)
-            .select_related("owner")
-            .prefetch_related("members")
-        )
-
-        # Impersonation filtering
+        # Apply impersonation or normal filtering
         if (
             self.request.is_admin_impersonation
             and hasattr(self.request, "impersonation_workspace_ids")
             and self.request.impersonation_workspace_ids
         ):
-
+            # Impersonation: filter to allowed workspace IDs
+            workspaces = workspaces.filter(id__in=self.request.impersonation_workspace_ids)
+        else:
+            # Normal case: owners see all workspaces, members see only active
             workspaces = workspaces.filter(
-                id__in=self.request.impersonation_workspace_ids
+                models.Q(owner=target_user) | models.Q(is_active=True)
             )
 
+        # Apply optimizations - single database query
+        workspaces = workspaces.select_related("owner").prefetch_related("members")
+        
         return workspaces
 
     def perform_create(self, serializer):
@@ -361,6 +421,65 @@ class WorkspaceViewSet(
             workspace=instance,
             user=target_user,
         )
+
+    @action(detail=True, methods=['get'])
+    def membership_info(self, request, pk=None):
+        """
+        THIN membership info - get current user's membership information
+        """
+        workspace = self.get_object()
+
+        logger.debug(
+            "Membership info retrieval delegated to service",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace.id,
+                "action": "membership_info_retrieval_delegated",
+                "component": "WorkspaceViewSet",
+            },
+        )
+
+        # Get role from request context (pre-calculated in middleware)
+        role = request.user_permissions.get("workspace_role")
+        is_owner = workspace.owner_id == request.user.id
+        is_admin = request.user_permissions.get("is_workspace_admin", False)
+
+        membership_info = {
+            "workspace_id": workspace.id,
+            "workspace_name": workspace.name,
+            "user_id": request.user.id,
+            "role": role,
+            "is_owner": is_owner,
+            "is_admin": is_admin,
+            "permissions": {
+                "can_edit": role in ["owner", "editor", "admin"],
+                "can_delete": is_owner or is_admin,
+                "can_manage_users": is_owner or is_admin,
+                "can_impersonate": is_admin,
+            }
+        }
+
+        if request.is_admin_impersonation:
+            membership_info["admin_impersonation"] = {
+                "target_user_id": request.target_user.id,
+                "target_username": request.target_user.username,
+                "requested_by_admin_id": request.user.id,
+            }
+
+        logger.info(
+            "Membership info retrieved successfully",
+            extra={
+                "workspace_id": workspace.id,
+                "user_id": request.user.id,
+                "role": role,
+                "is_owner": is_owner,
+                "is_admin": is_admin,
+                "action": "membership_info_retrieved",
+                "component": "WorkspaceViewSet",
+            },
+        )
+
+        return Response(membership_info)
 
     @action(detail=True, methods=["delete"])
     def hard_delete(self, request, pk=None):
@@ -1781,3 +1900,45 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
             }
 
         return response
+    
+    @action(detail=True, methods=['delete'])
+    def discard(self, request, pk=None):
+        """
+        THIN discard draft - delegates to DraftService.
+        """
+        target_user = request.target_user
+
+        logger.info(
+            "Draft discard delegated to service",
+            extra={
+                "user_id": request.user.id,
+                "draft_id": pk,
+                "action": "draft_discard_delegated",
+                "component": "TransactionDraftViewSet",
+            },
+        )
+
+        try:
+            draft = self.get_object()
+            
+            # Delegate to service
+            discarded = self.handle_service_call(
+                self.draft_service.discard_draft,
+                user=target_user,
+                workspace_id=draft.workspace.id,
+                draft_type=draft.draft_type,
+            )
+
+            if discarded:
+                return Response(status=status.HTTP_204_NO_CONTENT)
+            else:
+                return Response(
+                    {"error": "Draft not found or already discarded"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        except TransactionDraft.DoesNotExist:
+            return Response(
+                {"error": "Draft not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
