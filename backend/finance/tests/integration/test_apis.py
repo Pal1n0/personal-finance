@@ -24,14 +24,14 @@ from finance.models import (ExchangeRate, ExpenseCategory,
                             ExpenseCategoryVersion, IncomeCategory,
                             IncomeCategoryVersion, Transaction,
                             TransactionDraft, UserSettings, Workspace,
-                            WorkspaceAdmin, WorkspaceMembership,
+                         WorkspaceAdmin, WorkspaceMembership, Tags,
                             WorkspaceSettings)
 
 from ..factories import (ExchangeRateFactory, ExpenseCategoryFactory,
                          ExpenseCategoryVersionFactory, IncomeCategoryFactory,
                          IncomeCategoryVersionFactory, TransactionDraftFactory,
                          TransactionFactory, UserFactory, UserSettingsFactory,
-                         WorkspaceAdminFactory, WorkspaceFactory,
+                         WorkspaceAdminFactory, WorkspaceFactory, TagFactory,
                          WorkspaceMembershipFactory, WorkspaceSettingsFactory)
 
 User = get_user_model()
@@ -539,6 +539,70 @@ class WorkspaceAPITests(BaseAPITestCase):
         self.workspace.refresh_from_db()
         self.assertTrue(self.workspace.is_active)
 
+class TagAPITests(BaseAPITestCase):
+    """
+    Comprehensive tests for the Tag API endpoints.
+    Ensures CRUD operations and permissions work as expected within a workspace.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Create some initial tags for the workspace
+        self.tag1 = TagFactory(workspace=self.workspace, name="food")
+        self.tag2 = TagFactory(workspace=self.workspace, name="travel")
+
+        # URLs for the nested tag endpoints
+        self.list_url = reverse(
+            "workspace-tag-list", kwargs={"workspace_pk": self.workspace.pk}
+        )
+        self.detail_url = reverse(
+            "workspace-tag-detail",
+            kwargs={"workspace_pk": self.workspace.pk, "pk": self.tag1.pk},
+        )
+
+    def test_list_tags_for_workspace(self):
+        """Test that listing tags is scoped to the correct workspace."""
+        # Create a tag in another workspace that should not be listed
+        other_workspace = WorkspaceFactory(owner=self.other_user)
+        TagFactory(workspace=other_workspace, name="other-tag")
+
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        response_data = self._get_response_data(response)
+        self.assertEqual(len(response_data), 2)
+        tag_names = {tag["name"] for tag in response_data}
+        self.assertIn("food", tag_names)
+        self.assertIn("travel", tag_names)
+        self.assertNotIn("other-tag", tag_names)
+
+    def test_create_tag(self):
+        """Test creating a new tag."""
+        data = {"name": "  Urgent  "}  # Test with whitespace and case
+        response = self.client.post(self.list_url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "urgent")  # Name should be lowercased and stripped
+
+    def test_create_existing_tag_is_idempotent(self):
+        """Test that creating a tag with an existing name returns the existing tag."""
+        data = {"name": "food"}  # This tag already exists
+        response = self.client.post(self.list_url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["id"], self.tag1.id) # Should return the existing tag's ID
+
+    def test_update_tag(self):
+        """Test updating a tag's name."""
+        data = {"name": "groceries"}
+        response = self.client.put(self.detail_url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.tag1.refresh_from_db()
+        self.assertEqual(self.tag1.name, "groceries")
+
+    def test_delete_tag(self):
+        """Test deleting a tag."""
+        response = self.client.delete(self.detail_url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Tags.objects.filter(pk=self.tag1.pk).exists())
 
 class SuperuserImpersonationTests(BaseAPITestCase):
     """Tests specifically for superuser impersonation functionality."""
@@ -589,15 +653,19 @@ class TransactionAPITests(BaseAPITestCase):
 
     def setUp(self):
         super().setUp()
-        self.list_url = reverse(TRANSACTION_LIST)
+        # Use new nested URLs that require a workspace_pk
+        self.list_url = reverse(
+            "workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk}
+        )
         self.detail_url = reverse(
-            TRANSACTION_DETAIL, kwargs={"pk": self.expense_transaction.pk}
+            "workspace-transaction-detail",
+            kwargs={"workspace_pk": self.workspace.pk, "pk": self.expense_transaction.pk},
         )
 
     def test_list_transactions_comprehensive(self):
         """Comprehensive transaction listing with various filters."""
         # Test basic listing
-        response = self.client.get(self.list_url)
+        response = self.client.get(self.list_url) # list_url already contains workspace context
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         transactions_data = self._get_response_data(response)
         self.assertGreaterEqual(
@@ -614,11 +682,7 @@ class TransactionAPITests(BaseAPITestCase):
 
         # Test filtering by month
         current_month = date.today().month
-        response = self.client.get(self.list_url, {"month": current_month})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Test filtering by workspace
-        response = self.client.get(self.list_url, {"workspace": self.workspace.id})
+        response = self.client.get(self.list_url, {"month": current_month}) # workspace is already in URL
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_retrieve_transaction_detailed(self):
@@ -659,8 +723,7 @@ class TransactionAPITests(BaseAPITestCase):
     def test_create_transaction_validation(self):
         """Test transaction creation with comprehensive validation."""
         # Valid expense transaction
-        data = {
-            "workspace": self.workspace.id,
+        data = { # workspace is now taken from URL, not from data
             "type": "expense",
             "expense_category": self.expense_category.id,
             "original_amount": "200.00",
@@ -673,8 +736,7 @@ class TransactionAPITests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Valid income transaction
-        data = {
-            "workspace": self.workspace.id,
+        data = { # workspace is now taken from URL
             "type": "income",
             "income_category": self.income_category.id,
             "original_amount": "500.00",
@@ -685,8 +747,7 @@ class TransactionAPITests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Invalid: Both categories provided
-        data = {
-            "workspace": self.workspace.id,
+        data = { # workspace is now taken from URL
             "type": "expense",
             "expense_category": self.expense_category.id,
             "income_category": self.income_category.id,
@@ -698,8 +759,7 @@ class TransactionAPITests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Invalid: No category provided
-        data = {
-            "workspace": self.workspace.id,
+        data = { # workspace is now taken from URL
             "type": "expense",
             "original_amount": "200.00",
             "original_currency": "EUR",
@@ -709,8 +769,7 @@ class TransactionAPITests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Invalid: Wrong category type
-        data = {
-            "workspace": self.workspace.id,
+        data = { # workspace is now taken from URL
             "type": "expense",
             "income_category": self.income_category.id,
             "original_amount": "200.00",
@@ -747,8 +806,30 @@ class TransactionAPITests(BaseAPITestCase):
 
     def test_delete_transaction_permissions(self):
         """Test transaction deletion with permission validation."""
+        # Use the new nested URL
+        detail_url = reverse("workspace-transaction-detail", kwargs={"workspace_pk": self.workspace.pk, "pk": self.expense_transaction.pk})
+
+        # --- ADVANCED DEBUGGING START ---
+        try:
+            db_transaction = Transaction.objects.get(pk=self.expense_transaction.pk)
+            print(f"🔍 DB CHECK: Transaction PK={db_transaction.pk} FOUND in DB.")
+            print(f"🔍 DB CHECK: Transaction belongs to Workspace PK={db_transaction.workspace.pk}")
+            if db_transaction.workspace.pk != self.workspace.pk:
+                print(f"🔥 MISMATCH: Transaction's workspace ({db_transaction.workspace.pk}) != Test's workspace ({self.workspace.pk})")
+        except Transaction.DoesNotExist:
+            print(f"🔥 NOT FOUND: Transaction PK={self.expense_transaction.pk} does NOT exist in DB before DELETE call!")
+        # --- ADVANCED DEBUGGING END ---
+
+        # --- DEBUGGING START ---
+        print(f"🔍 DEBUG Test: Authenticated user ID: {self.user.id}")
+        print(f"🔍 DEBUG Test: Workspace PK from test: {self.workspace.pk}")
+        print(f"🔍 DEBUG Test: Expense transaction PK from test: {self.expense_transaction.pk}")
+        print(f"🔍 DEBUG Test: Expense transaction user ID: {self.expense_transaction.user.id}")
+        print(f"🔍 DEBUG Test: Expense transaction workspace PK: {self.expense_transaction.workspace.pk}")
+        # --- DEBUGGING END ---
+
         # Test delete as owner (should succeed)
-        response = self.client.delete(self.detail_url)
+        response = self.client.delete(detail_url)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(
             Transaction.objects.filter(pk=self.expense_transaction.pk).exists()
@@ -761,30 +842,26 @@ class TransactionAPITests(BaseAPITestCase):
             type="expense",
             expense_category=self.expense_category,
         )
-        detail_url = reverse(TRANSACTION_DETAIL, kwargs={"pk": transaction.pk})
+        detail_url_for_viewer = reverse("workspace-transaction-detail", kwargs={"workspace_pk": self.workspace.pk, "pk": transaction.pk})
 
         # Test delete as viewer (should fail)
         self._authenticate_user(self.other_user)
-        response = self.client.delete(detail_url)
+        response = self.client.delete(detail_url_for_viewer)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_bulk_operations(self):
         """Test bulk transaction operations."""
-        # Bulk delete
+        # Bulk delete using the workspace-specific bulk-sync endpoint
         transaction_ids = [t.id for t in self.expense_transactions[:2]]
-        url = reverse(TRANSACTION_BULK_DELETE) + f"?workspace_id={self.workspace.id}"
-        data = {"ids": transaction_ids}
+        url = reverse(
+            BULK_SYNC_TRANSACTIONS, kwargs={"workspace_id": self.workspace.id}
+        )
+        data = {"delete": transaction_ids}
 
-        print(f"🔍 Bulk delete URL: {url}")
-        print(f"🔍 Workspace ID: {self.workspace.id} (type: {type(self.workspace.id)})")
-        print(f"🔍 Transaction IDs: {transaction_ids}")
         response = self.client.post(url, data, format="json")
-        print(f"🔍 Response status: {response.status_code}")
-        if hasattr(response, 'data'):
-            print(f"🔍 Response data: {response.data}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["deleted"], 2)
+        self.assertEqual(len(response.data["deleted"]), 2)
 
         # Bulk sync
         url = reverse(
@@ -2116,6 +2193,7 @@ def run_integration_tests():
 
     # 🔥 DOPLNENÉ CHÝBAJÚCE TESTY Z PÔVODNÉHO SÚBORU
     suite.addTests(loader.loadTestsFromTestCase(CategoryUsageTests))
+    suite.addTests(loader.loadTestsFromTestCase(TagAPITests))
     suite.addTests(loader.loadTestsFromTestCase(AdminImpersonationAdvancedTests))
     suite.addTests(loader.loadTestsFromTestCase(WorkspaceAdminManagementTests))
     suite.addTests(loader.loadTestsFromTestCase(WorkspaceOwnershipTests))

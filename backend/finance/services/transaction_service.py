@@ -6,6 +6,7 @@ operations with atomicity guarantees and comprehensive error handling.
 """
 
 import logging
+from datetime import date
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import transaction as db_transaction
@@ -177,11 +178,17 @@ class TransactionService:
                 type=data["type"],
                 original_amount=data["original_amount"],
                 original_currency=data["original_currency"],
-                date=data["date"],
+                date=date.fromisoformat(data["date"])
+                if isinstance(data["date"], str)
+                else data["date"],
                 expense_category=expense_category,
                 income_category=income_category,
                 tags=data.get("tags", []),
-                month=data["date"].replace(day=1),
+                month=(
+                    date.fromisoformat(data["date"])
+                    if isinstance(data["date"], str)
+                    else data["date"]
+                ).replace(day=1),
                 note_manual=data.get("note_manual", ""),
                 note_auto=data.get("note_auto", ""),
                 amount_domestic=data.get("original_amount"),  # Temporary value
@@ -1240,6 +1247,13 @@ class TransactionService:
             raise ValidationError(
                 f"Currency must be one of: {', '.join(valid_currencies)}"
             )
+
+        # Category presence validation (for create operations)
+        if not is_update:
+            if not data.get("expense_category") and not data.get("income_category"):
+                raise ValidationError(
+                    "Transaction must have either an expense_category or an income_category."
+                )
 
         # Category consistency validation
         if data.get("expense_category") and data.get("income_category"):

@@ -162,7 +162,9 @@ class WorkspaceContextService:
         # Priority 4: Request data
         if not workspace_id:
             workspace_id = getattr(request, "data", {}).get("workspace_id")
-
+        if not workspace_id:
+            workspace_id = getattr(request, "data", {}).get("workspace")
+            
         logger.debug(
             "Workspace ID extraction - COMPREHENSIVE DEBUG",
             extra={

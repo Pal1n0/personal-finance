@@ -27,7 +27,7 @@ router.register(
 )
 
 # Transaction management endpoints
-router.register(r"transactions", views.TransactionViewSet, basename="transaction")
+# router.register(r"transactions", views.TransactionViewSet, basename="transaction") # DEPRECATED - use nested URLs
 
 # Expense categories endpoints (read-only)
 router.register(
@@ -62,6 +62,34 @@ router.register(r"category-sync", views.CategorySyncViewSet, basename="category-
 urlpatterns = [
     # Include all router-generated URLs
     path("", include(router.urls)),
+
+    # --- NESTED TRANSACTION ENDPOINTS ---
+    path(
+        "workspaces/<int:workspace_pk>/transactions/",
+        views.TransactionViewSet.as_view({"get": "list", "post": "create"}),
+        name="workspace-transaction-list",
+    ),
+    path(
+        "workspaces/<int:workspace_pk>/transactions/<int:pk>/",
+        views.TransactionViewSet.as_view(
+            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
+        ),
+        name="workspace-transaction-detail",
+    ),
+    # --- NESTED TAGS ENDPOINTS ---
+    path(
+        "workspaces/<int:workspace_pk>/tags/",
+        views.TagViewSet.as_view({"get": "list", "post": "create"}),
+        name="workspace-tag-list",
+    ),
+    path(
+        "workspaces/<int:workspace_pk>/tags/<int:pk>/",
+        views.TagViewSet.as_view(
+            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
+        ),
+        name="workspace-tag-detail",
+    ),
+
     # Workspace members endpoint
     path(
         "workspaces/<int:pk>/members/",
@@ -91,12 +119,6 @@ urlpatterns = [
         "workspaces/<int:pk>/membership-info/",
         views.WorkspaceViewSet.as_view({"get": "membership_info"}),
         name="workspace-membership-info",
-    ),
-    # Transaction bulk delete endpoint
-    path(
-        "transactions/bulk-delete/",
-        views.TransactionViewSet.as_view({"post": "bulk_delete"}),
-        name="transaction-bulk-delete",
     ),
     # Bulk transaction synchronization endpoint
     path(

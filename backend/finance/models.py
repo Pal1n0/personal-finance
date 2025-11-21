@@ -1519,6 +1519,31 @@ class ExchangeRate(models.Model):
             },
         )
 
+# -------------------------------------------------------------------
+# TAGS
+# -------------------------------------------------------------------
+# Tags used with transactions
+
+
+class Tags(models.Model):
+    """
+    Reusable tag inside a workspace.
+    Each workspace has its own isolated tag namespace.
+    """
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    name = models.CharField(max_length=50)
+
+    class Meta:
+        unique_together = ("workspace", "name")
+        ordering = ["name"]
+
+    def save(self, *args, **kwargs):
+        """Ensure tag name is always lowercase."""
+        self.name = self.name.lower()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
 
 # -------------------------------------------------------------------
 # TRANSACTIONS
@@ -1563,7 +1588,11 @@ class Transaction(models.Model):
     )  # Stored in domestic currency
     date = models.DateField()
     month = models.DateField()
-    tags = models.JSONField(default=list, blank=True)
+    tags = models.ManyToManyField(
+        "Tags",
+        blank=True,
+        related_name="transactions"
+    )
     note_manual = models.TextField(blank=True)
     note_auto = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -21,11 +21,12 @@ from .mixins.service_exception_handler import ServiceExceptionHandlerMixin
 from .mixins.target_user import TargetUserMixin
 from .mixins.workspace_membership import WorkspaceMembershipMixin
 from .models import (ExchangeRate, ExpenseCategory, ExpenseCategoryVersion,
-                     IncomeCategory, IncomeCategoryVersion, Transaction,
+                     IncomeCategory, IncomeCategoryVersion, Tags, Transaction,
                      TransactionDraft, UserSettings, Workspace,
                      WorkspaceMembership, WorkspaceSettings, WorkspaceAdmin)
 from .services.category_service import CategoryService
 from .services.draft_service import DraftService
+from .services.tag_service import TagService
 from .services.transaction_service import TransactionService
 from .services.workspace_service import WorkspaceService
 
@@ -626,7 +627,6 @@ class TransactionSerializer(
         read_only_fields = [
             "id",
             "user",
-            "workspace",
             "amount_domestic",
             "month",
             "created_at",
@@ -636,6 +636,7 @@ class TransactionSerializer(
     def __init__(self, *args, **kwargs):
         """Initialize with security-enhanced querysets from request cache."""
         super().__init__(*args, **kwargs)
+        self.tag_service = TagService()
         self.transaction_service = TransactionService()
 
         # SECURITY: Workspace-scoped categories from request cache
@@ -716,6 +717,70 @@ class TransactionSerializer(
             )
 
         return value
+
+    def create(self, validated_data):
+        """
+        Create a transaction and handle tag assignment via TagService.
+        """
+        tag_names = validated_data.pop("tags", [])
+        transaction = super().create(validated_data)
+
+        if tag_names:
+            self.handle_service_call(
+                self.tag_service.assign_tags_to_transaction,
+                transaction_instance=transaction,
+                tag_names=tag_names,
+            )
+
+        return transaction
+
+    def update(self, instance, validated_data):
+        """
+        Update a transaction and handle tag assignment via TagService.
+        """
+        # Handle tags separately if they are in the update data
+        if "tags" in validated_data:
+            tag_names = validated_data.pop("tags")
+            self.handle_service_call(
+                self.tag_service.assign_tags_to_transaction,
+                transaction_instance=instance,
+                tag_names=tag_names,
+            )
+
+        # Perform the rest of the update
+        transaction = super().update(instance, validated_data)
+
+        return transaction
+
+
+# -------------------------------------------------------------------
+# TAGS SERIALIZER
+# -------------------------------------------------------------------
+
+
+class TagSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the Tag model.
+    Handles validation and serialization of tags within a workspace.
+    """
+
+    class Meta:
+        model = Tags
+        fields = ["id", "name", "workspace"]
+        read_only_fields = ["id", "workspace"]
+
+    def validate_name(self, value):
+        """
+        Validate tag name. Ensures it's not empty and normalizes it.
+        """
+        stripped_value = value.strip()
+        if not stripped_value:
+            raise serializers.ValidationError("Tag name cannot be empty.")
+        if len(stripped_value) > 50:
+            raise serializers.ValidationError("Tag name cannot exceed 50 characters.")
+
+        # The model's save method will handle lowercasing
+        return stripped_value
 
 
 # -------------------------------------------------------------------

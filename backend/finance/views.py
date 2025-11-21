@@ -21,13 +21,13 @@ from rest_framework.response import Response
 from .mixins.service_exception_handler import ServiceExceptionHandlerMixin
 from .mixins.workspace_context import WorkspaceContextMixin
 from .mixins.workspace_membership import WorkspaceMembershipMixin
-from .models import (ExchangeRate, ExpenseCategory, ExpenseCategoryVersion,
+from .models import (ExchangeRate, ExpenseCategory, ExpenseCategoryVersion, Tags,
                      IncomeCategory, IncomeCategoryVersion, Transaction,
                      TransactionDraft, UserSettings, Workspace, WorkspaceAdmin,
                      WorkspaceMembership, WorkspaceSettings)
 from .permissions import (IsSuperuser, IsWorkspaceAdmin, IsWorkspaceEditor,
                           IsWorkspaceMember, IsWorkspaceOwner)
-from .serializers import (ExchangeRateSerializer, ExpenseCategorySerializer,
+from .serializers import (ExchangeRateSerializer, ExpenseCategorySerializer, TagSerializer,
                           IncomeCategorySerializer, TransactionDraftSerializer,
                           TransactionListSerializer, TransactionSerializer,
                           UserSettingsSerializer, WorkspaceAdminSerializer,
@@ -36,6 +36,7 @@ from .serializers import (ExchangeRateSerializer, ExpenseCategorySerializer,
 from .services.currency_service import CurrencyService
 from .services.draft_service import DraftService
 from .services.membership_service import MembershipService
+from .services.tag_service import TagService
 from .services.transaction_service import TransactionService
 from .services.workspace_service import WorkspaceService
 from .utils.category_utils import sync_categories_tree
@@ -1445,12 +1446,34 @@ class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             },
         )
 
-        # Base security filtering
-        qs = Transaction.objects.filter(workspace__members=target_user.id)
+        # Get workspace_pk from URL
+        workspace_pk = (
+            self.kwargs.get("workspace_pk")
+            or getattr(self.request, "workspace", None) and self.request.workspace.id
+        )
+        
+        if not workspace_pk:
+            logger.warning(
+                "Transaction queryset requested without workspace_pk in URL.",
+                extra={
+                    "user_id": self.request.user.id,
+                    "target_user_id": target_user.id,
+                    "action": "transactions_queryset_no_workspace_pk",
+                    "component": "TransactionViewSet",
+                    "severity": "high",
+                },
+            )
+
+            # This should not happen with correct URL configuration, but as a safeguard:
+            logger.warning("Transaction queryset requested without workspace_pk in URL.")
+            return Transaction.objects.none()
+
+        # Base queryset for the given workspace. Permissions are handled by IsWorkspaceEditor.
+        qs = Transaction.objects.filter(workspace_id=workspace_pk)
 
         # Performance optimizations
         light_mode = self.request.query_params.get("light") == "true"
-        if light_mode and self.action == "list":
+        if light_mode and self.action == "list": # Note: This is now part of get_serializer_class logic
             qs = qs.select_related("workspace").only(
                 "id",
                 "type",
@@ -1474,18 +1497,14 @@ class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
         if tx_type in ["income", "expense"]:
             qs = qs.filter(type=tx_type)
 
-        workspace_id = self.request.query_params.get("workspace")
-        if workspace_id:
-            qs = qs.filter(workspace_id=workspace_id)
-
         logger.info(
             "Transactions queryset prepared",
             extra={
                 "user_id": self.request.user.id,
                 "queryset_count": qs.count(),
+                "workspace_id": workspace_pk,
                 "filters_applied": {
                     "type": tx_type,
-                    "workspace": workspace_id,
                 },
                 "action": "transactions_queryset_prepared",
                 "component": "TransactionViewSet",
@@ -1509,7 +1528,7 @@ class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
         )
 
         # TransactionSerializer.create() handles all business logic
-        serializer.save()
+        serializer.save(user=self.request.target_user, workspace=self.request.workspace)
 
     def perform_update(self, serializer):
         """
@@ -1550,7 +1569,7 @@ class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             user=target_user,
         )
 
-    @action(detail=False, methods=["post"])
+    '''@action(detail=False, methods=["post"])
     def bulk_delete(self, request):
         """
         THIN bulk delete - delegates to TransactionService.
@@ -1574,7 +1593,7 @@ class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             user=target_user,
         )
 
-        return self._add_impersonation_context(Response(result), request)
+        return self._add_impersonation_context(Response(result), request)'''
 
     @action(
         detail=False,
@@ -1672,6 +1691,91 @@ class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             }
 
         return response
+
+# -------------------------------------------------------------------
+# TAGS MANAGEMENT
+# -------------------------------------------------------------------
+
+
+class TagViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
+    """
+    THIN ViewSet for managing Tags within a workspace.
+    Delegates all business logic to the TagService.
+    """
+
+    serializer_class = TagSerializer
+    permission_classes = [IsAuthenticated, IsWorkspaceMember]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tag_service = TagService()
+
+    def get_permissions(self):
+        """Editors can modify, members can only view."""
+        if self.action in ["create", "update", "partial_update", "destroy"]:
+            return [IsAuthenticated(), IsWorkspaceEditor()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        """
+        Returns tags scoped to the current workspace from the request context.
+        """
+        workspace = getattr(self.request, "workspace", None)
+        if not workspace:
+            # This should be caught by permission classes, but as a safeguard:
+            logger.warning("Tag queryset requested without a workspace context.")
+            return Tags.objects.none()
+
+        return Tags.objects.filter(workspace=workspace)
+
+    def perform_create(self, serializer):
+        """
+        Delegates tag creation to the TagService to handle `get_or_create` logic.
+        """
+        workspace = self.request.workspace
+        tag_name = serializer.validated_data["name"]
+
+        # The service handles finding or creating the tag.
+        tag = self.handle_service_call(
+            self.tag_service.get_or_create_tags,
+            workspace=workspace,
+            tag_names=[tag_name],
+        )[0]
+
+        # We need to set the instance on the serializer to return the correct data
+        serializer.instance = tag
+
+    def perform_update(self, serializer):
+        """
+        Delegates tag update to the TagService to handle validation.
+        """
+        new_name = serializer.validated_data.get("name", serializer.instance.name)
+        self.handle_service_call(
+            self.tag_service.update_tag, tag=serializer.instance, new_name=new_name
+        )
+
+    def perform_destroy(self, instance):
+        """
+        Delegates tag deletion to the TagService.
+        """
+        self.handle_service_call(self.tag_service.delete_tag, tag=instance)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="assign-to-transaction",
+        permission_classes=[IsAuthenticated, IsWorkspaceEditor],
+    )
+    def assign_to_transaction(self, request, pk=None):
+        """
+        This is an example action. A better approach is to handle tags
+        during transaction creation/update or via a dedicated transaction action.
+        For now, this demonstrates service delegation.
+        """
+        return Response(
+            {"message": "This is an example. Tag assignment should be part of transaction operations."},
+            status=status.HTTP_501_NOT_IMPLEMENTED
+        )
 
 
 # -------------------------------------------------------------------

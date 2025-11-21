@@ -16,10 +16,19 @@ from finance.models import (ExchangeRate, ExpenseCategory,
                             IncomeCategoryVersion, Transaction,
                             TransactionDraft, UserSettings, Workspace,
                             WorkspaceAdmin, WorkspaceMembership,
-                            WorkspaceSettings)
+                            WorkspaceSettings, Tags)
 
 fake = Faker()
 User = get_user_model()
+
+
+class TagFactory(DjangoModelFactory):
+    class Meta:
+        model = Tags
+
+    workspace = factory.SubFactory(WorkspaceFactory)
+    name = factory.Sequence(lambda n: f"tag-{n}")
+
 
 
 class UserFactory(DjangoModelFactory):
@@ -208,19 +217,47 @@ class TransactionFactory(DjangoModelFactory):
     workspace = factory.SubFactory(WorkspaceFactory)
     type = factory.Iterator(["income", "expense"])
     original_amount = factory.LazyAttribute(
-        lambda _: fake.pydecimal(
-            left_digits=4, right_digits=2, min_value=1, max_value=10000
-        )
+        lambda _: fake.pydecimal(left_digits=4, right_digits=2, min_value=1, max_value=10000)
     )
     original_currency = factory.Iterator(["EUR", "USD", "GBP", "CHF"])
     amount_domestic = factory.LazyAttribute(lambda obj: obj.original_amount)
-    date = factory.LazyFunction(
-        lambda: fake.date_between(start_date="-30d", end_date="today")
-    )
+    date = factory.LazyFunction(lambda: fake.date_between(start_date="-30d", end_date="today"))
     month = factory.LazyAttribute(lambda obj: obj.date.replace(day=1))
-    tags = factory.LazyFunction(lambda: [fake.word() for _ in range(2)])
     note_manual = factory.LazyAttribute(lambda _: fake.text(max_nb_chars=100))
     note_auto = factory.LazyAttribute(lambda _: fake.text(max_nb_chars=50))
+
+    @factory.post_generation
+    def tags(self, create, extracted, **kwargs):
+        """
+        Handle ManyToMany tags relation.
+
+        - If 'tags' param is provided in test: use them.
+        - If not: auto-generate 1–3 random tags for consistency.
+        """
+        if not create:
+            return
+
+        if extracted:
+            # extracted == list of tag names OR Tag objects
+            for tag in extracted:
+                if isinstance(tag, str):
+                    tag_obj, _ = Tags.objects.get_or_create(
+                        workspace=self.workspace,
+                        name=tag
+                    )
+                    self.tags.add(tag_obj)
+                else:
+                    # already Tag instance
+                    self.tags.add(tag)
+        else:
+            # auto-generate random tag names
+            for _ in range(2):
+                name = fake.word()
+                tag_obj, _ = Tags.objects.get_or_create(
+                    workspace=self.workspace,
+                    name=name
+                )
+                self.tags.add(tag_obj)
 
     @factory.post_generation
     def set_category(self, create, extracted, **kwargs):
@@ -228,15 +265,11 @@ class TransactionFactory(DjangoModelFactory):
             return
 
         if self.type == "expense":
-            self.expense_category = ExpenseCategoryFactory(
-                version__workspace=self.workspace
-            )
+            self.expense_category = ExpenseCategoryFactory(version__workspace=self.workspace)
         else:
-            self.income_category = IncomeCategoryFactory(
-                version__workspace=self.workspace
-            )
-        if create:
-            self.save()
+            self.income_category = IncomeCategoryFactory(version__workspace=self.workspace)
+
+        self.save()
 
 
 class TransactionDraftFactory(DjangoModelFactory):
