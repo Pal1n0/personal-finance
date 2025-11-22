@@ -21,11 +21,6 @@ router = DefaultRouter()
 # User settings endpoints
 router.register(r"user-settings", views.UserSettingsViewSet, basename="user-settings")
 
-# Workspace settings endpoints with atomic currency changes
-router.register(
-    r"workspace-settings", views.WorkspaceSettingsViewSet, basename="workspacesettings"
-)
-
 # Transaction management endpoints
 # router.register(r"transactions", views.TransactionViewSet, basename="transaction") # DEPRECATED - use nested URLs
 
@@ -45,17 +40,10 @@ router.register(r"exchange-rates", views.ExchangeRateViewSet, basename="exchange
 # Workspace management endpoints
 router.register(r"workspaces", views.WorkspaceViewSet, basename="workspace")
 
-# Transaction drafts management endpoints
-router.register(
-    r"transaction-drafts", views.TransactionDraftViewSet, basename="transactiondraft"
-)
-
 # Workspace admin management endpoints
 router.register(
     r"workspace-admins", views.WorkspaceAdminViewSet, basename="workspaceadmin"
 )
-
-router.register(r"category-sync", views.CategorySyncViewSet, basename="category-sync")
 
 
 # Custom API endpoints for bulk operations and synchronization
@@ -89,18 +77,38 @@ urlpatterns = [
         ),
         name="workspace-tag-detail",
     ),
+    # --- NESTED TRANSACTION DRAFTS ENDPOINTS ---
+    path(
+        "workspaces/<int:workspace_pk>/transaction-drafts/",
+        views.TransactionDraftViewSet.as_view({"get": "list", "post": "create"}),
+        name="workspace-transactiondraft-list",
+    ),
+    path(
+        "workspaces/<int:workspace_pk>/transaction-drafts/<int:pk>/",
+        views.TransactionDraftViewSet.as_view(
+            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
+        ),
+        name="workspace-transactiondraft-detail",
+    ),
+    # --- NESTED CATEGORY SYNC ENDPOINTS ---
+    path(
+        "workspaces/<int:workspace_pk>/categories/<str:category_type>/sync/",
+        views.CategorySyncViewSet.as_view({"post": "sync_categories"}),
+        name="workspace-category-sync",
+    ),
+    # DEPRECATED - will be removed after frontend update
+    path(
+        "workspaces/<int:workspace_id>/categories/<str:category_type>/sync/",
+        views.CategorySyncViewSet.as_view({"post": "sync_categories"}),
+        name="category-sync-sync-categories", # Keeping old name for backward compatibility
+    ),
+
 
     # Workspace members endpoint
     path(
         "workspaces/<int:pk>/members/",
         views.WorkspaceViewSet.as_view({"get": "members"}),
         name="workspace-members",
-    ),
-    # Workspace settings endpoint
-    path(
-        "workspaces/<int:pk>/settings/",
-        views.WorkspaceViewSet.as_view({"get": "workspace_settings"}),
-        name="workspace-settings",
     ),
     # Workspace hard delete endpoint (PRIBUDOL - existuje v views)
     path(
@@ -121,29 +129,33 @@ urlpatterns = [
         name="workspace-membership-info",
     ),
     # Bulk transaction synchronization endpoint
+    # --- NESTED WORKSPACE SETTINGS ENDPOINT ---
+    path(
+        "workspaces/<int:workspace_pk>/settings/",
+        views.WorkspaceSettingsViewSet.as_view(
+            {"get": "retrieve", "put": "update", "patch": "partial_update"}
+        ),
+        name="workspace-settings-detail",
+    ),
     path(
         "workspaces/<int:workspace_id>/transactions/bulk-sync/",
         views.TransactionViewSet.as_view({"post": "bulk_sync"}),
         name="bulk-sync-transactions",
     ),
     # Transaction draft save endpoint (PRIBUDOL - existuje v views)
-    path(
-        "workspaces/<int:workspace_pk>/transaction-drafts/save-draft/",
-        views.TransactionDraftViewSet.as_view({"post": "save_draft"}),
-        name="transaction-draft-save",
-    ),
+    # This is now handled by the POST to /workspaces/<workspace_pk>/transaction-drafts/
+    # path(
+    #     "workspaces/<int:workspace_pk>/transaction-drafts/save-draft/",
+    #     views.TransactionDraftViewSet.as_view({"post": "save_draft"}),
+    #     name="transaction-draft-save",
+    # ),
     # Transaction draft get workspace draft endpoint (PRIBUDOL - existuje v views)
     path(
         "workspaces/<int:workspace_pk>/transaction-drafts/get-workspace-draft/",
         views.TransactionDraftViewSet.as_view({"get": "get_workspace_draft"}),
         name="transaction-draft-get-workspace",
     ),
-    # Transaction draft discard endpoint (PRIBUDOL - existuje v views)
-    path(
-        "transaction-drafts/<int:pk>/discard/",
-        views.TransactionDraftViewSet.as_view({"delete": "discard"}),
-        name="transaction-draft-discard",
-    ),
+    # Discard is now handled by DELETE on /workspaces/<workspace_pk>/transaction-drafts/<pk>/
     # Category usage endpoints
     path(
         "expense-categories/<int:pk>/usage/",

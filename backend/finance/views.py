@@ -717,6 +717,24 @@ class WorkspaceSettingsViewSet(
             workspace__members=target_user.id
         ).select_related("workspace")
 
+    def get_object(self):
+        """
+        Retrieve the WorkspaceSettings object based on the workspace_pk from the URL.
+        This is the core of the new URL structure.
+        """
+        # Get workspace_pk from the URL
+        workspace_pk = self.kwargs.get("workspace_pk")
+        
+        # Get the queryset of settings accessible by the user
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # Find the specific settings object linked to the workspace_pk
+        obj = get_object_or_404(queryset, workspace__pk=workspace_pk)
+
+        # Manually check object permissions (DRF does this automatically with default get_object)
+        self.check_object_permissions(self.request, obj)
+        return obj
+
     def update(self, request, *args, **kwargs):
         """
         THIN update - handles currency changes via service.
@@ -1239,13 +1257,12 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
 
     permission_classes = [IsAuthenticated, IsWorkspaceEditor]
 
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="workspaces/(?P<workspace_id>[^/.]+)/(?P<category_type>expense|income)",
-    )
-    def sync_categories(self, request, workspace_id=None, category_type=None):
+    def sync_categories(self, request, workspace_pk=None, category_type=None):
         """
+        Handles POST request to synchronize category hierarchies.
+        This method is now the primary handler for the nested URL.
+        `workspace_pk` is used instead of `workspace_id` for consistency.
+
         Synchronize category hierarchies with comprehensive validation.
 
         Args:
@@ -1261,7 +1278,7 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             extra={
                 "user_id": request.user.id,
                 "target_user_id": request.target_user.id,
-                "workspace_id": workspace_id,
+                "workspace_id": workspace_pk,
                 "category_type": category_type,
                 "category_count": (
                     len(request.data) if isinstance(request.data, list) else 0
@@ -1277,8 +1294,8 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 logger.warning(
                     "Workspace not found for category sync",
                     extra={
-                        "user_id": request.user.id,
-                        "workspace_id": workspace_id,
+                        "user_id": request.user.id, 
+                        "workspace_id": workspace_pk,
                         "action": "category_sync_workspace_not_found",
                         "component": "CategorySyncViewSet",
                         "severity": "medium",
@@ -1289,7 +1306,7 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 )
 
             # Get workspace instance
-            workspace = Workspace.objects.get(id=workspace_id)
+            workspace = Workspace.objects.get(id=workspace_pk)
 
             # Validate and resolve category type
             if category_type == "expense":
@@ -1341,7 +1358,7 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 "Category synchronization completed successfully",
                 extra={
                     "user_id": request.user.id,
-                    "workspace_id": workspace_id,
+                    "workspace_id": workspace_pk,
                     "category_type": category_type,
                     "results": results,
                     "action": "category_sync_success",
@@ -1356,7 +1373,7 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 "Category synchronization failed",
                 extra={
                     "user_id": request.user.id,
-                    "workspace_id": workspace_id,
+                    "workspace_id": workspace_pk,
                     "category_type": category_type,
                     "error": str(e),
                     "action": "category_sync_failed",
@@ -1721,10 +1738,10 @@ class TagViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
         Returns tags scoped to the current workspace from the request context.
         """
         workspace = getattr(self.request, "workspace", None)
-        if not workspace:
-            # This should be caught by permission classes, but as a safeguard:
-            logger.warning("Tag queryset requested without a workspace context.")
-            return Tags.objects.none()
+        # if not workspace:
+        #     # This should be caught by permission classes, but as a safeguard:
+        #     logger.warning("Tag queryset requested without a workspace context.")
+        #     return Tags.objects.none()
 
         return Tags.objects.filter(workspace=workspace)
 
@@ -1732,18 +1749,9 @@ class TagViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
         """
         Delegates tag creation to the TagService to handle `get_or_create` logic.
         """
-        workspace = self.request.workspace
-        tag_name = serializer.validated_data["name"]
-
-        # The service handles finding or creating the tag.
-        tag = self.handle_service_call(
-            self.tag_service.get_or_create_tags,
-            workspace=workspace,
-            tag_names=[tag_name],
-        )[0]
-
-        # We need to set the instance on the serializer to return the correct data
-        serializer.instance = tag
+        # The serializer now handles the creation logic, including finding
+        # or creating the tag via the service.
+        serializer.save()
 
     def perform_update(self, serializer):
         """
@@ -1894,12 +1902,20 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
             },
         )
 
-        # Optimized filtering using cached workspace IDs
-        if self.request.is_admin_impersonation and hasattr(
-            self.request, "impersonation_workspace_ids"
-        ):
+        workspace_pk = self.kwargs.get("workspace_pk")
+        if not workspace_pk:
+            logger.warning("TransactionDraft queryset requested without workspace context.")
+            return TransactionDraft.objects.none()
 
-            workspace_ids = self.request.impersonation_workspace_ids
+        # Filter by workspace from URL and user from request context
+        queryset = TransactionDraft.objects.filter(
+            user=target_user, workspace_id=workspace_pk
+        )
+
+        # Impersonation check is implicitly handled by IsWorkspaceMember permission
+        if self.request.is_admin_impersonation:
+            # Ensure the admin has access to this specific workspace for the target user
+            workspace_ids = self.request.impersonation_workspace_ids or []
             queryset = TransactionDraft.objects.filter(
                 user=target_user, workspace_id__in=workspace_ids
             )
@@ -1910,50 +1926,29 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
 
         return queryset.select_related("workspace", "user")
 
-    @action(detail=False, methods=["post"])
-    def save_draft(self, request, workspace_pk=None):
+    def perform_create(self, serializer):
         """
-        THIN save draft - delegates to DraftService.
+        Handles POST request to create/update a draft for a workspace.
+        Delegates logic to the DraftService.
         """
-        target_user = request.target_user
+        workspace_pk = self.kwargs.get("workspace_pk")
+        target_user = self.request.target_user
 
-        logger.info(
-            "Draft save delegated to service",
-            extra={
-                "user_id": request.user.id,
-                "workspace_id": workspace_pk,
-                "action": "draft_save_delegated",
-                "component": "TransactionDraftViewSet",
-            },
-        )
-
-        # Validate workspace access
-        if not self._has_workspace_access(workspace_pk, request):
-            raise PermissionDenied("You don't have access to this workspace")
-
-        # Delegate to service
-        draft = self.handle_service_call(
-            self.draft_service.save_draft,
-            user=target_user,
-            workspace_id=workspace_pk,
-            draft_type=request.data.get("draft_type"),
-            transactions_data=request.data.get("transactions_data", []),
-        )
-
-        response_data = TransactionDraftSerializer(draft).data
-        return self._add_impersonation_context(Response(response_data), request)
+        # Delegate to service via serializer's save method
+        serializer.save(user=target_user, workspace_id=workspace_pk)
 
     @action(detail=False, methods=["get"])
     def get_workspace_draft(self, request, workspace_pk=None):
         """
-        THIN get draft - delegates to DraftService.
+        THIN get draft - delegates to DraftService. This is a custom action
+        that might be useful for UIs that need to fetch a draft by type.
         """
         target_user = request.target_user
 
         logger.debug(
             "Workspace draft retrieval delegated to service",
             extra={
-                "user_id": request.user.id,
+                "user_id": request.user.id, 
                 "workspace_id": workspace_pk,
                 "draft_type": request.query_params.get("type"),
                 "action": "workspace_draft_retrieval",
@@ -2005,44 +2000,16 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
 
         return response
     
-    @action(detail=True, methods=['delete'])
-    def discard(self, request, pk=None):
+    def perform_destroy(self, instance):
         """
-        THIN discard draft - delegates to DraftService.
+        Handles DELETE request to discard a draft.
+        Delegates logic to the DraftService.
         """
-        target_user = request.target_user
+        target_user = self.request.target_user
 
-        logger.info(
-            "Draft discard delegated to service",
-            extra={
-                "user_id": request.user.id,
-                "draft_id": pk,
-                "action": "draft_discard_delegated",
-                "component": "TransactionDraftViewSet",
-            },
+        self.handle_service_call(
+            self.draft_service.discard_draft,
+            user=target_user,
+            workspace_id=instance.workspace.id,
+            draft_type=instance.draft_type,
         )
-
-        try:
-            draft = self.get_object()
-            
-            # Delegate to service
-            discarded = self.handle_service_call(
-                self.draft_service.discard_draft,
-                user=target_user,
-                workspace_id=draft.workspace.id,
-                draft_type=draft.draft_type,
-            )
-
-            if discarded:
-                return Response(status=status.HTTP_204_NO_CONTENT)
-            else:
-                return Response(
-                    {"error": "Draft not found or already discarded"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-
-        except TransactionDraft.DoesNotExist:
-            return Response(
-                {"error": "Draft not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )

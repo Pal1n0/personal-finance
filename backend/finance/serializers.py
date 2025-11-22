@@ -737,17 +737,27 @@ class TransactionSerializer(
     def update(self, instance, validated_data):
         """
         Update a transaction and handle tag assignment via TagService.
+        This method ensures that the transaction's tags are synchronized
+        with the provided list of tag names. If `tags` is provided in the
+        request (even as an empty list), it will replace all existing tags.
         """
-        # Handle tags separately if they are in the update data
+        # Pop tags from validated_data if present. We handle it separately.
+        # The `in` check is crucial. If 'tags' is not in the request, we don't touch them.
         if "tags" in validated_data:
             tag_names = validated_data.pop("tags")
-            self.handle_service_call(
-                self.tag_service.assign_tags_to_transaction,
-                transaction_instance=instance,
+
+            # Use the service to get or create the tag objects.
+            # This ensures tags are properly managed within the workspace.
+            tags_qs = self.handle_service_call(
+                self.tag_service.get_or_create_tags,
+                workspace=instance.workspace,
                 tag_names=tag_names,
             )
+            # Atomically set the tags for the transaction.
+            # .set() handles adding, removing, and keeping existing tags.
+            instance.tags.set(tags_qs)
 
-        # Perform the rest of the update
+        # Perform the rest of the update on other fields.
         transaction = super().update(instance, validated_data)
 
         return transaction
@@ -767,7 +777,11 @@ class TagSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tags
         fields = ["id", "name", "workspace"]
-        read_only_fields = ["id", "workspace"]
+        read_only_fields = ["id"]
+        extra_kwargs = {
+            # Workspace is required but should not be provided by the user directly.
+            'workspace': {'required': False}
+        }
 
     def validate_name(self, value):
         """
@@ -781,6 +795,20 @@ class TagSerializer(serializers.ModelSerializer):
 
         # The model's save method will handle lowercasing
         return stripped_value
+
+    def create(self, validated_data):
+        """
+        Handle creation of a tag, ensuring it's scoped to the workspace
+        from the request context. This implements get_or_create logic.
+        """
+        workspace = self.context['request'].workspace
+        tag_name = validated_data['name']
+
+        # Use TagService for get_or_create logic
+        tag_service = TagService()
+        tag = tag_service.get_or_create_tags(workspace=workspace, tag_names=[tag_name])[0]
+
+        return tag
 
 
 # -------------------------------------------------------------------

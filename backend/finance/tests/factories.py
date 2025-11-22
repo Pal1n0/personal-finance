@@ -21,16 +21,6 @@ from finance.models import (ExchangeRate, ExpenseCategory,
 fake = Faker()
 User = get_user_model()
 
-
-class TagFactory(DjangoModelFactory):
-    class Meta:
-        model = Tags
-
-    workspace = factory.SubFactory(WorkspaceFactory)
-    name = factory.Sequence(lambda n: f"tag-{n}")
-
-
-
 class UserFactory(DjangoModelFactory):
     class Meta:
         model = User
@@ -129,6 +119,15 @@ class WorkspaceAdminFactory(DjangoModelFactory):
     can_manage_users = True
     can_manage_categories = True
     can_manage_settings = True
+
+class TagFactory(DjangoModelFactory):
+    class Meta:
+        model = Tags
+
+    workspace = factory.SubFactory(WorkspaceFactory)
+    name = factory.Sequence(lambda n: f"tag-{n}")
+
+
 
 
 class ExpenseCategoryVersionFactory(DjangoModelFactory):

@@ -57,7 +57,6 @@ INCOME_CATEGORY_DETAIL = "incomecategory-detail"
 EXCHANGE_RATE_LIST = "exchange-rate-list"
 EXCHANGE_RATE_DETAIL = "exchange-rate-detail"
 TRANSACTION_DRAFT_LIST = "transactiondraft-list"
-TRANSACTION_DRAFT_DETAIL = "transactiondraft-detail"
 
 # Custom action endpoints
 WORKSPACE_MEMBERS = "workspace-members"
@@ -67,10 +66,6 @@ WORKSPACE_ACTIVATE = "workspace-activate"
 WORKSPACE_MEMBERSHIP_INFO = "workspace-membership-info"
 TRANSACTION_BULK_DELETE = "transaction-bulk-delete"
 BULK_SYNC_TRANSACTIONS = "bulk-sync-transactions"
-SYNC_CATEGORIES = "category-sync-sync-categories"
-TRANSACTION_DRAFT_SAVE = "transaction-draft-save"
-TRANSACTION_DRAFT_GET_WORKSPACE = "transaction-draft-get-workspace"
-TRANSACTION_DRAFT_DISCARD = "transaction-draft-discard"
 
 def mock_get_exchange_rates_for_range(currencies, date_from, date_to):
     """Mock exchange rates for testing."""
@@ -107,126 +102,8 @@ class BaseAPITestCase(APITestCase):
         settings.ACCOUNT_EMAIL_VERIFICATION = "none"
         settings.ACCOUNT_EMAIL_REQUIRED = False
 
-        # Create test users
-        cls._create_test_users()
-
-        # Create workspace structure
-        cls._create_workspace_structure()
-
-        # Create categories
-        cls._create_categories()
-
         # Create STATIC test data
         cls._create_static_test_data()
-
-    def setUp(self):
-        super().setUp()
-            
-        self._create_dynamic_test_data()
-
-    @classmethod
-    def _create_test_users(cls):
-        """Create test users with CORRECT roles for your architecture."""
-        
-        # 1. SUPERUSER - globálny admin (môže všetko)
-        cls.superuser = UserFactory(
-            username="superuser", 
-            email="superuser@example.com",
-            is_superuser=True, 
-            is_staff=True
-        )
-        
-        # 2. WORKSPACE ADMIN - admin konkrétnych workspaces (NIE superuser!)
-        cls.workspace_admin_user = UserFactory(
-            username="workspace_admin", 
-            email="workspace_admin@example.com",
-            is_superuser=False, 
-            is_staff=False
-        )
-        
-        # 3. REGULAR USERS - normálni používatelia
-        cls.user = UserFactory(
-            username="regular_user", 
-            email="user@example.com",
-            is_superuser=False, 
-            is_staff=False
-        )
-        
-        cls.other_user = UserFactory(
-            username="other_user", 
-            email="other@example.com", 
-            is_superuser=False, 
-            is_staff=False
-        )
-        
-        # 🔥 DÔLEŽITÉ: Nastav správne heslá
-        users = [cls.superuser, cls.workspace_admin_user, cls.user, cls.other_user]
-        for user in users:
-            user.set_password("testpass123")
-            user.save()
-        
-        cls._ensure_verified_emails(users)
-
-    @classmethod
-    def _create_workspace_structure(cls):
-        """Create workspace and membership structure."""
-        cls.workspace = WorkspaceFactory(owner=cls.user)
-
-        # Create memberships
-        cls.viewer_membership = WorkspaceMembershipFactory(
-            workspace=cls.workspace, user=cls.other_user, role="viewer"
-        )
-        
-        cls.editor_membership = WorkspaceMembershipFactory(
-            workspace=cls.workspace, user=cls.workspace_admin_user, role="editor"  
-        )
-
-        # workspace_admin_user je adminom workspace (NIE superuser!)
-        cls.workspace_admin_assignment = WorkspaceAdminFactory(
-            user=cls.workspace_admin_user,           # workspace admin user
-            workspace=cls.workspace,            # v tomto workspace
-            assigned_by=cls.superuser,               # assigned by superuser
-            is_active=True
-        )
-
-        cls.workspace_settings = WorkspaceSettingsFactory(workspace=cls.workspace)
-
-    @classmethod
-    def _create_categories(cls):
-        """Create category structure."""
-        cls.expense_version = ExpenseCategoryVersionFactory(
-            workspace=cls.workspace, created_by=cls.user
-        )
-
-        cls.income_version = IncomeCategoryVersionFactory(
-            workspace=cls.workspace, created_by=cls.user
-        )
-
-        cls.expense_category = ExpenseCategoryFactory(
-            version=cls.expense_version, name="Test Expense Category", level=1
-        )
-
-        cls.income_category = IncomeCategoryFactory(
-            version=cls.income_version, name="Test Income Category", level=1
-        )
-
-        cls.child_expense_category = ExpenseCategoryFactory(
-            version=cls.expense_version, name="Child Expense Category", level=2
-        )
-
-        cls.child_income_category = IncomeCategoryFactory(
-            version=cls.income_version, name="Child Income Category", level=2
-        )
-
-        # Create parent-child relationships
-        cls.expense_category.children.add(cls.child_expense_category)
-        cls.income_category.children.add(cls.child_income_category)
-
-    @classmethod
-    def _create_static_test_data(cls):
-        """Create STATIC test data that doesn't change between tests."""
-        cls._create_test_exchange_rates()
-        # Transactions and drafts are created in setUp() because they're often modified
 
     @classmethod
     def _ensure_verified_emails(cls, users):
@@ -247,12 +124,19 @@ class BaseAPITestCase(APITestCase):
                 email_address.save()
 
     @classmethod
+    def _create_static_test_data(cls):
+        """Create truly STATIC data once per class run. This should only contain data
+        that is NOT modified by any test, like exchange rates."""
+        cls._create_test_exchange_rates()
+
+    @classmethod
     def _create_test_exchange_rates(cls):
         """Create test exchange rates."""
         ExchangeRate.objects.all().delete()
 
         today = date.today()
-        dates = [today - timedelta(days=i) for i in range(10)]
+        # Widen the range to cover all possible transaction dates from factories.
+        dates = [today - timedelta(days=i) for i in range(35)]
 
         currencies = [
             ("USD", Decimal("1.1")),
@@ -264,22 +148,129 @@ class BaseAPITestCase(APITestCase):
 
         for currency, rate in currencies:
             for i, rate_date in enumerate(dates):
-                ExchangeRateFactory(currency=currency, rate_to_eur=rate, date=rate_date)
+                # Use update_or_create to be safe and avoid race conditions
+                ExchangeRate.objects.update_or_create(
+                    currency=currency,
+                    date=rate_date,
+                    defaults={"rate_to_eur": rate + Decimal(i * 0.001)},
+                )
 
     def setUp(self):
         """Set up DYNAMIC test data that might change between test methods."""
-        # Create DYNAMIC test data (transactions, drafts)
+        # Create fresh data for EACH test to ensure 100% isolation.
+        # Order is important.
+        self._create_test_users()
+        self._create_workspace_structure()
+        self._create_categories()
         self._create_dynamic_test_data()
 
         # Authenticate user
         self.client.force_authenticate(user=self.user)
 
-    def _create_dynamic_test_data(self):
+    def _create_test_users(self): # Now an instance method
+        """Create test users with CORRECT roles for your architecture."""
+        
+        # 1. SUPERUSER - globálny admin (môže všetko)
+        self.superuser = UserFactory(
+            username="superuser", 
+            email="superuser@example.com",
+            is_superuser=True, 
+            is_staff=True
+        )
+        
+        # 2. WORKSPACE ADMIN - admin konkrétnych workspaces (NIE superuser!)
+        self.workspace_admin_user = UserFactory(
+            username="workspace_admin", 
+            email="workspace_admin@example.com",
+            is_superuser=False, 
+            is_staff=False
+        )
+        
+        # 3. REGULAR USERS - normálni používatelia
+        self.user = UserFactory(
+            username="regular_user", 
+            email="user@example.com",
+            is_superuser=False, 
+            is_staff=False
+        )
+        
+        self.other_user = UserFactory(
+            username="other_user", 
+            email="other@example.com", 
+            is_superuser=False, 
+            is_staff=False
+        )
+        
+        # 🔥 DÔLEŽITÉ: Nastav správne heslá
+        users = [self.superuser, self.workspace_admin_user, self.user, self.other_user]
+        for user in users:
+            user.set_password("testpass123")
+            user.save()
+        
+        self._ensure_verified_emails(users)
+
+    def _create_workspace_structure(self): # Now an instance method
+        """Create workspace and membership structure."""
+        self.workspace = WorkspaceFactory(owner=self.user)
+
+        # Create memberships
+        self.viewer_membership = WorkspaceMembershipFactory(
+            workspace=self.workspace, user=self.other_user, role="viewer"
+        )
+        
+        self.editor_membership = WorkspaceMembershipFactory(
+            workspace=self.workspace, user=self.workspace_admin_user, role="editor"  
+        )
+
+        # workspace_admin_user je adminom workspace (NIE superuser!)
+        self.workspace_admin_assignment = WorkspaceAdminFactory(
+            user=self.workspace_admin_user,           # workspace admin user
+            workspace=self.workspace,            # v tomto workspace
+            assigned_by=self.superuser,               # assigned by superuser
+            is_active=True
+        )
+
+        self.workspace_settings = WorkspaceSettingsFactory(workspace=self.workspace)
+
+    def _create_categories(self): # Now an instance method
+        """Create category structure."""
+        self.expense_version = ExpenseCategoryVersionFactory(
+            workspace=self.workspace, created_by=self.user
+        )
+
+        self.income_version = IncomeCategoryVersionFactory(
+            workspace=self.workspace, created_by=self.user
+        )
+
+        self.expense_category = ExpenseCategoryFactory(
+            version=self.expense_version, name="Test Expense Category", level=1
+        )
+
+        self.income_category = IncomeCategoryFactory(
+            version=self.income_version, name="Test Income Category", level=1
+        )
+
+        self.child_expense_category = ExpenseCategoryFactory(
+            version=self.expense_version, name="Child Expense Category", level=2
+        )
+
+        self.child_income_category = IncomeCategoryFactory(
+            version=self.income_version, name="Child Income Category", level=2
+        )
+
+        # Create parent-child relationships
+        self.expense_category.children.add(self.child_expense_category)
+        self.income_category.children.add(self.child_income_category)
+
+    def _create_dynamic_test_data(self): # Now an instance method
         """Create DYNAMIC test data that might be modified during tests."""
         self._create_test_transactions()
         self._create_test_drafts()
 
-    def _create_test_transactions(self):
+    # Note: The following methods are now instance methods (def) instead of class methods (@classmethod)
+    # because they are called from setUp, not setUpTestData.
+
+    def _create_test_transactions(self): # Now an instance method
         """Create test transactions."""
         # Clean up any existing transactions for this workspace
         Transaction.objects.filter(workspace=self.workspace).delete()
@@ -328,7 +319,7 @@ class BaseAPITestCase(APITestCase):
         self.expense_transaction = self.expense_transactions[0]
         self.income_transaction = self.income_transactions[0]
 
-    def _create_test_drafts(self):
+    def _create_test_drafts(self): # Now an instance method
         """Create test transaction drafts."""
         # Clean up any existing drafts for this workspace
         TransactionDraft.objects.filter(workspace=self.workspace).delete()
@@ -517,9 +508,10 @@ class WorkspaceAPITests(BaseAPITestCase):
         self.assertTrue(isinstance(members_data, (list, dict)))
 
         # Test workspace settings endpoint - OPRAVENÉ
-        url = reverse(WORKSPACE_SETTINGS_DETAIL, kwargs={"pk": self.workspace_settings.id})  # ← workspace_settings.id nie workspace.pk
+        # The URL now correctly uses the workspace's PK, not the settings' PK.
+        url = reverse("workspace-settings-detail", kwargs={"workspace_pk": self.workspace.pk})
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertIn("domestic_currency", response.data)
 
         # Test workspace membership info endpoint
@@ -539,7 +531,7 @@ class WorkspaceAPITests(BaseAPITestCase):
         self.workspace.refresh_from_db()
         self.assertTrue(self.workspace.is_active)
 
-class TagAPITests(BaseAPITestCase):
+class TagsAPITests(BaseAPITestCase):
     """
     Comprehensive tests for the Tag API endpoints.
     Ensures CRUD operations and permissions work as expected within a workspace.
@@ -630,7 +622,10 @@ class SuperuserImpersonationTests(BaseAPITestCase):
         self._authenticate_user(self.superuser)
         
         # Test transaction creation with impersonation
-        url = reverse(TRANSACTION_LIST) + f"?user_id={self.user.id}&workspace_id={self.workspace.id}"
+        # Use the new nested URL structure
+        url = reverse(
+            "workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk}
+        ) + f"?user_id={self.user.id}"
         data = {
             "workspace": self.workspace.id,
             "type": "expense", 
@@ -781,7 +776,11 @@ class TransactionAPITests(BaseAPITestCase):
 
     def test_update_transaction_comprehensive(self):
         """Comprehensive transaction update tests."""
-        # Valid update
+        # --- 1. Test valid update with tag replacement ---
+        # The factory gives the transaction some initial random tags.
+        initial_tag_count = self.expense_transaction.tags.count()
+        self.assertGreater(initial_tag_count, 0)
+
         data = {
             "original_amount": "175.25",
             "note_manual": "Updated transaction note",
@@ -789,13 +788,39 @@ class TransactionAPITests(BaseAPITestCase):
         }
         response = self.client.patch(self.detail_url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
         self.expense_transaction.refresh_from_db()
         self.assertEqual(self.expense_transaction.original_amount, Decimal("175.25"))
         self.assertEqual(
             self.expense_transaction.note_manual, "Updated transaction note"
         )
+        # Verify tags were replaced correctly.
+        updated_tags = set(self.expense_transaction.tags.values_list("name", flat=True))
+        self.assertEqual(updated_tags, {"updated", "test"})
 
-        # Test update with category change
+        # --- 2. Test clearing all tags with an empty list ---
+        data = {"tags": []}
+        response = self.client.patch(self.detail_url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.expense_transaction.refresh_from_db()
+        self.assertEqual(self.expense_transaction.tags.count(), 0)
+
+        # --- 3. Test that omitting the 'tags' key leaves them unchanged ---
+        # First, add a tag back
+        self.expense_transaction.tags.add(TagFactory(workspace=self.workspace, name="persistent-tag"))
+        self.assertEqual(self.expense_transaction.tags.count(), 1)
+
+        # Now, update another field without sending the 'tags' key
+        data = {"note_manual": "Final note update"}
+        response = self.client.patch(self.detail_url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.expense_transaction.refresh_from_db()
+        self.assertEqual(self.expense_transaction.tags.count(), 1)
+        self.assertEqual(self.expense_transaction.tags.first().name, "persistent-tag")
+
+        # --- 4. Test update with category change ---
         data = {"expense_category": self.child_expense_category.id}
         response = self.client.patch(self.detail_url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -803,7 +828,6 @@ class TransactionAPITests(BaseAPITestCase):
         self.assertEqual(
             self.expense_transaction.expense_category, self.child_expense_category
         )
-
     def test_delete_transaction_permissions(self):
         """Test transaction deletion with permission validation."""
         # Use the new nested URL
@@ -951,25 +975,23 @@ class CategoryAPITests(BaseAPITestCase):
 
     def test_category_sync_endpoint(self):
         """Test category synchronization endpoint."""
-        url = reverse("category-sync-list")
+        # Use the new nested URL for category sync
+        url = reverse(
+            "workspace-category-sync",
+            kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
+        )
 
         sync_data = [
             {
                 "name": "New Expense Category",
                 "level": 1,
                 "description": "Synced category",
-                "children": [
-                    {
-                        "name": "Child Category",
-                        "level": 2,
-                        "description": "Child of synced category",
-                    }
-                ],
+                "children": [],
             }
         ]
+        data = {"create": sync_data}
 
-        response = self.client.post(url, sync_data, format="json")
-        # Endpoint might require specific permissions or workspace context
+        response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_category_move_validation_used_category(self):
@@ -987,8 +1009,8 @@ class CategoryAPITests(BaseAPITestCase):
 
         # Try to move used category via sync endpoint
         url = reverse(
-            SYNC_CATEGORIES,
-            kwargs={"workspace_id": self.workspace.id, "category_type": "expense"},
+            "workspace-category-sync",
+            kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
         )
 
         sync_data = {
@@ -1017,8 +1039,8 @@ class CategoryAPITests(BaseAPITestCase):
 
         # Move unused category via sync endpoint
         url = reverse(
-            SYNC_CATEGORIES,
-            kwargs={"workspace_id": self.workspace.id, "category_type": "expense"},
+            "workspace-category-sync",
+            kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
         )
 
         sync_data = {
@@ -1057,8 +1079,8 @@ class CategoryAPITests(BaseAPITestCase):
 
         # Try to move via sync
         url = reverse(
-            SYNC_CATEGORIES,
-            kwargs={"workspace_id": self.workspace.id, "category_type": "expense"},
+            "workspace-category-sync",
+            kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
         )
 
         sync_data = {
@@ -1082,7 +1104,10 @@ class TransactionDraftAPITests(BaseAPITestCase):
 
     def setUp(self):
         super().setUp()
-        self.list_url = reverse(TRANSACTION_DRAFT_LIST)
+        # Use the new nested URL for drafts
+        self.list_url = reverse(
+            "workspace-transactiondraft-list", kwargs={"workspace_pk": self.workspace.pk}
+        )
 
     def test_list_drafts_comprehensive(self):
         """Comprehensive draft listing tests."""
@@ -1100,7 +1125,10 @@ class TransactionDraftAPITests(BaseAPITestCase):
 
     def test_retrieve_draft_detailed(self):
         """Test retrieving draft with full data."""
-        url = reverse(TRANSACTION_DRAFT_DETAIL, kwargs={"pk": self.expense_draft.pk})
+        url = reverse(
+            "workspace-transactiondraft-detail",
+            kwargs={"workspace_pk": self.workspace.pk, "pk": self.expense_draft.pk},
+        )
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1114,7 +1142,7 @@ class TransactionDraftAPITests(BaseAPITestCase):
         """Test draft creation with comprehensive validation."""
         # Valid expense draft
         data = {
-            "workspace": self.workspace.id,
+            # workspace is now taken from the URL
             "draft_type": "expense",
             "transactions_data": [
                 {
@@ -1132,7 +1160,7 @@ class TransactionDraftAPITests(BaseAPITestCase):
 
         # Valid income draft
         data = {
-            "workspace": self.workspace.id,
+            # workspace is now taken from the URL
             "draft_type": "income",
             "transactions_data": [
                 {
@@ -1149,7 +1177,7 @@ class TransactionDraftAPITests(BaseAPITestCase):
 
         # Invalid: Mixed transaction types in draft
         data = {
-            "workspace": self.workspace.id,
+            # workspace is now taken from the URL
             "draft_type": "expense",
             "transactions_data": [
                 {
@@ -1171,7 +1199,10 @@ class TransactionDraftAPITests(BaseAPITestCase):
 
     def test_update_draft_comprehensive(self):
         """Comprehensive draft update tests."""
-        url = reverse(TRANSACTION_DRAFT_DETAIL, kwargs={"pk": self.expense_draft.pk})
+        url = reverse(
+            "workspace-transactiondraft-detail",
+            kwargs={"workspace_pk": self.workspace.pk, "pk": self.expense_draft.pk},
+        )
 
         # Update draft data
         updated_data = {
@@ -1197,7 +1228,10 @@ class TransactionDraftAPITests(BaseAPITestCase):
 
     def test_delete_draft_permissions(self):
         """Test draft deletion with permission validation."""
-        url = reverse(TRANSACTION_DRAFT_DETAIL, kwargs={"pk": self.expense_draft.pk})
+        url = reverse(
+            "workspace-transactiondraft-detail",
+            kwargs={"workspace_pk": self.workspace.pk, "pk": self.expense_draft.pk},
+        )
 
         # Test delete as owner (should succeed)
         response = self.client.delete(url)
@@ -1213,11 +1247,11 @@ class TransactionDraftAPITests(BaseAPITestCase):
             draft_type="expense",
         )
         other_draft_url = reverse(
-            TRANSACTION_DRAFT_DETAIL, kwargs={"pk": other_user_draft.pk}
+            "workspace-transactiondraft-detail",
+            kwargs={"workspace_pk": self.workspace.pk, "pk": other_user_draft.pk},
         )
 
         # Test delete as different user (should fail)
-        response = self.client.delete(other_draft_url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_draft_category_move_scenario_exact(self):
@@ -1230,8 +1264,9 @@ class TransactionDraftAPITests(BaseAPITestCase):
             ).exists()
         )  # Ešte nepoužitá
 
+        # Use the new nested URL for creating a draft
         save_url = reverse(
-            "transaction-draft-save", kwargs={"workspace_pk": self.workspace.pk}
+            "workspace-transactiondraft-list", kwargs={"workspace_pk": self.workspace.pk}
         )
         draft_data = {
             "draft_type": "expense",
@@ -1248,7 +1283,7 @@ class TransactionDraftAPITests(BaseAPITestCase):
 
         # Ulož draft - MALO BY prejsť
         response = self.client.post(save_url, draft_data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # 2. ✅ Presuň kategóriu do vyššieho levelu (ešte stále nepoužitá v reálnej transakcii)
         self.child_expense_category.level = 1  # ❌ Už nie je spodný level!
@@ -1264,7 +1299,7 @@ class TransactionDraftAPITests(BaseAPITestCase):
         # 3. ✅ Skús znova uložiť draft - MALO BY ZLYHAŤ
         get_url = (
             reverse(
-                "transaction-draft-get-workspace",
+                "workspace-transactiondraft-list",
                 kwargs={"workspace_pk": self.workspace.pk},
             )
             + "?type=expense"
@@ -1272,9 +1307,11 @@ class TransactionDraftAPITests(BaseAPITestCase):
         draft_response = self.client.get(get_url)
 
         if draft_response.status_code == status.HTTP_200_OK:
+            # Get the first draft from the list
+            draft_to_save = self._get_response_data(draft_response)[0]
             # Skús uložiť existujúci draft - MALO BY ZLYHAŤ
             save_response = self.client.post(
-                save_url, draft_response.data, format="json"
+                save_url, draft_to_save, format="json"
             )
 
             # 🚨 TU JE KRITICKÁ VALIDÁCIA - draft by NEMAL prejsť!
@@ -1288,9 +1325,9 @@ class TransactionDraftAPITests(BaseAPITestCase):
 
     def test_draft_custom_endpoints(self):
         """Test all custom draft endpoints."""
-        # Test draft save endpoint
+        # Test draft save endpoint (now POST to list)
         save_url = reverse(
-            TRANSACTION_DRAFT_SAVE, kwargs={"workspace_pk": self.workspace.id}
+            "workspace-transactiondraft-list", kwargs={"workspace_pk": self.workspace.id}
         )
         draft_data = {
             "draft_type": "expense",
@@ -1305,26 +1342,26 @@ class TransactionDraftAPITests(BaseAPITestCase):
             ],
         }
         response = self.client.post(save_url, draft_data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        draft_id = response.data['id']
 
         # Test draft get workspace endpoint
         get_url = (
             reverse(
-                TRANSACTION_DRAFT_GET_WORKSPACE,
+                "transaction-draft-get-workspace",
                 kwargs={"workspace_pk": self.workspace.id},
             )
             + "?type=expense"
         )
         response = self.client.get(get_url)
-        # Should return either draft or empty response
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Test draft discard endpoint
+        # Test draft discard endpoint (now DELETE on detail)
         discard_url = reverse(
-            TRANSACTION_DRAFT_DISCARD, kwargs={"workspace_pk": self.workspace.id}
+            "workspace-transactiondraft-detail", kwargs={"workspace_pk": self.workspace.id, "pk": draft_id}
         )
-        response = self.client.post(discard_url, {"draft_type": "expense"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.delete(discard_url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
 
 class ExchangeRateAPITests(BaseAPITestCase):
@@ -1481,12 +1518,9 @@ class TransactionDraftUpdateTests(BaseAPITestCase):
     def test_update_draft_partial_data(self):
         """Test partial update of draft data."""
         # First get existing draft
-        get_url = (
-            reverse(
-                TRANSACTION_DRAFT_GET_WORKSPACE,
-                kwargs={"workspace_pk": self.workspace.id},
-            )
-            + "?type=expense"
+        get_url = reverse(
+            "workspace-transactiondraft-detail",
+            kwargs={"workspace_pk": self.workspace.pk, "pk": self.expense_draft.pk},
         )
         draft_response = self.client.get(get_url)
         
@@ -1496,12 +1530,12 @@ class TransactionDraftUpdateTests(BaseAPITestCase):
             if draft_data.get('transactions_data'):
                 draft_data['transactions_data'][0]['note_manual'] = "Partially updated"
                 
-            save_url = reverse(
-                TRANSACTION_DRAFT_SAVE, 
-                kwargs={"workspace_pk": self.workspace.id}
+            update_url = reverse(
+                "workspace-transactiondraft-detail",
+                kwargs={"workspace_pk": self.workspace.pk, "pk": self.expense_draft.pk},
             )
-            response = self.client.post(save_url, draft_data, format="json")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response = self.client.patch(update_url, {"transactions_data": draft_data['transactions_data']}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
 
 
 class CategoryCRUDTests(BaseAPITestCase):
@@ -1509,7 +1543,10 @@ class CategoryCRUDTests(BaseAPITestCase):
     
     def test_create_category(self):
         """Test creating new category."""
-        url = reverse("category-sync-list")
+        url = reverse(
+            "workspace-category-sync",
+            kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
+        )
         
         category_data = {
             "name": "New Test Category",
@@ -1518,14 +1555,14 @@ class CategoryCRUDTests(BaseAPITestCase):
             "children": []
         }
         
-        response = self.client.post(url, [category_data], format="json")
+        response = self.client.post(url, {"create": [category_data]}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
     def test_update_category(self):
         """Test updating category details."""
         url = reverse(
-            SYNC_CATEGORIES,
-            kwargs={"workspace_id": self.workspace.id, "category_type": "expense"},
+            "workspace-category-sync",
+            kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
         )
         
         update_data = {
@@ -1545,8 +1582,8 @@ class CategoryCRUDTests(BaseAPITestCase):
     def test_move_category_hierarchy(self):
         """Test moving category in hierarchy."""
         url = reverse(
-            SYNC_CATEGORIES,
-            kwargs={"workspace_id": self.workspace.id, "category_type": "expense"},
+            "workspace-category-sync",
+            kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
         )
         
         # Move child category to be root
@@ -1593,6 +1630,7 @@ class UserSettingsAPITests(BaseAPITestCase):
         # Verify settings were updated
         user_settings = UserSettings.objects.get(user=self.user)
         self.assertEqual(user_settings.preferred_currency, "USD")
+        self.assertEqual(user_settings.language, "sk")
 
 
 class WorkspaceSettingsAPITests(BaseAPITestCase):
@@ -1643,8 +1681,8 @@ class CategoryUsageTests(BaseAPITestCase):
         
         # Try to delete used category via sync endpoint
         url = reverse(
-            SYNC_CATEGORIES,
-            kwargs={"workspace_id": self.workspace.id, "category_type": "expense"},
+            "workspace-category-sync",
+            kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
         )
         
         delete_data = {
@@ -1665,8 +1703,8 @@ class CategoryUsageTests(BaseAPITestCase):
         
         # Delete unused category via sync endpoint
         url = reverse(
-            SYNC_CATEGORIES,
-            kwargs={"workspace_id": self.workspace.id, "category_type": "expense"},
+            "workspace-category-sync",
+            kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
         )
         
         delete_data = {
@@ -1724,6 +1762,8 @@ class WorkspaceAdminManagementTests(BaseAPITestCase):
         
         new_admin = UserFactory()
         url = reverse("workspace-assign-admin")
+        # The action is on the viewset, so we use the basename and the action name.
+        url = reverse("workspaceadmin-assign-admin", kwargs={"workspace_pk": self.workspace.id})
         assign_data = {
             "user_id": new_admin.id,
             "workspace_id": self.workspace.id
@@ -1760,7 +1800,7 @@ class WorkspaceOwnershipTests(BaseAPITestCase):
     def test_transfer_workspace_ownership(self):
         """Test transferring workspace ownership to another user."""
         # Only owner can transfer ownership
-        transfer_url = reverse("workspace-transfer-ownership", kwargs={"pk": self.workspace.pk})
+        transfer_url = reverse("workspace-change-owner", kwargs={"pk": self.workspace.pk})
         transfer_data = {
             "new_owner_id": self.workspace_admin_user.id
         }
@@ -1791,6 +1831,7 @@ class MemberRoleManagementTests(BaseAPITestCase):
         self._authenticate_user(self.workspace_admin_user)
         
         url = reverse("workspace-members", kwargs={"pk": self.workspace.pk})
+        url = reverse("workspace-update-member-role", kwargs={"pk": self.workspace.pk})
         promote_data = {
             "user_id": self.other_user.id,
             "role": "editor"
@@ -1841,10 +1882,13 @@ class IntegrationSecurityTests(BaseAPITestCase):
         self._authenticate_user(self.other_user)
         
         # Can read but not write
-        response = self.client.get(reverse(TRANSACTION_LIST))
+        list_url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
+        response = self.client.get(list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
-        response = self.client.post(reverse(TRANSACTION_LIST), {}, format="json")
+        # Viewer cannot create a transaction
+        create_url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
+        response = self.client.post(create_url, {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         
     def test_data_isolation_between_workspaces(self):
@@ -1853,7 +1897,8 @@ class IntegrationSecurityTests(BaseAPITestCase):
         other_workspace = WorkspaceFactory(owner=self.other_user)
         
         # Current user should not see other user's workspace data
-        response = self.client.get(reverse(TRANSACTION_LIST))
+        list_url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
+        response = self.client.get(list_url)
         transactions_data = self._get_response_data(response)
         
         # No transactions should belong to other user's workspace
@@ -1955,8 +2000,11 @@ class EdgeCaseTests(BaseAPITestCase):
     
     def test_nonexistent_resource_access(self):
         """Test accessing nonexistent resources."""
-        # Nonexistent transaction
-        url = reverse(TRANSACTION_DETAIL, kwargs={"pk": 99999})
+        # Nonexistent transaction - using the correct nested URL
+        url = reverse(
+            "workspace-transaction-detail",
+            kwargs={"workspace_pk": self.workspace.pk, "pk": 99999},
+        )
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         
@@ -1968,7 +2016,7 @@ class EdgeCaseTests(BaseAPITestCase):
     def test_malformed_request_data(self):
         """Test handling of malformed request data."""
         # Malformed JSON
-        url = reverse(TRANSACTION_LIST)
+        url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
         response = self.client.post(
             url, 
             '{"malformed": json}', 
@@ -1978,17 +2026,16 @@ class EdgeCaseTests(BaseAPITestCase):
         
     def test_large_amount_handling(self):
         """Test handling of very large amounts."""
-        data = {
-            "workspace": self.workspace.id,
+        data = { # workspace is taken from URL
             "type": "expense",
             "expense_category": self.expense_category.id,
             "original_amount": "999999999.99",
             "original_currency": "EUR", 
             "date": "2024-01-15",
         }
-        response = self.client.post(reverse(TRANSACTION_LIST), data, format="json")
+        create_url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
+        response = self.client.post(create_url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
 
 class PerformanceTests(BaseAPITestCase):
     """Performance-related tests."""
@@ -2007,7 +2054,8 @@ class PerformanceTests(BaseAPITestCase):
         # Test listing performance
         import time
         start_time = time.time()
-        response = self.client.get(reverse(TRANSACTION_LIST))
+        list_url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
+        response = self.client.get(list_url)
         end_time = time.time()
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -2029,9 +2077,9 @@ class IntegrationTests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
         # 2. User creates a draft transaction
-        draft_url = reverse(
-            TRANSACTION_DRAFT_SAVE, 
-            kwargs={"workspace_pk": self.workspace.id}
+        draft_list_url = reverse(
+            "workspace-transactiondraft-list",
+            kwargs={"workspace_pk": self.workspace.pk},
         )
         draft_data = {
             "draft_type": "expense",
@@ -2045,23 +2093,24 @@ class IntegrationTests(BaseAPITestCase):
                 }
             ]
         }
-        response = self.client.post(draft_url, draft_data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.post(draft_list_url, draft_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         
         # 3. User converts draft to actual transaction
-        transaction_data = {
-            "workspace": self.workspace.id,
+        transaction_data = { # workspace is from URL
             "type": "expense",
             "expense_category": self.expense_category.id,
             "original_amount": "150.00",
             "original_currency": "EUR", 
             "date": "2024-01-15",
         }
-        response = self.client.post(reverse(TRANSACTION_LIST), transaction_data, format="json")
+        create_url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
+        response = self.client.post(create_url, transaction_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         
         # 4. User views their transactions
-        response = self.client.get(reverse(TRANSACTION_LIST))
+        list_url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
+        response = self.client.get(list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         transactions = self._get_response_data(response)
         self.assertGreaterEqual(len(transactions), 1)
@@ -2069,6 +2118,9 @@ class IntegrationTests(BaseAPITestCase):
         # 5. User updates their settings
         settings_url = reverse(USER_SETTINGS_DETAIL, kwargs={"pk": self.user.id})
         settings_data = {"preferred_currency": "USD"}
+        user_settings = UserSettings.objects.get(user=self.user)
+        settings_url = reverse(USER_SETTINGS_DETAIL, kwargs={"pk": user_settings.pk})
+        settings_data = {"language": "en"}
         response = self.client.patch(settings_url, settings_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2078,41 +2130,41 @@ class ErrorHandlingTests(BaseAPITestCase):
     
     def test_invalid_currency_handling(self):
         """Test handling of invalid currencies."""
-        data = {
-            "workspace": self.workspace.id,
+        data = { # workspace is from URL
             "type": "expense",
             "expense_category": self.expense_category.id,
             "original_amount": "100.00",
             "original_currency": "INVALID",  # Invalid currency code
             "date": "2024-01-15",
         }
-        response = self.client.post(reverse(TRANSACTION_LIST), data, format="json")
+        create_url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
+        response = self.client.post(create_url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         
     def test_invalid_date_handling(self):
         """Test handling of invalid dates."""
-        data = {
-            "workspace": self.workspace.id,
+        data = { # workspace is from URL
             "type": "expense", 
             "expense_category": self.expense_category.id,
             "original_amount": "100.00",
             "original_currency": "EUR",
             "date": "invalid-date",  # Invalid date format
         }
-        response = self.client.post(reverse(TRANSACTION_LIST), data, format="json")
+        create_url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
+        response = self.client.post(create_url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         
     def test_foreign_key_violation(self):
         """Test handling of invalid foreign keys."""
-        data = {
-            "workspace": 99999,  # Nonexistent workspace
+        data = { # workspace is from URL, but we test with a bad category
+            "expense_category": 99999, # Nonexistent category
             "type": "expense",
-            "expense_category": self.expense_category.id, 
             "original_amount": "100.00",
             "original_currency": "EUR",
             "date": "2024-01-15",
         }
-        response = self.client.post(reverse(TRANSACTION_LIST), data, format="json")
+        create_url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
+        response = self.client.post(create_url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
@@ -2131,7 +2183,7 @@ class SecurityTests(BaseAPITestCase):
         # Current user tries to access other user's workspace
         url = reverse(WORKSPACE_DETAIL, kwargs={"pk": other_workspace.id})
         response = self.client.get(url)
-        # Should not be able to access
+        # Should not be able to access - 404 is correct as it shouldn't leak existence
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 class AuthenticationTests(BaseAPITestCase):
@@ -2144,7 +2196,8 @@ class AuthenticationTests(BaseAPITestCase):
         response = self.client.get(reverse(WORKSPACE_LIST))
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         
-        response = self.client.get(reverse(TRANSACTION_LIST))
+        list_url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
+        response = self.client.get(list_url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         
     def test_token_authentication(self):
@@ -2193,7 +2246,7 @@ def run_integration_tests():
 
     # 🔥 DOPLNENÉ CHÝBAJÚCE TESTY Z PÔVODNÉHO SÚBORU
     suite.addTests(loader.loadTestsFromTestCase(CategoryUsageTests))
-    suite.addTests(loader.loadTestsFromTestCase(TagAPITests))
+    suite.addTests(loader.loadTestsFromTestCase(TagsAPITests))
     suite.addTests(loader.loadTestsFromTestCase(AdminImpersonationAdvancedTests))
     suite.addTests(loader.loadTestsFromTestCase(WorkspaceAdminManagementTests))
     suite.addTests(loader.loadTestsFromTestCase(WorkspaceOwnershipTests))
@@ -2220,5 +2273,4 @@ if __name__ == "__main__":
         print(f"Failures: {len(result.failures)}")
     if result.errors:
         print(f"Errors: {len(result.errors)}")
-    print("=" * 70)
             
