@@ -263,10 +263,14 @@ class TransactionFactory(DjangoModelFactory):
         if not create:
             return
 
-        if self.type == "expense":
-            self.expense_category = ExpenseCategoryFactory(version__workspace=self.workspace)
-        else:
-            self.income_category = IncomeCategoryFactory(version__workspace=self.workspace)
+        if self.type == "expense" and not self.expense_category:
+            self.expense_category = ExpenseCategoryFactory(
+                version__workspace=self.workspace
+            )
+        elif self.type == "income" and not self.income_category:
+            self.income_category = IncomeCategoryFactory(
+                version__workspace=self.workspace
+            )
 
         self.save()
 

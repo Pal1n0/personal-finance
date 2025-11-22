@@ -8,7 +8,7 @@ import logging
 
 from django.db import DatabaseError
 
-from ..models import Workspace
+from ..models import Workspace, ExpenseCategory, IncomeCategory
 from .impersonation_service import ImpersonationService
 from .membership_cache_service import MembershipCacheService
 
@@ -89,6 +89,8 @@ class WorkspaceContextService:
         request.impersonation_type = None
         request.impersonation_workspace_ids = []
         request.workspace = None
+        request._cached_expense_categories = ExpenseCategory.objects.none()
+        request._cached_income_categories = IncomeCategory.objects.none()
 
         request.user_permissions = {
             "is_superuser": False,
@@ -195,17 +197,17 @@ class WorkspaceContextService:
             return None
 
         return (
-            view_kwargs.get("pk")
-            or view_kwargs.get("workspace_pk")
+            view_kwargs.get("workspace_pk")
             or view_kwargs.get("workspace_id")
+            or view_kwargs.get("pk")
         )
 
     def _extract_from_request_kwargs(self, request):
         """Extract workspace ID from request kwargs (URL parameters)."""
         return (
-            getattr(request, "kwargs", {}).get("pk")
-            or getattr(request, "kwargs", {}).get("workspace_pk")
+            getattr(request, "kwargs", {}).get("workspace_pk")
             or getattr(request, "kwargs", {}).get("workspace_id")
+            or getattr(request, "kwargs", {}).get("pk")
         )
 
     def _validate_workspace_existence(self, request, workspace_id):
@@ -377,6 +379,14 @@ class WorkspaceContextService:
                     request.user.id, workspace_id
                 )
             )
+
+            if request.workspace:
+                request._cached_expense_categories = ExpenseCategory.objects.filter(
+                    version__workspace=request.workspace, version__is_active=True
+                ).select_related("version")
+                request._cached_income_categories = IncomeCategory.objects.filter(
+                    version__workspace=request.workspace, version__is_active=True
+                ).select_related("version")
 
             logger.debug(
                 "Workspace access permissions validated and set",

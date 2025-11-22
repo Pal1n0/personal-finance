@@ -14,6 +14,8 @@ from django.db import models, transaction
 from django.utils import timezone
 
 
+
+
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
 
@@ -86,6 +88,7 @@ class Workspace(models.Model):
     members = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through="WorkspaceMembership",
+        through_fields=("workspace", "user"),
         related_name="workspaces",
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -332,8 +335,7 @@ class Workspace(models.Model):
                 workspace=self, 
                 user=self.owner, 
                 defaults={"role": "owner"}
-            )
-            
+            )            
             logger.debug(
                 "Owner synchronized to membership",
                 extra={
@@ -388,14 +390,15 @@ class Workspace(models.Model):
         """
         # Get all data from membership in one query
         memberships = WorkspaceMembership.objects.filter(workspace=self).select_related(
-            "user"
+            "user" 
         )
 
         users_data = []
         for membership in memberships:
             users_data.append(
                 {
-                    "user": membership.user,
+                    "user_id": membership.user.id,
+                    "username": membership.user.username,
                     "role": membership.role,
                     "is_owner": membership.role == "owner",
                     "is_admin": WorkspaceAdmin.objects.filter(
@@ -679,6 +682,44 @@ class WorkspaceSettings(models.Model):
 # Hierarchical expense category system with version control
 
 
+class CategoryDescendantsMixin:
+    """
+    A mixin for category models to provide a method for getting all descendants.
+    """
+
+    def get_descendants(self, include_self=False):
+        """
+        Retrieves all descendant categories for a given category instance
+        using a breadth-first search (BFS) approach.
+
+        This method traverses the category tree downwards from the current
+        category, collecting all children, grandchildren, and so on.
+
+        Args:
+            include_self (bool): If True, the instance category will be included
+                                 in the result set. Defaults to False.
+
+        Returns:
+            set: A set of category instances representing the full descendant tree.
+                 Returns an empty set if the category has no children.
+        """
+        descendants = set()
+        if include_self:
+            descendants.add(self)
+
+        # A deque is used for an efficient queue implementation (BFS)
+        queue = collections.deque(self.children.all())
+
+        while queue:
+            child = queue.popleft()
+            if child not in descendants:
+                descendants.add(child)
+                # Add the children of the current child to the queue for further processing
+                queue.extend(child.children.all())
+
+        return descendants
+
+
 class ExpenseCategoryVersion(models.Model):
     """
     Version control for expense category hierarchies.
@@ -720,7 +761,7 @@ class ExpenseCategoryVersion(models.Model):
         )
 
 
-class ExpenseCategory(models.Model):
+class ExpenseCategory(CategoryDescendantsMixin, models.Model):
     """
     Hierarchical expense category structure.
 
@@ -1071,7 +1112,7 @@ class IncomeCategoryVersion(models.Model):
         )
 
 
-class IncomeCategory(models.Model):
+class IncomeCategory(CategoryDescendantsMixin, models.Model):
     """
     Hierarchical income category structure.
 

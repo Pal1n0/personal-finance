@@ -45,7 +45,7 @@ fake = Faker()
 WORKSPACE_LIST = "workspace-list"
 WORKSPACE_DETAIL = "workspace-detail"
 WORKSPACE_SETTINGS_LIST = "workspacesettings-list"
-WORKSPACE_SETTINGS_DETAIL = "workspacesettings-detail"
+WORKSPACE_SETTINGS_DETAIL = "workspace-settings-detail"
 USER_SETTINGS_LIST = "user-settings-list"
 USER_SETTINGS_DETAIL = "user-settings-detail"
 TRANSACTION_LIST = "transaction-list"
@@ -275,6 +275,11 @@ class BaseAPITestCase(APITestCase):
         # Clean up any existing transactions for this workspace
         Transaction.objects.filter(workspace=self.workspace).delete()
 
+        # Create tags that are correctly associated with the workspace first.
+        # This prevents the factory from creating orphaned tags.
+        food_tag, _ = Tags.objects.get_or_create(workspace=self.workspace, name="food")
+        travel_tag, _ = Tags.objects.get_or_create(workspace=self.workspace, name="travel")
+
         # Create expense transactions
         self.expense_transactions = TransactionFactory.create_batch(
             3,
@@ -283,7 +288,11 @@ class BaseAPITestCase(APITestCase):
             type="expense",
             expense_category=self.expense_category,
             original_currency="EUR",
+            tags=[]  # CRITICAL: Pass an empty list to prevent the factory from auto-generating tags.
         )
+        # Manually assign the tags after creation for full control.
+        for transaction in self.expense_transactions:
+            transaction.tags.add(food_tag, travel_tag)
 
         # Create income transactions
         self.income_transactions = TransactionFactory.create_batch(
@@ -293,7 +302,10 @@ class BaseAPITestCase(APITestCase):
             type="income",
             income_category=self.income_category,
             original_currency="USD",
+            tags=[] # CRITICAL: Prevent auto-generation
         )
+        for transaction in self.income_transactions:
+            transaction.tags.add(travel_tag)
 
         # Create multi-currency transactions
         self.multi_currency_transactions = [
@@ -539,9 +551,14 @@ class TagsAPITests(BaseAPITestCase):
 
     def setUp(self):
         super().setUp()
-        # Create some initial tags for the workspace
-        self.tag1 = TagFactory(workspace=self.workspace, name="food")
-        self.tag2 = TagFactory(workspace=self.workspace, name="travel")
+        # Clean slate: Delete any tags that might have been created by other tests
+        Tags.objects.filter(workspace=self.workspace).delete()
+        
+        # Use get_or_create to safely create or retrieve tags. This is robust and
+        # avoids both IntegrityError (if tags exist) and DoesNotExist (if they don't).
+        # The `_` is used to ignore the `created` boolean returned by get_or_create.
+        self.tag1, _ = Tags.objects.get_or_create(workspace=self.workspace, name="food")
+        self.tag2, _ = Tags.objects.get_or_create(workspace=self.workspace, name="travel")
 
         # URLs for the nested tag endpoints
         self.list_url = reverse(
@@ -699,7 +716,7 @@ class TransactionAPITests(BaseAPITestCase):
             "amount_domestic",
             "date",
             "month",
-            "tags",
+            "tag_list",
             "note_manual",
             "note_auto",
             "created_at",
@@ -751,6 +768,7 @@ class TransactionAPITests(BaseAPITestCase):
             "date": "2024-01-15",
         }
         response = self.client.post(self.list_url, data, format="json")
+        print(response.data)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Invalid: No category provided
@@ -1140,6 +1158,14 @@ class TransactionDraftAPITests(BaseAPITestCase):
 
     def test_create_draft_validation(self):
         """Test draft creation with comprehensive validation."""
+        # Create a valid leaf category for testing
+        leaf_expense_category = ExpenseCategoryFactory(
+            version=self.expense_version, name="Leaf Expense Category", level=5
+        )
+        leaf_income_category = IncomeCategoryFactory(
+            version=self.income_version, name="Leaf Income Category", level=5
+        )
+
         # Valid expense draft
         data = {
             # workspace is now taken from the URL
@@ -1150,7 +1176,7 @@ class TransactionDraftAPITests(BaseAPITestCase):
                     "original_amount": "250.00",
                     "original_currency": "EUR",
                     "date": "2024-01-25",
-                    "expense_category_id": self.expense_category.id,
+                    "expense_category_id": leaf_expense_category.id,
                     "note_manual": "New draft expense",
                 }
             ],
@@ -1168,7 +1194,7 @@ class TransactionDraftAPITests(BaseAPITestCase):
                     "original_amount": "750.00",
                     "original_currency": "USD",
                     "date": "2024-01-26",
-                    "income_category_id": self.income_category.id,
+                    "income_category_id": leaf_income_category.id,
                 }
             ],
         }
@@ -1252,19 +1278,22 @@ class TransactionDraftAPITests(BaseAPITestCase):
         )
 
         # Test delete as different user (should fail)
+        response = self.client.delete(other_draft_url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_draft_category_move_scenario_exact(self):
-        """Test draft validation when category level changes."""
-        # 1. ✅ Vytvor draft s kategóriou na spodnom leveli (ešte nepoužitá)
-        self.assertEqual(self.child_expense_category.level, 2)  # Spodný level
+        """
+        Test draft validation when a category's level changes, making it invalid.
+        """
+        # 1. Create a valid level 5 category for the test.
+        valid_leaf_category = ExpenseCategoryFactory(
+            version=self.expense_version, name="Valid Leaf for Draft Test", level=5
+        )
         self.assertFalse(
-            Transaction.objects.filter(
-                expense_category=self.child_expense_category
-            ).exists()
-        )  # Ešte nepoužitá
+            Transaction.objects.filter(expense_category=valid_leaf_category).exists()
+        )
 
-        # Use the new nested URL for creating a draft
+        # Use the nested URL for creating a draft.
         save_url = reverse(
             "workspace-transactiondraft-list", kwargs={"workspace_pk": self.workspace.pk}
         )
@@ -1276,58 +1305,52 @@ class TransactionDraftAPITests(BaseAPITestCase):
                     "original_amount": "200.00",
                     "original_currency": "EUR",
                     "date": "2024-01-20",
-                    "expense_category_id": self.child_expense_category.id,
+                    "expense_category_id": valid_leaf_category.id,
                 }
             ],
         }
 
-        # Ulož draft - MALO BY prejsť
+        # 2. Save the draft with the valid level 5 category. This SHOULD pass.
         response = self.client.post(save_url, draft_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # 2. ✅ Presuň kategóriu do vyššieho levelu (ešte stále nepoužitá v reálnej transakcii)
-        self.child_expense_category.level = 1  # ❌ Už nie je spodný level!
-        self.child_expense_category.save()
+        # 3. Move the category to a non-leaf level, making it invalid for transactions.
+        valid_leaf_category.level = 4  # No longer a leaf level!
+        valid_leaf_category.save()
 
-        # Over že kategória je stále nepoužitá v reálnych transakciách
+        # Verify the category is still not used in any real transactions.
         self.assertFalse(
-            Transaction.objects.filter(
-                expense_category=self.child_expense_category
-            ).exists()
+            Transaction.objects.filter(expense_category=valid_leaf_category).exists()
         )
 
-        # 3. ✅ Skús znova uložiť draft - MALO BY ZLYHAŤ
-        get_url = (
-            reverse(
-                "workspace-transactiondraft-list",
-                kwargs={"workspace_pk": self.workspace.pk},
-            )
-            + "?type=expense"
+        # 4. Try to save the draft again. This SHOULD FAIL because the category is now invalid.
+        # We fetch the exact draft we created to get its latest data for the update attempt.
+        draft_id = response.data['id']
+        draft_to_resave_url = reverse(
+            "workspace-transactiondraft-detail",
+            kwargs={"workspace_pk": self.workspace.pk, "pk": draft_id},
         )
-        draft_response = self.client.get(get_url)
+        draft_to_resave_response = self.client.get(draft_to_resave_url)
+        self.assertEqual(draft_to_resave_response.status_code, status.HTTP_200_OK)
+        draft_to_save_data = draft_to_resave_response.data
 
-        if draft_response.status_code == status.HTTP_200_OK:
-            # Get the first draft from the list
-            draft_to_save = self._get_response_data(draft_response)[0]
-            # Skús uložiť existujúci draft - MALO BY ZLYHAŤ
-            save_response = self.client.post(
-                save_url, draft_to_save, format="json"
-            )
+        # Try to save the existing draft data again. The serializer's create handles this as an update.
+        save_response = self.client.post(save_url, draft_to_save_data, format="json")
 
-            # 🚨 TU JE KRITICKÁ VALIDÁCIA - draft by NEMAL prejsť!
-            self.assertEqual(save_response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertIn("category", str(save_response.data).lower())
-            self.assertIn("level", str(save_response.data).lower())
-        else:
-            # Alebo draft bol automaticky zmazaný/invalidovaný - to je tiež OK
-            self.assertEqual(draft_response.status_code, status.HTTP_404_NOT_FOUND)
+        # CRITICAL VALIDATION: The draft save should now be rejected.
+        self.assertEqual(save_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("category", str(save_response.data).lower())
+        self.assertIn("level", str(save_response.data).lower())
 
 
     def test_draft_custom_endpoints(self):
         """Test all custom draft endpoints."""
+        # Create a valid leaf category to make the draft valid
+        leaf_category = ExpenseCategoryFactory(version=self.expense_version, level=5)
+
         # Test draft save endpoint (now POST to list)
         save_url = reverse(
-            "workspace-transactiondraft-list", kwargs={"workspace_pk": self.workspace.id}
+            "workspace-transactiondraft-list", kwargs={"workspace_pk": self.workspace.pk}
         )
         draft_data = {
             "draft_type": "expense",
@@ -1338,6 +1361,7 @@ class TransactionDraftAPITests(BaseAPITestCase):
                     "original_currency": "EUR",
                     "date": "2024-01-30",
                     "note_manual": "Custom endpoint test",
+                    "expense_category_id": leaf_category.id,
                 }
             ],
         }
@@ -1349,7 +1373,7 @@ class TransactionDraftAPITests(BaseAPITestCase):
         get_url = (
             reverse(
                 "transaction-draft-get-workspace",
-                kwargs={"workspace_pk": self.workspace.id},
+                kwargs={"workspace_pk": self.workspace.pk},
             )
             + "?type=expense"
         )
@@ -1358,7 +1382,7 @@ class TransactionDraftAPITests(BaseAPITestCase):
 
         # Test draft discard endpoint (now DELETE on detail)
         discard_url = reverse(
-            "workspace-transactiondraft-detail", kwargs={"workspace_pk": self.workspace.id, "pk": draft_id}
+            "workspace-transactiondraft-detail", kwargs={"workspace_pk": self.workspace.pk, "pk": draft_id}
         )
         response = self.client.delete(discard_url)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -1411,7 +1435,7 @@ class WorkspaceMembershipCRUDTests(BaseAPITestCase):
         """Test listing all workspace memberships."""
         url = reverse("workspace-members", kwargs={"pk": self.workspace.id})
         response = self.client.get(url)
-        
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         members_data = self._get_response_data(response)
         
@@ -1638,7 +1662,8 @@ class WorkspaceSettingsAPITests(BaseAPITestCase):
     
     def test_retrieve_workspace_settings(self):
         """Test retrieving workspace settings."""
-        url = reverse(WORKSPACE_SETTINGS_DETAIL, kwargs={"pk": self.workspace_settings.id})
+        # Use the new nested URL structure
+        url = reverse(WORKSPACE_SETTINGS_DETAIL, kwargs={"workspace_pk": self.workspace.pk})
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
@@ -1650,7 +1675,8 @@ class WorkspaceSettingsAPITests(BaseAPITestCase):
         
     def test_update_workspace_settings(self):
         """Test updating workspace settings."""
-        url = reverse(WORKSPACE_SETTINGS_DETAIL, kwargs={"pk": self.workspace_settings.id})
+        # Use the new nested URL structure
+        url = reverse(WORKSPACE_SETTINGS_DETAIL, kwargs={"workspace_pk": self.workspace.pk})
         update_data = {
             "domestic_currency": "USD",
             "display_mode": "day",
@@ -1831,7 +1857,6 @@ class MemberRoleManagementTests(BaseAPITestCase):
         self._authenticate_user(self.workspace_admin_user)
         
         url = reverse("workspace-members", kwargs={"pk": self.workspace.pk})
-        url = reverse("workspace-update-member-role", kwargs={"pk": self.workspace.pk})
         promote_data = {
             "user_id": self.other_user.id,
             "role": "editor"

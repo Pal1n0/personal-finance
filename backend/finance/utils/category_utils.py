@@ -496,7 +496,8 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
         Dictionary with operation results:
             - created: List of created categories with temp_id to id mapping
             - updated: List of updated category IDs
-            - deleted: List of deleted category IDs
+            - deleted: List of IDs for categories that were hard-deleted
+            - deactivated: List of IDs for categories that were soft-deleted (archived)
             - errors: List of error messages if any
 
     Raises:
@@ -504,7 +505,7 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
         ValidationError: If data validation fails
     """
 
-    results = {"created": [], "updated": [], "deleted": [], "errors": []}
+    results = {"created": [], "updated": [], "deleted": [], "deactivated": [], "errors": []}
 
     logger.info(
         "Category tree synchronization started",
@@ -526,10 +527,10 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
         with transaction.atomic():  # All or nothing transaction
             temp_id_map = {}  # Maps temporary frontend IDs to database IDs
 
-            # 1. DELETE OPERATIONS
+            # 1. DELETE / DEACTIVATE OPERATIONS
             if categories_data.get("delete"):
                 logger.debug(
-                    "Processing category deletions",
+                    "Processing category deletions and deactivations",
                     extra={
                         "delete_ids": categories_data["delete"],
                         "action": "category_deletion_start",
@@ -538,9 +539,10 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                 )
 
                 # Verify categories exist and belong to the correct version
-                existing_ids = category_model.objects.filter(
+                existing_categories = category_model.objects.filter(
                     id__in=categories_data["delete"], version=version
-                ).values_list("id", flat=True)
+                )
+                existing_ids = existing_categories.values_list("id", flat=True)
 
                 invalid_ids = set(categories_data["delete"]) - set(existing_ids)
                 if invalid_ids:
@@ -556,21 +558,46 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                     )
                     raise ValidationError(f"Invalid IDs for deletion: {invalid_ids}")
 
-                # Perform deletion
-                deleted_count, _ = category_model.objects.filter(
-                    id__in=existing_ids
-                ).delete()
-                results["deleted"] = list(existing_ids)
+                # Separate categories into hard-delete and soft-delete (deactivate) lists
+                to_hard_delete_ids = []
+                to_soft_delete_ids = []
+                for category in existing_categories:
+                    if check_category_usage(category.id, category_model):
+                        to_soft_delete_ids.append(category.id)
+                    else:
+                        to_hard_delete_ids.append(category.id)
 
-                logger.info(
-                    "Category deletions completed",
-                    extra={
-                        "deleted_count": deleted_count,
-                        "deleted_ids": list(existing_ids),
-                        "action": "category_deletion_success",
-                        "component": "sync_categories_tree",
-                    },
-                )
+                # Perform soft-deletes (deactivation)
+                if to_soft_delete_ids:
+                    deactivated_count = category_model.objects.filter(
+                        id__in=to_soft_delete_ids
+                    ).update(is_active=False)
+                    results["deactivated"] = to_soft_delete_ids
+                    logger.info(
+                        "Categories deactivated (soft-deleted)",
+                        extra={
+                            "deactivated_count": deactivated_count,
+                            "deactivated_ids": to_soft_delete_ids,
+                            "action": "category_deactivation_success",
+                            "component": "sync_categories_tree",
+                        },
+                    )
+
+                # Perform hard-deletes
+                if to_hard_delete_ids:
+                    deleted_count, _ = category_model.objects.filter(
+                        id__in=to_hard_delete_ids
+                    ).delete()
+                    results["deleted"] = to_hard_delete_ids
+                    logger.info(
+                        "Unused categories permanently deleted",
+                        extra={
+                            "deleted_count": deleted_count,
+                            "deleted_ids": to_hard_delete_ids,
+                            "action": "category_hard_deletion_success",
+                            "component": "sync_categories_tree",
+                        },
+                    )
 
             # 2. CREATE OPERATIONS
             if categories_data.get("create"):
@@ -630,7 +657,7 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                     },
                 )
 
-                # CHECK USAGE FOR LEAF CATEGORIES BEING MOVED
+                # CHECK USAGE FOR CATEGORIES BEING MOVED
                 for item in categories_data["update"]:
                     if "parent_id" in item:  # This category is being moved
                         try:
@@ -638,29 +665,47 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                                 id=item["id"], version=version
                             )
 
-                            # If it's a leaf category (level 5) and used in transactions, prevent move
-                            if category.level == 5:
-                                is_used = check_category_usage(
-                                    category.id, category_model
+                            # Per business rules, only check usage of Level 5 categories in the branch.
+                            all_in_branch = category.get_descendants(include_self=True)
+                            level_5_categories_in_branch = {
+                                cat for cat in all_in_branch if cat.level == 5
+                            }
+
+                            if not level_5_categories_in_branch:
+                                continue
+
+                            level_5_ids = [cat.id for cat in level_5_categories_in_branch]
+
+                            # Check if any of the L5 categories in the branch are used, and get the first conflict.
+                            if category_model.__name__ == "ExpenseCategory":
+                                conflicting_transaction = Transaction.objects.filter(
+                                    expense_category_id__in=level_5_ids
+                                ).select_related('expense_category').first()
+                            else:  # IncomeCategory
+                                conflicting_transaction = Transaction.objects.filter(
+                                    income_category_id__in=level_5_ids
+                                ).select_related('income_category').first()
+
+                            if conflicting_transaction:
+                                conflicting_category = conflicting_transaction.category
+                                logger.warning(
+                                    "Attempt to move a category branch with a used L5 subcategory",
+                                    extra={
+                                        "category_id": category.id,
+                                        "category_name": category.name,
+                                        "conflicting_category_id": conflicting_category.id,
+                                        "conflicting_category_name": conflicting_category.name,
+                                        "action": "category_branch_move_denied_l5_usage",
+                                        "component": "sync_categories_tree",
+                                        "severity": "medium",
+                                    },
                                 )
-                                if is_used:
-                                    logger.warning(
-                                        "Attempt to move used leaf category",
-                                        extra={
-                                            "category_id": category.id,
-                                            "category_name": category.name,
-                                            "action": "leaf_category_move_denied",
-                                            "component": "sync_categories_tree",
-                                            "severity": "medium",
-                                        },
-                                    )
-                                    raise ValidationError(
-                                        f"Cannot move leaf category '{category.name}' because it is used in transactions"
-                                    )
+                                raise ValidationError(
+                                    f"Cannot move category '{category.name}' because subcategory '{conflicting_category.name}' is used in transactions."
+                                )
 
                         except category_model.DoesNotExist:
                             continue  # Will be caught later in the update process
-
                 updates = []
                 update_ids = []
 
@@ -880,6 +925,7 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                     "created_count": len(results["created"]),
                     "updated_count": len(results["updated"]),
                     "deleted_count": len(results["deleted"]),
+                    "deactivated_count": len(results["deactivated"]),
                     "action": "category_sync_success",
                     "component": "sync_categories_tree",
                 },

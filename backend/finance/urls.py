@@ -21,9 +21,6 @@ router = DefaultRouter()
 # User settings endpoints
 router.register(r"user-settings", views.UserSettingsViewSet, basename="user-settings")
 
-# Transaction management endpoints
-# router.register(r"transactions", views.TransactionViewSet, basename="transaction") # DEPRECATED - use nested URLs
-
 # Expense categories endpoints (read-only)
 router.register(
     r"expense-categories", views.ExpenseCategoryViewSet, basename="expensecategory"
@@ -107,7 +104,9 @@ urlpatterns = [
     # Workspace members endpoint
     path(
         "workspaces/<int:pk>/members/",
-        views.WorkspaceViewSet.as_view({"get": "members"}),
+        views.WorkspaceViewSet.as_view(
+            {"get": "members", "patch": "members", "delete": "members"}
+        ),
         name="workspace-members",
     ),
     # Workspace hard delete endpoint (PRIBUDOL - existuje v views)
@@ -171,7 +170,7 @@ urlpatterns = [
     path(
         "workspaces/<int:workspace_pk>/assign-admin/",
         views.WorkspaceAdminViewSet.as_view({"post": "assign_admin"}),
-        name="workspace-assign-admin",
+        name="workspaceadmin-assign-admin",
     ),
     path(
         "workspace-admins/<int:pk>/deactivate/",
@@ -183,11 +182,6 @@ urlpatterns = [
         "workspaces/<int:pk>/change-owner/",
         views.WorkspaceViewSet.as_view({"post": "change_owner"}),
         name="workspace-change-owner",
-    ),
-    path(
-        "workspaces/<int:pk>/update-member-role/",
-        views.WorkspaceViewSet.as_view({"post": "update_member_role"}),
-        name="workspace-update-member-role",
     ),
 ]
 

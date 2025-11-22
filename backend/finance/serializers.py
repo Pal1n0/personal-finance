@@ -49,7 +49,7 @@ class UserSettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserSettings
-        fields = ["id", "user", "language"]
+        fields = ["id", "user", "language", "preferred_currency", "date_format"]
         read_only_fields = ["id", "user"]
 
     def validate_language(self, value):
@@ -603,6 +603,10 @@ class TransactionSerializer(
     income_category = serializers.PrimaryKeyRelatedField(
         queryset=IncomeCategory.objects.none(), required=False, allow_null=True
     )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=50), required=False, write_only=True
+    )
+    tag_list = serializers.SerializerMethodField()
 
     class Meta:
         model = Transaction
@@ -618,6 +622,7 @@ class TransactionSerializer(
             "amount_domestic",
             "date",
             "month",
+            "tag_list",
             "tags",
             "note_manual",
             "note_auto",
@@ -627,11 +632,18 @@ class TransactionSerializer(
         read_only_fields = [
             "id",
             "user",
+            "workspace",
             "amount_domestic",
             "month",
             "created_at",
             "updated_at",
         ]
+
+    def get_tag_list(self, obj):
+        """
+        Returns a list of tag names associated with the transaction.
+        """
+        return [tag.name for tag in obj.tags.all()]
 
     def __init__(self, *args, **kwargs):
         """Initialize with security-enhanced querysets from request cache."""
@@ -681,10 +693,12 @@ class TransactionSerializer(
         if workspace:
             # Delegate complex validation to service layer
             # ServiceExceptionHandlerMixin handles exception conversion
+            is_update = self.instance is not None
             self.handle_service_call(
                 TransactionService._validate_transaction_data,
                 data=data,
                 workspace=workspace,
+                is_update=is_update,
             )
 
         logger.debug(
@@ -777,11 +791,7 @@ class TagSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tags
         fields = ["id", "name", "workspace"]
-        read_only_fields = ["id"]
-        extra_kwargs = {
-            # Workspace is required but should not be provided by the user directly.
-            'workspace': {'required': False}
-        }
+        read_only_fields = ["id", "workspace"]
 
     def validate_name(self, value):
         """
@@ -853,6 +863,37 @@ class TransactionDraftSerializer(
         """Get transaction count using model method."""
         return obj.get_transactions_count()
 
+    def validate(self, data):
+        """
+        Ensures consistency between the draft_type and the types of transactions
+        within transactions_data.
+        """
+        # Prevent changing the draft_type on an existing draft.
+        if self.instance and "draft_type" in data and data["draft_type"] != self.instance.draft_type:
+            raise serializers.ValidationError(
+                "Changing the type of an existing draft is not allowed."
+            )
+
+        # On updates, we need the full picture. If draft_type is not in the payload,
+        # get it from the instance to ensure we're validating against the correct type.
+        draft_type = data.get("draft_type")
+        if self.instance and "draft_type" not in data:
+            draft_type = self.instance.draft_type
+
+
+        transactions_data = data.get("transactions_data")
+
+        # If both are present, they must be consistent.
+        if draft_type and transactions_data:
+            for index, tx_data in enumerate(transactions_data):
+                tx_type = tx_data.get("type")
+                if tx_type and tx_type != draft_type:
+                    raise serializers.ValidationError(
+                        f"Transaction at index {index} has type '{tx_type}', which "
+                        f"does not match the draft_type '{draft_type}'."
+                    )
+        return data
+
     def validate_transactions_data(self, value):
         """
         Validate draft transactions using cached category data.
@@ -910,22 +951,11 @@ class TransactionDraftSerializer(
                 f"Transaction at index {index} has invalid type."
             )
 
-        if tx_type == "expense" and not expense_category_id:
-            raise serializers.ValidationError(
-                f"Expense transaction at index {index} must have an expense category."
-            )
-
-        if tx_type == "income" and not income_category_id:
-            raise serializers.ValidationError(
-                f"Income transaction at index {index} must have an income category."
-            )
-
         if expense_category_id and income_category_id:
             raise serializers.ValidationError(
                 f"Transaction at index {index} cannot have both expense and income categories."
             )
 
-        # Category level validation using cached data
         category_id = expense_category_id or income_category_id
         if category_id:
             self._validate_category_level(category_id, workspace, tx_type, index)
@@ -1026,34 +1056,29 @@ class TransactionDraftSerializer(
 
     def update(self, instance, validated_data):
         """
-        Update draft via DraftService for atomic operations.
+        Handle PATCH requests by directly updating the instance.
 
-        Maintains consistency with create method by using same service layer.
+        This is the correct approach for a partial update on a specific resource.
+        It avoids the ambiguity of the `save_draft` service's `update_or_create`
+        which caused the `DoesNotExist` error.
         """
-        request = self.context.get("request")
+        # The `validate` method has already ensured consistency.
+        # We can now safely update the instance fields.
 
-        logger.info(
-            "Draft update delegated to service layer",
-            extra={
-                "draft_id": instance.id,
-                "user_id": request.user.id if request else None,
-                "transaction_count": len(validated_data.get("transactions_data", [])),
-                "action": "draft_update_service_delegation",
-                "component": "TransactionDraftSerializer",
-            },
-        )
+        # If 'transactions_data' is in the payload, update it.
+        if "transactions_data" in validated_data:
+            instance.transactions_data = validated_data["transactions_data"]
 
-        # For updates, we need to use the service differently
-        # Since save_draft handles both create and update via replacement strategy
-        return self.handle_service_call(
-            self.draft_service.save_draft,
-            user=request.target_user,
-            workspace_id=instance.workspace.id,
-            draft_type=validated_data.get("draft_type", instance.draft_type),
-            transactions_data=validated_data.get(
-                "transactions_data", instance.transactions_data
-            ),
-        )
+        # If 'draft_type' is in the payload, update it.
+        # This is important if the user changes the draft from income to expense.
+        if "draft_type" in validated_data:
+            instance.draft_type = validated_data["draft_type"]
+
+        # Save the changes directly to the instance.
+        instance.save()
+
+        logger.info(f"Draft {instance.id} updated directly via serializer.")
+        return instance
 
 
 # -------------------------------------------------------------------

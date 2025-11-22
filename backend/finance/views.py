@@ -343,7 +343,7 @@ class WorkspaceViewSet(
             return [IsAuthenticated()]
         elif self.action in ["update", "partial_update", "activate"]:
             return [IsAuthenticated(), IsWorkspaceEditor()]
-        elif self.action in ["destroy", "hard_delete", "update_member_role"]:
+        elif self.action in ["destroy", "hard_delete", "members"]:
             return [IsAuthenticated(), IsWorkspaceOwner()]
         elif self.action in ["change_owner"]:
             return [IsAuthenticated(), IsWorkspaceAdmin()]
@@ -365,7 +365,9 @@ class WorkspaceViewSet(
             # Impersonation: filter to allowed workspace IDs
             workspaces = workspaces.filter(id__in=self.request.impersonation_workspace_ids)
         else:
-            # Normal case: owners see all workspaces, members see only active
+            # Normal case:
+            # - Owners see all their workspaces (active and inactive).
+            # - Other members see only active workspaces they are part of.
             workspaces = workspaces.filter(
                 models.Q(owner=target_user) | models.Q(is_active=True)
             )
@@ -593,79 +595,75 @@ class WorkspaceViewSet(
             }
         )
 
-    @action(detail=True, methods=["post"])
-    def update_member_role(self, request, pk=None):
-        """
-        THIN update member role - delegate to MembershipService with unified exception handling
-        """
-        workspace = self.get_object()
-
-        logger.info(
-            "Member role update delegated to service",
-            extra={
-                "user_id": request.user.id,
-                "workspace_id": workspace.id,
-                "target_user_id": request.data.get("user_id"),
-                "new_role": request.data.get("role"),
-                "action": "member_role_update_delegated",
-                "component": "WorkspaceViewSet",
-            },
-        )
-
-        # ServiceExceptionHandlerMixin handles exception conversion
-        self.handle_service_call(
-            self.membership_service.update_member_role,
-            workspace=workspace,
-            target_user_id=request.data.get("user_id"),
-            new_role=request.data.get("role"),
-            requesting_user=request.user,
-        )
-
-        return Response(
-            {
-                "message": f"User role updated to {request.data.get('role')}.",
-                "user_id": request.data.get("user_id"),
-                "new_role": request.data.get("role"),
-            }
-        )
-
-    @action(detail=True, methods=["get"])
+    @action(detail=True, methods=["get", "patch", "delete"])
     def members(self, request, pk=None):
-        """THIN members list - delegate to service with unified exception handling"""
+        """
+        THIN members management - delegates all logic to MembershipService.
+        - GET: Lists all members in the workspace.
+        - PATCH: Updates a member's role. Requires `user_id` and `role` in the body.
+        - DELETE: Removes a member from the workspace. Requires `user_id` in the body.
+        """
         workspace = self.get_object()
+        user_id = request.data.get("user_id")
 
-        logger.debug(
-            "Workspace members retrieval delegated to service",
-            extra={
-                "user_id": request.user.id,
-                "workspace_id": workspace.id,
-                "action": "workspace_members_retrieval_delegated",
-                "component": "WorkspaceViewSet",
-            },
-        )
+        if request.method == "PATCH":
+            role = request.data.get("role")
+            logger.info(
+                "Member role update delegated to service",
+                extra={
+                    "requesting_user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "target_user_id": user_id,
+                    "new_role": role,
+                    "action": "member_role_update_delegated",
+                    "component": "WorkspaceViewSet",
+                },
+            )
+            self.handle_service_call(
+                self.membership_service.update_member_role,
+                workspace=workspace,
+                target_user_id=user_id,
+                new_role=role,
+                requesting_user=request.user,
+            )
+            return Response({"message": f"User role updated to {role}."})
 
-        # ServiceExceptionHandlerMixin handles exception conversion
-        members_data = self.handle_service_call(
-            self.membership_service.get_workspace_members_with_roles,
-            workspace=workspace,
-            requesting_user=request.user,
-        )
+        elif request.method == "DELETE":
+            # --- CRITICAL VALIDATION: Prevent owner from removing themselves ---
+            if int(user_id) == workspace.owner_id:
+                logger.warning(
+                    "Owner self-removal attempt blocked",
+                    extra={
+                        "requesting_user_id": request.user.id,
+                        "workspace_id": workspace.id,
+                        "target_user_id": user_id,
+                        "action": "owner_self_removal_blocked",
+                        "component": "WorkspaceViewSet",
+                    },
+                )
+                raise PermissionDenied("The workspace owner cannot be removed. Transfer ownership first.")
 
-        response_data = {
-            "workspace_id": workspace.id,
-            "workspace_name": workspace.name,
-            "members": members_data,
-            "total_members": len(members_data),
-        }
+            logger.info(
+                "Member removal delegated to service",
+                extra={
+                    "requesting_user_id": request.user.id,
+                    "workspace_id": workspace.id,
+                    "target_user_id": user_id,
+                    "action": "member_removal_delegated",
+                    "component": "WorkspaceViewSet",
+                },
+            )
+            self.handle_service_call(
+                self.membership_service.remove_member,
+                workspace=workspace,
+                target_user_id=user_id,
+                requesting_user=request.user,
+            )
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
-        if request.is_admin_impersonation:
-            response_data["admin_impersonation"] = {
-                "target_user_id": request.target_user.id,
-                "target_username": request.target_user.username,
-                "requested_by_admin_id": request.user.id,
-            }
-
-        return Response(response_data)
+        # GET request (default)
+        members_data = workspace.get_all_workspace_users_with_roles()
+        return Response(members_data)
 
 
 # -------------------------------------------------------------------
@@ -1003,7 +1001,7 @@ class ExpenseCategoryViewSet(
         ).select_related("workspace")
 
         return (
-            ExpenseCategory.objects.filter(version__in=active_versions)
+            ExpenseCategory.objects.filter(version__in=active_versions, is_active=True)
             .select_related("version")
             .prefetch_related("property", "children")
         )
@@ -1136,7 +1134,7 @@ class IncomeCategoryViewSet(
         ).select_related("workspace")
 
         return (
-            IncomeCategory.objects.filter(version__in=active_versions)
+            IncomeCategory.objects.filter(version__in=active_versions, is_active=True)
             .select_related("version")
             .prefetch_related("property", "children")
         )
@@ -1343,6 +1341,23 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             results = self.handle_service_call(
                 sync_categories_tree, request.data, version, category_model
             )
+
+            if results.get("errors"):
+                logger.warning(
+                    "Category synchronization returned validation errors",
+                    extra={
+                        "user_id": request.user.id,
+                        "workspace_id": workspace_pk,
+                        "category_type": category_type,
+                        "errors": results["errors"],
+                        "action": "category_sync_validation_error",
+                        "component": "CategorySyncViewSet",
+                    },
+                )
+                return Response(
+                    {"errors": results["errors"]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             response_data = results
 
@@ -1738,10 +1753,10 @@ class TagViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
         Returns tags scoped to the current workspace from the request context.
         """
         workspace = getattr(self.request, "workspace", None)
-        # if not workspace:
-        #     # This should be caught by permission classes, but as a safeguard:
-        #     logger.warning("Tag queryset requested without a workspace context.")
-        #     return Tags.objects.none()
+        if not workspace:
+            # This should be caught by permission classes, but as a safeguard:
+            logger.warning("Tag queryset requested without a workspace context.")
+            return Tags.objects.none()
 
         return Tags.objects.filter(workspace=workspace)
 
@@ -1821,7 +1836,8 @@ class ExchangeRateViewSet(
         qs = super().get_queryset()
 
         # Currency filtering
-        currencies = self.request.query_params.get("currencies")
+        # Check for both 'currency' (singular) and 'currencies' (plural) for flexibility
+        currencies = self.request.query_params.get("currency") or self.request.query_params.get("currencies")
         if currencies:
             currency_list = [c.strip().upper() for c in currencies.split(",")]
             qs = qs.filter(currency__in=currency_list)
@@ -1935,6 +1951,15 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
         target_user = self.request.target_user
 
         # Delegate to service via serializer's save method
+        serializer.save(user=target_user, workspace_id=workspace_pk)
+
+    def perform_update(self, serializer):
+        """
+        Handles PATCH/PUT request to update a draft.
+        Delegates logic to the serializer's update method.
+        """
+        workspace_pk = self.kwargs.get("workspace_pk")
+        target_user = self.request.target_user
         serializer.save(user=target_user, workspace_id=workspace_pk)
 
     @action(detail=False, methods=["get"])
