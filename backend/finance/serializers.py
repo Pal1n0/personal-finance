@@ -669,11 +669,20 @@ class TransactionSerializer(
 
     def validate(self, data):
         """
-        Comprehensive transaction validation via TransactionService.
+        Comprehensive transaction validation pipeline.
 
-        Delegates complex business logic to service layer while maintaining
-        serializer validation workflow.
+        This method orchestrates the validation flow by:
+        1. Performing standard DRF validation.
+        2. Enforcing structural constraints (Leaf Category Level 5).
+        3. Delegating complex business logic to the TransactionService.
+
+        Returns:
+            dict: The validated data dictionary.
+
+        Raises:
+            serializers.ValidationError: If structural or business rules are violated.
         """
+        # 1. Standard DRF Validation
         data = super().validate(data)
 
         logger.debug(
@@ -687,13 +696,39 @@ class TransactionSerializer(
             },
         )
 
+        # 2. Structural Constraint: Leaf Category Check (Level 5)
+        # We check incoming data. If not present in data (e.g. PATCH), we don't re-validate 
+        # unless necessary, but here we strictly check if a new category is being set.
+        expense_category = data.get("expense_category")
+        income_category = data.get("income_category")
+        category = expense_category or income_category
+
+        if category and category.level != 5:
+            logger.warning(
+                "Invalid category level usage attempt",
+                extra={
+                    "category_id": category.id,
+                    "category_name": category.name,
+                    "level": category.level,
+                    "required_level": 5,
+                    "action": "transaction_validation_failed",
+                }
+            )
+            raise serializers.ValidationError(
+                {
+                    "category": f"Category '{category.name}' (Level {category.level}) is not a leaf category. Only Level 5 categories are allowed."
+                }
+            )
+
+        # 3. Service Layer Validation (Business Logic)
         request = self.context.get("request")
         workspace = getattr(request, "workspace", None)
 
         if workspace:
-            # Delegate complex validation to service layer
-            # ServiceExceptionHandlerMixin handles exception conversion
+            # Delegate complex validation (currency, date rules, limits) to service layer.
+            # ServiceExceptionHandlerMixin handles converting service exceptions to HTTP 400.
             is_update = self.instance is not None
+            
             self.handle_service_call(
                 TransactionService._validate_transaction_data,
                 data=data,
@@ -994,7 +1029,7 @@ class TransactionDraftSerializer(
                 f"Category with ID {category_id} in transaction {index} not found or not accessible."
             )
 
-        # Validate category level
+        # Validate category level: business rule requires leaf to be level 5
         LOWEST_LEVEL = 5
         if category.level != LOWEST_LEVEL:
             logger.warning(
@@ -1206,6 +1241,7 @@ class ExpenseCategoryVersionSerializer(serializers.ModelSerializer):
             "workspace",
             "name",
             "description",
+            "levels_count",
             "created_by",
             "created_at",
             "is_active",
@@ -1228,6 +1264,7 @@ class IncomeCategoryVersionSerializer(serializers.ModelSerializer):
             "workspace",
             "name",
             "description",
+            "levels_count",
             "created_by",
             "created_at",
             "is_active",

@@ -105,7 +105,11 @@ urlpatterns = [
     path(
         "workspaces/<int:pk>/members/",
         views.WorkspaceViewSet.as_view(
-            {"get": "members", "patch": "members", "delete": "members"}
+            {
+                "get": "members", 
+                "patch": "members", # Update member role
+                "delete": "members" # Remove member
+            }
         ),
         name="workspace-members",
     ),

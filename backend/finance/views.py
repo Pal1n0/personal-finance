@@ -343,10 +343,16 @@ class WorkspaceViewSet(
             return [IsAuthenticated()]
         elif self.action in ["update", "partial_update", "activate"]:
             return [IsAuthenticated(), IsWorkspaceEditor()]
-        elif self.action in ["destroy", "hard_delete", "members"]:
+        elif self.action in ["destroy", "hard_delete"]:
             return [IsAuthenticated(), IsWorkspaceOwner()]
         elif self.action in ["change_owner"]:
             return [IsAuthenticated(), IsWorkspaceAdmin()]
+        elif self.action == "members":
+            if self.request.method in ["PATCH", "DELETE"]:
+                # Only owners/admins can modify members
+                return [IsAuthenticated(), IsWorkspaceOwner()]
+            # All members can view the list
+            return [IsAuthenticated(), IsWorkspaceMember()]
         return [IsAuthenticated(), IsWorkspaceMember()]
     
     def get_queryset(self):
@@ -365,9 +371,7 @@ class WorkspaceViewSet(
             # Impersonation: filter to allowed workspace IDs
             workspaces = workspaces.filter(id__in=self.request.impersonation_workspace_ids)
         else:
-            # Normal case:
-            # - Owners see all their workspaces (active and inactive).
-            # - Other members see only active workspaces they are part of.
+            # Normal case: owners see all workspaces, members see only active
             workspaces = workspaces.filter(
                 models.Q(owner=target_user) | models.Q(is_active=True)
             )
@@ -598,72 +602,82 @@ class WorkspaceViewSet(
     @action(detail=True, methods=["get", "patch", "delete"])
     def members(self, request, pk=None):
         """
-        THIN members management - delegates all logic to MembershipService.
-        - GET: Lists all members in the workspace.
-        - PATCH: Updates a member's role. Requires `user_id` and `role` in the body.
-        - DELETE: Removes a member from the workspace. Requires `user_id` in the body.
+        THIN members management - delegates to service with unified exception handling.
+        - GET: Lists all members.
+        - PATCH: Updates a member's role. Expects {"user_id": X, "role": "new_role"}.
+        - DELETE: Removes a member. Expects {"user_id": X}.
         """
         workspace = self.get_object()
-        user_id = request.data.get("user_id")
 
-        if request.method == "PATCH":
-            role = request.data.get("role")
-            logger.info(
-                "Member role update delegated to service",
-                extra={
-                    "requesting_user_id": request.user.id,
-                    "workspace_id": workspace.id,
-                    "target_user_id": user_id,
-                    "new_role": role,
-                    "action": "member_role_update_delegated",
-                    "component": "WorkspaceViewSet",
-                },
+        logger.debug(
+            "Workspace members retrieval delegated to service",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace.id,
+                "action": "workspace_members_retrieval_delegated",
+                "component": "WorkspaceViewSet",
+            },
+        )
+
+        if request.method == "GET":
+            members_data = self.handle_service_call(
+                self.membership_service.get_workspace_members_with_roles,
+                workspace=workspace,
+                requesting_user=request.user,
             )
+            response_data = {
+                "workspace_id": workspace.id,
+                "workspace_name": workspace.name,
+                "members": members_data,
+                "total_members": len(members_data),
+            }
+            if request.is_admin_impersonation:
+                response_data["admin_impersonation"] = {
+                    "target_user_id": request.target_user.id,
+                    "target_username": request.target_user.username,
+                    "requested_by_admin_id": request.user.id,
+                }
+            return Response(response_data)
+
+        elif request.method == "PATCH":
+            user_id = request.data.get("user_id")
+            new_role = request.data.get("role")
+            if not user_id or not new_role:
+                raise ValidationError("Both 'user_id' and 'role' are required for update.")
+
             self.handle_service_call(
                 self.membership_service.update_member_role,
                 workspace=workspace,
                 target_user_id=user_id,
-                new_role=role,
+                new_role=new_role,
                 requesting_user=request.user,
             )
-            return Response({"message": f"User role updated to {role}."})
+            return Response(
+                {
+                    "message": f"User role updated to {new_role}.",
+                    "user_id": user_id,
+                    "new_role": new_role,
+                }
+            )
 
         elif request.method == "DELETE":
-            # --- CRITICAL VALIDATION: Prevent owner from removing themselves ---
-            if int(user_id) == workspace.owner_id:
-                logger.warning(
-                    "Owner self-removal attempt blocked",
-                    extra={
-                        "requesting_user_id": request.user.id,
-                        "workspace_id": workspace.id,
-                        "target_user_id": user_id,
-                        "action": "owner_self_removal_blocked",
-                        "component": "WorkspaceViewSet",
-                    },
-                )
-                raise PermissionDenied("The workspace owner cannot be removed. Transfer ownership first.")
+            user_id = request.data.get("user_id")
+            if not user_id:
+                raise ValidationError("'user_id' is required for removal.")
 
-            logger.info(
-                "Member removal delegated to service",
-                extra={
-                    "requesting_user_id": request.user.id,
-                    "workspace_id": workspace.id,
-                    "target_user_id": user_id,
-                    "action": "member_removal_delegated",
-                    "component": "WorkspaceViewSet",
-                },
-            )
-            self.handle_service_call(
+            removed = self.handle_service_call(
                 self.membership_service.remove_member,
                 workspace=workspace,
                 target_user_id=user_id,
                 requesting_user=request.user,
             )
-            return Response(status=status.HTTP_204_NO_CONTENT)
+            if removed:
+                return Response(status=status.HTTP_204_NO_CONTENT)
+            else:
+                return Response({"error": "Member not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # GET request (default)
-        members_data = workspace.get_all_workspace_users_with_roles()
-        return Response(members_data)
+        # Fallback for unsupported methods
+        return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
 # -------------------------------------------------------------------
@@ -686,6 +700,9 @@ class WorkspaceSettingsViewSet(
 
     serializer_class = WorkspaceSettingsSerializer
     permission_classes = [IsAuthenticated]
+    # Tell DRF to use 'workspace_pk' from the URL for lookups instead of the default 'pk'
+    lookup_field = 'workspace_pk'
+    lookup_url_kwarg = 'workspace_pk'
 
     def get_permissions(self):
         """
@@ -694,6 +711,18 @@ class WorkspaceSettingsViewSet(
         if self.action in ["update", "partial_update"]:
             return [IsAuthenticated(), IsWorkspaceOwner()]
         return [IsAuthenticated(), IsWorkspaceMember()]
+
+    def get_object(self):
+        """
+        Retrieve the WorkspaceSettings instance for the workspace specified in the URL.
+        """
+        workspace_pk = self.kwargs.get(self.lookup_url_kwarg)
+        queryset = self.get_queryset()
+        
+        # Filter by the workspace's primary key from the URL
+        obj = get_object_or_404(queryset, workspace_id=workspace_pk)
+        self.check_object_permissions(self.request, obj)
+        return obj
 
     def get_queryset(self):
         """
@@ -715,53 +744,26 @@ class WorkspaceSettingsViewSet(
             workspace__members=target_user.id
         ).select_related("workspace")
 
-    def get_object(self):
-        """
-        Retrieve the WorkspaceSettings object based on the workspace_pk from the URL.
-        This is the core of the new URL structure.
-        """
-        # Get workspace_pk from the URL
-        workspace_pk = self.kwargs.get("workspace_pk")
-        
-        # Get the queryset of settings accessible by the user
-        queryset = self.filter_queryset(self.get_queryset())
-        
-        # Find the specific settings object linked to the workspace_pk
-        obj = get_object_or_404(queryset, workspace__pk=workspace_pk)
-
-        # Manually check object permissions (DRF does this automatically with default get_object)
-        self.check_object_permissions(self.request, obj)
-        return obj
-
     def update(self, request, *args, **kwargs):
         """
         THIN update - handles currency changes via service.
         """
-        instance = self.get_object()
-
-        if "domestic_currency" in request.data:
-            return self._handle_currency_change(request, instance)
-
-        response = super().update(request, *args, **kwargs)
-        return self._add_impersonation_context(response, request)
+        # Delegate PUT to the more flexible PATCH logic
+        return self.partial_update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
         """
         THIN partial update - handles currency changes via service.
         """
         instance = self.get_object()
-
+        # If a currency change is requested, handle it first.
+        # The _handle_currency_change method returns a Response, so we don't proceed further in that case.
+        # However, if other fields are also being updated, we need to handle them.
+        # The most robust way is to let the standard update handle everything if currency is not the ONLY thing.
+        # A simpler fix for now is to just let the standard update run.
         if "domestic_currency" in request.data:
             return self._handle_currency_change(request, instance)
-
         response = super().partial_update(request, *args, **kwargs)
-        return self._add_impersonation_context(response, request)
-
-    def retrieve(self, request, *args, **kwargs):
-        """
-        THIN retrieve - adds impersonation context if needed.
-        """
-        response = super().retrieve(request, *args, **kwargs)
         return self._add_impersonation_context(response, request)
 
     def _handle_currency_change(self, request, instance):
@@ -1001,7 +1003,7 @@ class ExpenseCategoryViewSet(
         ).select_related("workspace")
 
         return (
-            ExpenseCategory.objects.filter(version__in=active_versions, is_active=True)
+            ExpenseCategory.objects.filter(version__in=active_versions)
             .select_related("version")
             .prefetch_related("property", "children")
         )
@@ -1134,7 +1136,7 @@ class IncomeCategoryViewSet(
         ).select_related("workspace")
 
         return (
-            IncomeCategory.objects.filter(version__in=active_versions, is_active=True)
+            IncomeCategory.objects.filter(version__in=active_versions)
             .select_related("version")
             .prefetch_related("property", "children")
         )
@@ -1255,12 +1257,13 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
 
     permission_classes = [IsAuthenticated, IsWorkspaceEditor]
 
-    def sync_categories(self, request, workspace_pk=None, category_type=None):
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="workspaces/(?P<workspace_id>[^/.]+)/(?P<category_type>expense|income)",
+    )
+    def sync_categories(self, request, workspace_pk=None, category_type=None, **kwargs):
         """
-        Handles POST request to synchronize category hierarchies.
-        This method is now the primary handler for the nested URL.
-        `workspace_pk` is used instead of `workspace_id` for consistency.
-
         Synchronize category hierarchies with comprehensive validation.
 
         Args:
@@ -1292,7 +1295,7 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 logger.warning(
                     "Workspace not found for category sync",
                     extra={
-                        "user_id": request.user.id, 
+                        "user_id": request.user.id,
                         "workspace_id": workspace_pk,
                         "action": "category_sync_workspace_not_found",
                         "component": "CategorySyncViewSet",
@@ -1304,7 +1307,9 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 )
 
             # Get workspace instance
-            workspace = Workspace.objects.get(id=workspace_pk)
+            # Support both `workspace_pk` and legacy `workspace_id` kwarg names.
+            resolved_workspace_id = workspace_pk or kwargs.get("workspace_id")
+            workspace = Workspace.objects.get(id=resolved_workspace_id)
 
             # Validate and resolve category type
             if category_type == "expense":
@@ -1341,23 +1346,6 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             results = self.handle_service_call(
                 sync_categories_tree, request.data, version, category_model
             )
-
-            if results.get("errors"):
-                logger.warning(
-                    "Category synchronization returned validation errors",
-                    extra={
-                        "user_id": request.user.id,
-                        "workspace_id": workspace_pk,
-                        "category_type": category_type,
-                        "errors": results["errors"],
-                        "action": "category_sync_validation_error",
-                        "component": "CategorySyncViewSet",
-                    },
-                )
-                return Response(
-                    {"errors": results["errors"]},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
 
             response_data = results
 
@@ -1577,7 +1565,7 @@ class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
         )
 
         # TransactionSerializer.update() handles all business logic
-        serializer.save()
+        serializer.save(user=self.request.target_user, workspace=self.request.workspace)
 
     def perform_destroy(self, instance):
         """
@@ -1764,9 +1752,18 @@ class TagViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
         """
         Delegates tag creation to the TagService to handle `get_or_create` logic.
         """
-        # The serializer now handles the creation logic, including finding
-        # or creating the tag via the service.
-        serializer.save()
+        workspace = self.request.workspace
+        tag_name = serializer.validated_data["name"]
+
+        # The service handles finding or creating the tag.
+        tag = self.handle_service_call(
+            self.tag_service.get_or_create_tags,
+            workspace=workspace,
+            tag_names=[tag_name],
+        )[0]
+
+        # We need to set the instance on the serializer to return the correct data
+        serializer.instance = tag
 
     def perform_update(self, serializer):
         """
@@ -1836,8 +1833,7 @@ class ExchangeRateViewSet(
         qs = super().get_queryset()
 
         # Currency filtering
-        # Check for both 'currency' (singular) and 'currencies' (plural) for flexibility
-        currencies = self.request.query_params.get("currency") or self.request.query_params.get("currencies")
+        currencies = self.request.query_params.get("currencies")
         if currencies:
             currency_list = [c.strip().upper() for c in currencies.split(",")]
             qs = qs.filter(currency__in=currency_list)
@@ -1918,20 +1914,12 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
             },
         )
 
-        workspace_pk = self.kwargs.get("workspace_pk")
-        if not workspace_pk:
-            logger.warning("TransactionDraft queryset requested without workspace context.")
-            return TransactionDraft.objects.none()
+        # Optimized filtering using cached workspace IDs
+        if self.request.is_admin_impersonation and hasattr(
+            self.request, "impersonation_workspace_ids"
+        ):
 
-        # Filter by workspace from URL and user from request context
-        queryset = TransactionDraft.objects.filter(
-            user=target_user, workspace_id=workspace_pk
-        )
-
-        # Impersonation check is implicitly handled by IsWorkspaceMember permission
-        if self.request.is_admin_impersonation:
-            # Ensure the admin has access to this specific workspace for the target user
-            workspace_ids = self.request.impersonation_workspace_ids or []
+            workspace_ids = self.request.impersonation_workspace_ids
             queryset = TransactionDraft.objects.filter(
                 user=target_user, workspace_id__in=workspace_ids
             )
@@ -1942,38 +1930,50 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
 
         return queryset.select_related("workspace", "user")
 
-    def perform_create(self, serializer):
+    @action(detail=False, methods=["post"])
+    def save_draft(self, request, workspace_pk=None):
         """
-        Handles POST request to create/update a draft for a workspace.
-        Delegates logic to the DraftService.
+        THIN save draft - delegates to DraftService.
         """
-        workspace_pk = self.kwargs.get("workspace_pk")
-        target_user = self.request.target_user
+        target_user = request.target_user
 
-        # Delegate to service via serializer's save method
-        serializer.save(user=target_user, workspace_id=workspace_pk)
+        logger.info(
+            "Draft save delegated to service",
+            extra={
+                "user_id": request.user.id,
+                "workspace_id": workspace_pk,
+                "action": "draft_save_delegated",
+                "component": "TransactionDraftViewSet",
+            },
+        )
 
-    def perform_update(self, serializer):
-        """
-        Handles PATCH/PUT request to update a draft.
-        Delegates logic to the serializer's update method.
-        """
-        workspace_pk = self.kwargs.get("workspace_pk")
-        target_user = self.request.target_user
-        serializer.save(user=target_user, workspace_id=workspace_pk)
+        # Validate workspace access
+        if not self._has_workspace_access(workspace_pk, request):
+            raise PermissionDenied("You don't have access to this workspace")
+
+        # Delegate to service
+        draft = self.handle_service_call(
+            self.draft_service.save_draft,
+            user=target_user,
+            workspace_id=workspace_pk,
+            draft_type=request.data.get("draft_type"),
+            transactions_data=request.data.get("transactions_data", []),
+        )
+
+        response_data = TransactionDraftSerializer(draft).data
+        return self._add_impersonation_context(Response(response_data), request)
 
     @action(detail=False, methods=["get"])
     def get_workspace_draft(self, request, workspace_pk=None):
         """
-        THIN get draft - delegates to DraftService. This is a custom action
-        that might be useful for UIs that need to fetch a draft by type.
+        THIN get draft - delegates to DraftService.
         """
         target_user = request.target_user
 
         logger.debug(
             "Workspace draft retrieval delegated to service",
             extra={
-                "user_id": request.user.id, 
+                "user_id": request.user.id,
                 "workspace_id": workspace_pk,
                 "draft_type": request.query_params.get("type"),
                 "action": "workspace_draft_retrieval",
@@ -2025,16 +2025,44 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
 
         return response
     
-    def perform_destroy(self, instance):
+    @action(detail=True, methods=['delete'])
+    def discard(self, request, pk=None):
         """
-        Handles DELETE request to discard a draft.
-        Delegates logic to the DraftService.
+        THIN discard draft - delegates to DraftService.
         """
-        target_user = self.request.target_user
+        target_user = request.target_user
 
-        self.handle_service_call(
-            self.draft_service.discard_draft,
-            user=target_user,
-            workspace_id=instance.workspace.id,
-            draft_type=instance.draft_type,
+        logger.info(
+            "Draft discard delegated to service",
+            extra={
+                "user_id": request.user.id,
+                "draft_id": pk,
+                "action": "draft_discard_delegated",
+                "component": "TransactionDraftViewSet",
+            },
         )
+
+        try:
+            draft = self.get_object()
+            
+            # Delegate to service
+            discarded = self.handle_service_call(
+                self.draft_service.discard_draft,
+                user=target_user,
+                workspace_id=draft.workspace.id,
+                draft_type=draft.draft_type,
+            )
+
+            if discarded:
+                return Response(status=status.HTTP_204_NO_CONTENT)
+            else:
+                return Response(
+                    {"error": "Draft not found or already discarded"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        except TransactionDraft.DoesNotExist:
+            return Response(
+                {"error": "Draft not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )

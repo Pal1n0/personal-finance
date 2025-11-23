@@ -262,6 +262,14 @@ class BaseAPITestCase(APITestCase):
         self.expense_category.children.add(self.child_expense_category)
         self.income_category.children.add(self.child_income_category)
 
+        # Create a valid leaf category (level 5) for transaction tests
+        self.leaf_expense_category = ExpenseCategoryFactory(
+            version=self.expense_version, name="Leaf Expense Category", level=5
+        )
+        self.leaf_income_category = IncomeCategoryFactory(
+            version=self.income_version, name="Leaf Income Category", level=5
+        )
+
     def _create_dynamic_test_data(self): # Now an instance method
         """Create DYNAMIC test data that might be modified during tests."""
         self._create_test_transactions()
@@ -288,7 +296,7 @@ class BaseAPITestCase(APITestCase):
             type="expense",
             expense_category=self.expense_category,
             original_currency="EUR",
-            tags=[]  # CRITICAL: Pass an empty list to prevent the factory from auto-generating tags.
+            tags=[]
         )
         # Manually assign the tags after creation for full control.
         for transaction in self.expense_transactions:
@@ -302,7 +310,7 @@ class BaseAPITestCase(APITestCase):
             type="income",
             income_category=self.income_category,
             original_currency="USD",
-            tags=[] # CRITICAL: Prevent auto-generation
+            tags=[]
         )
         for transaction in self.income_transactions:
             transaction.tags.add(travel_tag)
@@ -646,7 +654,7 @@ class SuperuserImpersonationTests(BaseAPITestCase):
         data = {
             "workspace": self.workspace.id,
             "type": "expense", 
-            "expense_category": self.expense_category.id,
+            "expense_category": self.leaf_expense_category.id,
             "original_amount": "200.00",
             "original_currency": "EUR",
             "date": "2024-01-15",
@@ -737,7 +745,7 @@ class TransactionAPITests(BaseAPITestCase):
         # Valid expense transaction
         data = { # workspace is now taken from URL, not from data
             "type": "expense",
-            "expense_category": self.expense_category.id,
+            "expense_category": self.leaf_expense_category.id,
             "original_amount": "200.00",
             "original_currency": "EUR",
             "date": "2024-01-15",
@@ -750,7 +758,7 @@ class TransactionAPITests(BaseAPITestCase):
         # Valid income transaction
         data = { # workspace is now taken from URL
             "type": "income",
-            "income_category": self.income_category.id,
+            "income_category": self.leaf_income_category.id,
             "original_amount": "500.00",
             "original_currency": "USD",
             "date": "2024-01-20",
@@ -839,12 +847,12 @@ class TransactionAPITests(BaseAPITestCase):
         self.assertEqual(self.expense_transaction.tags.first().name, "persistent-tag")
 
         # --- 4. Test update with category change ---
-        data = {"expense_category": self.child_expense_category.id}
+        data = {"expense_category": self.leaf_expense_category.id}
         response = self.client.patch(self.detail_url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.expense_transaction.refresh_from_db()
         self.assertEqual(
-            self.expense_transaction.expense_category, self.child_expense_category
+            self.expense_transaction.expense_category, self.leaf_expense_category
         )
     def test_delete_transaction_permissions(self):
         """Test transaction deletion with permission validation."""
@@ -999,12 +1007,15 @@ class CategoryAPITests(BaseAPITestCase):
             kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
         )
 
+        # Create a new category as a child of the existing root `self.expense_category`.
+        # Use `parent_id` so the backend knows where to attach the new node.
         sync_data = [
             {
+                "temp_id": "t1",
                 "name": "New Expense Category",
-                "level": 1,
+                "level": self.expense_category.level + 1,
                 "description": "Synced category",
-                "children": [],
+                "parent_id": self.expense_category.id,
             }
         ]
         data = {"create": sync_data}
@@ -1014,18 +1025,29 @@ class CategoryAPITests(BaseAPITestCase):
 
     def test_category_move_validation_used_category(self):
         """Test that used category cannot be moved."""
-        # Create transaction with category
+        # ARRANGE
+        # Create a valid structure: Parent (L4) -> Leaf Child (L5)
+        parent_category = ExpenseCategoryFactory(
+            version=self.expense_version, name="Parent Category L4", level=4
+        )
+        leaf_category = ExpenseCategoryFactory(
+            version=self.expense_version, name="Leaf Child L5", level=5
+        )
+        parent_category.children.add(leaf_category)
+
+        # Create a transaction using the valid leaf category (level 5)
         Transaction.objects.create(
             user=self.user,
             workspace=self.workspace,
-            expense_category=self.child_expense_category,
+            expense_category=leaf_category, # Correctly use a level 5 category
             type="expense",
             original_amount=100.00,
             original_currency="EUR",
             date=timezone.now().date(),
         )
 
-        # Try to move used category via sync endpoint
+        # ACTION
+        # Try to move the PARENT of the used category. This should be blocked.
         url = reverse(
             "workspace-category-sync",
             kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
@@ -1034,8 +1056,8 @@ class CategoryAPITests(BaseAPITestCase):
         sync_data = {
             "update": [
                 {
-                    "id": self.child_expense_category.id,
-                    "name": self.child_expense_category.name,
+                    "id": parent_category.id, # Attempt to move the parent
+                    "name": parent_category.name,
                     "level": 1,
                     "parent_id": None,
                 }
@@ -1043,51 +1065,85 @@ class CategoryAPITests(BaseAPITestCase):
         }
 
         response = self.client.post(url, sync_data, format="json")
-        # Should fail for used category
+
+        # ASSERT: The move should be rejected because a child category is used.
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_category_move_validation_unused_category(self):
-        url = reverse(
-            "workspace-category-sync",
-            kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
-        )
+        """
+        Test moving a category where the frontend provides placeholder categories
+        to maintain a uniform tree depth, which the backend must validate.
+        """
+        # ARRANGE
+        # Rule: All branches in this test will have a uniform depth of 4.
+        #
+        # Initial State:
+        # root (lvl 1)
+        # ├── Old Parent (lvl 2)
+        # │   └── Category to Move (lvl 3)
+        # │       └── Leaf Child (lvl 4)
+        # └── New Parent (lvl 2)
+        #     └── Sibling (lvl 3)
+        #         └── Sibling Leaf (lvl 4)
 
-        # Frontend's temporary ID for the new category
-        temp_new_child_id = "temp_grandchild_1"
+        root_category = self.expense_category
 
-        sync_data = {
+        # Step 1: Create all categories without parent relationships first.
+        old_parent = ExpenseCategoryFactory(version=self.expense_version, level=2, name="Old Parent")
+        new_parent = ExpenseCategoryFactory(version=self.expense_version, level=2, name="New Parent")
+        category_to_move = ExpenseCategoryFactory(version=self.expense_version, level=3, name="Category to Move")
+        leaf_child = ExpenseCategoryFactory(version=self.expense_version, level=4, name="Leaf Child")
+        sibling = ExpenseCategoryFactory(version=self.expense_version, level=3, name="Sibling")
+        sibling_leaf = ExpenseCategoryFactory(version=self.expense_version, level=4, name="Sibling Leaf")
+
+        # Step 2: Manually establish the initial parent-child relationships.
+        root_category.children.add(old_parent, new_parent)
+        old_parent.children.add(category_to_move)
+        category_to_move.children.add(leaf_child)
+        new_parent.children.add(sibling)
+        sibling.children.add(sibling_leaf)
+
+        # ACTION
+        # The frontend calculates that moving "Category to Move" will leave a gap.
+        # It must send `create` operations for placeholders to extend the old branch
+        # back to the required uniform depth of 4.
+        payload = {
+            "update": [{
+                "id": category_to_move.id,
+                "parent_id": new_parent.id,
+                "name": category_to_move.name,  # Include name for validation
+                "level": category_to_move.level, # Include level for validation
+            }],
             "create": [
-                {
-                    "temp_id": temp_new_child_id,
-                    "name": "Grandchild Expense Category",
-                    "level": 2, # Will be child of level 1 category
-                    "parent_temp_id": self.child_expense_category.id, # New parent by its real ID
-                }
+                {"temp_id": "p1", "name": "Placeholder 3", "level": 3, "parent_id": old_parent.id},
+                {"temp_id": "p2", "name": "Placeholder 4", "level": 4, "parent_temp_id": "p1"},
             ],
-            "update": [
-                # Existing parent of self.child_expense_category. No change to its own properties.
-                # Its children relationship is implicitly updated by child_expense_category changing parent.
-                {
-                    "id": self.expense_category.id,
-                    "name": self.expense_category.name,
-                    "level": self.expense_category.level,
-                    "parent_id": None,
-                },
-                # The category being moved to top level
-                {
-                    "id": self.child_expense_category.id,
-                    "name": self.child_expense_category.name,
-                    "level": 1, # Moved to top level
-                    "parent_id": None, # No parent at top level
-                },
-            ],
-            "delete": []
+            "delete": [],
         }
+        url = reverse("workspace-category-sync", kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"})
+        response = self.client.post(url, payload, format="json")
+        print(response.data)
 
-        response = self.client.post(url, sync_data, format="json")
 
-        # Should succeed for unused category
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # ASSERT
+        # The backend should accept this complete and valid payload.
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+        # Verify the move was successful.
+        category_to_move.refresh_from_db()
+        self.assertEqual(category_to_move.parents.first(), new_parent)
+
+        # Verify the placeholders were created correctly to maintain uniform depth.
+        # This is a more robust way to check than a complex filter.
+        try:
+            placeholder_3 = ExpenseCategory.objects.get(name="Placeholder 3", version=self.expense_version)
+            placeholder_4 = ExpenseCategory.objects.get(name="Placeholder 4", version=self.expense_version)
+        except ExpenseCategory.DoesNotExist:
+            self.fail("Placeholder categories were not created in the database.")
+
+        self.assertEqual(placeholder_3.parents.first(), old_parent, "Placeholder 3 should be a child of Old Parent")
+        self.assertEqual(placeholder_4.parents.first(), placeholder_3, "Placeholder 4 should be a child of Placeholder 3")
+
 
     def test_leaf_category_with_transactions_cannot_move(self):
         """Test that leaf category (level 5) with transactions cannot be moved."""
@@ -1415,7 +1471,7 @@ class ExchangeRateAPITests(BaseAPITestCase):
         self.assertGreaterEqual(len(rates_data), 5)  # Multiple currencies
 
         # Test filtering by currency
-        response = self.client.get(self.list_url, {"currency": "USD"})
+        response = self.client.get(self.list_url, {"currencies": "USD"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         rates_data = self._get_response_data(response)
         for rate in rates_data:
@@ -1449,13 +1505,14 @@ class WorkspaceMembershipCRUDTests(BaseAPITestCase):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        members_data = self._get_response_data(response)
+        response_data = self._get_response_data(response)
+        members_list = response_data.get("members", [])
         
         # Should have at least owner and viewer
-        self.assertGreaterEqual(len(members_data), 2)
+        self.assertGreaterEqual(len(members_list), 2)
         
         # Verify membership data structure
-        for member in members_data:
+        for member in members_list:
             self.assertIn('user_id', member)
             self.assertIn('role', member)
             self.assertIn('joined_at', member)
@@ -1492,7 +1549,7 @@ class WorkspaceMembershipCRUDTests(BaseAPITestCase):
         }
         
         response = self.client.delete(url, remove_data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         
         # Verify member was removed
         self.assertFalse(
@@ -1508,6 +1565,9 @@ class WorkspaceAdminCRUDTests(BaseAPITestCase):
 
     def test_list_workspace_admins(self):
         """Test listing all workspace admins."""
+        # This endpoint is for superusers only.
+        self._authenticate_user(self.superuser)
+
         url = reverse("workspaceadmin-list") + f"?workspace={self.workspace.id}"
         response = self.client.get(url)
         
@@ -1521,7 +1581,7 @@ class WorkspaceAdminCRUDTests(BaseAPITestCase):
         for admin in admins_data:
             self.assertIn('user_id', admin)
             self.assertIn('is_active', admin)
-            self.assertIn('assigned_by', admin)
+            self.assertIn('assigned_by_username', admin)
             
     def test_deactivate_workspace_admin(self):
         """Test deactivating workspace admin."""
@@ -1786,8 +1846,9 @@ class AdminImpersonationAdvancedTests(BaseAPITestCase):
         self._authenticate_user(self.superuser)
         
         # Impersonate viewer user
-        url = reverse(TRANSACTION_LIST) + f"?user_id={self.other_user.id}"
-        response = self.client.get(url)
+        url = reverse("workspace-transaction-list", kwargs={"workspace_pk": self.workspace.pk})
+        url_with_impersonation = f"{url}?user_id={self.other_user.id}"
+        response = self.client.get(url_with_impersonation)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
@@ -1799,8 +1860,6 @@ class WorkspaceAdminManagementTests(BaseAPITestCase):
         self._authenticate_user(self.superuser)
         
         new_admin = UserFactory()
-        url = reverse("workspace-assign-admin")
-        # The action is on the viewset, so we use the basename and the action name.
         url = reverse("workspaceadmin-assign-admin", kwargs={"workspace_pk": self.workspace.id})
         assign_data = {
             "user_id": new_admin.id,
@@ -1852,16 +1911,33 @@ class WorkspaceOwnershipTests(BaseAPITestCase):
         
     def test_owner_permissions_after_transfer(self):
         """Test original owner permissions after ownership transfer."""
-        # Transfer ownership
-        self.workspace.owner = self.workspace_admin_user
-        self.workspace.save()
+        # 1. Authenticate as the current owner of the workspace.
+        self._authenticate_user(self.user)
+        # 1. Authenticate as a superuser, who has permission to change ownership.
+        self._authenticate_user(self.superuser)
+
+        # 2. Transfer ownership from the original owner (self.user) to a new owner.
+        transfer_url = reverse("workspace-change-owner", kwargs={"pk": self.workspace.pk})
+        transfer_data = {
+            "new_owner_id": self.other_user.id,
+            "old_owner_action": "editor"  # Demote original owner to editor
+        }
+        response = self.client.post(transfer_url, transfer_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+        # Verify ownership was transferred
+        self.workspace.refresh_from_db()
+        self.assertEqual(self.workspace.owner, self.other_user)
         
-        # Original owner should still have access but not full control
+        # 3. Re-authenticate as the original owner to check their new permissions
+        self._authenticate_user(self.user)
+
+        # 4. Verify original owner still has access but not full control (e.g., cannot delete)
         response = self.client.get(reverse(WORKSPACE_DETAIL, kwargs={"pk": self.workspace.pk}))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-
-class MemberRoleManagementTests(BaseAPITestCase):
+        # Attempting to delete should now be forbidden for the original owner
+        delete_response = self.client.delete(reverse(WORKSPACE_DETAIL, kwargs={"pk": self.workspace.pk}))
+        self.assertEqual(delete_response.status_code, status.HTTP_403_FORBIDDEN)
     """Tests for member role management functionality."""
     
     def test_promote_member_to_editor(self):

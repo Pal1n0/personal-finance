@@ -10,6 +10,7 @@ import collections
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -707,15 +708,31 @@ class CategoryDescendantsMixin:
         if include_self:
             descendants.add(self)
 
-        # A deque is used for an efficient queue implementation (BFS)
-        queue = collections.deque(self.children.all())
+        # --- OPTIMIZATION: Avoid N+1 queries by fetching all relevant categories at once ---
+
+        # 1. Get all categories from the same version in a single query.
+        # This is much more efficient than traversing the tree with individual queries.
+        all_categories = self.__class__.objects.filter(version=self.version).prefetch_related('parents')
+
+        # 2. Build an in-memory map of parent-child relationships.
+        # This avoids hitting the database inside the loop.
+        children_map = collections.defaultdict(list)
+        for category in all_categories:
+            for parent in category.parents.all():
+                children_map[parent.id].append(category)
+
+        # 3. Use a queue for a breadth-first search (BFS) on the in-memory map.
+        queue = collections.deque()
+        # Start the queue with the direct children of the current instance from our map.
+        queue.extend(children_map.get(self.id, []))
 
         while queue:
             child = queue.popleft()
             if child not in descendants:
                 descendants.add(child)
-                # Add the children of the current child to the queue for further processing
-                queue.extend(child.children.all())
+                # Get the next level of children from our in-memory map, not the database.
+                if child.id in children_map:
+                    queue.extend(children_map[child.id])
 
         return descendants
 
@@ -742,6 +759,11 @@ class ExpenseCategoryVersion(models.Model):
     def __str__(self):
         """String representation of ExpenseCategoryVersion."""
         return f"{self.workspace.name} - Expense"
+
+    # Number of levels for this version (1..5). Frontend may change this per-version.
+    levels_count = models.PositiveSmallIntegerField(
+        default=1, validators=[MinValueValidator(1), MaxValueValidator(5)]
+    )
 
     def clean(self):
         """Validate expense category version data."""
@@ -989,13 +1011,30 @@ class ExpenseCategory(CategoryDescendantsMixin, models.Model):
         """Validate category data and relationships with comprehensive checks."""
         super().clean()
 
-        # Validate level constraints
-        if self.level < 1 or self.level > 5:
-            raise ValidationError("Category level must be between 1 and 5")
+        # Determine allowed range from version-configured levels_count.
+        # Business rule: leaf is always level 5. `levels_count` represents how many
+        # levels exist ending at level 5 (e.g., levels_count=3 -> valid levels 3..5).
+        levels_count = int(getattr(self.version, "levels_count", 5))
+        min_level = 6 - levels_count
+        if self.level < min_level or self.level > 5:
+            raise ValidationError(f"Category level must be between {min_level} and 5")
 
         # Validate name
         if not self.name or len(self.name.strip()) < 2:
             raise ValidationError("Category name must be at least 2 characters long")
+
+        # Parent constraints: non-root must have exactly one parent; root must have none
+        parent_count = self.parents.count()
+        if self.level == min_level and parent_count > 0:
+            raise ValidationError(f"Level {min_level} category cannot have a parent")
+        if self.level > min_level and parent_count != 1:
+            raise ValidationError("Non-root categories must have exactly one parent")
+
+        # Child constraints: leaves (level 5) must have no children; non-leaves (level < 5) must have at least one child
+        if self.level == 5 and self.children.exists():
+            raise ValidationError(f"Leaf category '{self.name}' (level 5) should not have children")
+        if self.level < 5 and not self.children.exists():
+            raise ValidationError(f"Non-leaf category '{self.name}' (level {self.level}) must have at least one child")
 
         # Validate child relationships with enhanced checks
         for child in self.children.all():
@@ -1093,6 +1132,11 @@ class IncomeCategoryVersion(models.Model):
     def __str__(self):
         """String representation of IncomeCategoryVersion."""
         return f"{self.workspace.name} - Income"
+
+    # Number of levels for this version (1..5). Frontend may change this per-version.
+    levels_count = models.PositiveSmallIntegerField(
+        default=1, validators=[MinValueValidator(1), MaxValueValidator(5)]
+    )
 
     def clean(self):
         """Validate income category version data."""
@@ -1340,13 +1384,30 @@ class IncomeCategory(CategoryDescendantsMixin, models.Model):
         """Validate category data and relationships with comprehensive checks."""
         super().clean()
 
-        # Validate level constraints
-        if self.level < 1 or self.level > 5:
-            raise ValidationError("Category level must be between 1 and 5")
+        # Determine allowed range from version-configured levels_count.
+        # Business rule: leaf is always level 5. `levels_count` represents how many
+        # levels exist ending at level 5 (e.g., levels_count=3 -> valid levels 3..5).
+        levels_count = int(getattr(self.version, "levels_count", 5))
+        min_level = 6 - levels_count
+        if self.level < min_level or self.level > 5:
+            raise ValidationError(f"Category level must be between {min_level} and 5")
 
         # Validate name
         if not self.name or len(self.name.strip()) < 2:
             raise ValidationError("Category name must be at least 2 characters long")
+
+        # Parent constraints: non-root must have exactly one parent; root must have none
+        parent_count = self.parents.count()
+        if self.level == min_level and parent_count > 0:
+            raise ValidationError(f"Level {min_level} category cannot have a parent")
+        if self.level > min_level and parent_count != 1:
+            raise ValidationError("Non-root categories must have exactly one parent")
+
+        # Child constraints: leaves (level 5) must have no children; non-leaves (level < 5) must have at least one child
+        if self.level == 5 and self.children.exists():
+            raise ValidationError(f"Leaf category '{self.name}' (level 5) should not have children")
+        if self.level < 5 and not self.children.exists():
+            raise ValidationError(f"Non-leaf category '{self.name}' (level {self.level}) must have at least one child")
 
         # Validate child relationships with enhanced checks
         for child in self.children.all():

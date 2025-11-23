@@ -102,9 +102,9 @@ class WorkspaceContextService:
 
     def _get_user_id_param(self, request):
         """Extract and validate user_id parameter from request."""
-        user_id = request.GET.get("user_id") or getattr(request, "data", {}).get(
-            "user_id"
-        )
+        # Impersonation should ONLY be triggered by a URL query parameter,
+        # not by a user_id in the request body (which could be for other purposes).
+        user_id = request.GET.get("user_id")
 
         if user_id:
             try:
@@ -369,24 +369,24 @@ class WorkspaceContextService:
             )
             return
 
+        # Always check for admin status, regardless of membership role.
+        # An admin might not have a direct 'viewer' or 'editor' role but still has rights.
+        is_admin = self.membership_service.is_workspace_admin(
+            request.user.id, workspace_id
+        )
+        request.user_permissions["is_workspace_admin"] = is_admin
+
+        # Now, check for a specific membership role.
         role = self.membership_service.get_user_workspace_role(
             request.user.id, workspace_id
         )
-        if role:
-            request.user_permissions["workspace_role"] = role
-            request.user_permissions["is_workspace_admin"] = (
-                self.membership_service.is_workspace_admin(
-                    request.user.id, workspace_id
-                )
-            )
+        request.user_permissions["workspace_role"] = role
 
+        # If the user is a member or an admin, pre-cache categories for performance.
+        if role or is_admin:
             if request.workspace:
-                request._cached_expense_categories = ExpenseCategory.objects.filter(
-                    version__workspace=request.workspace, version__is_active=True
-                ).select_related("version")
-                request._cached_income_categories = IncomeCategory.objects.filter(
-                    version__workspace=request.workspace, version__is_active=True
-                ).select_related("version")
+                request._cached_expense_categories = ExpenseCategory.objects.filter(version__workspace=request.workspace, version__is_active=True).select_related("version")
+                request._cached_income_categories = IncomeCategory.objects.filter(version__workspace=request.workspace, version__is_active=True).select_related("version")
 
             logger.debug(
                 "Workspace access permissions validated and set",
@@ -394,24 +394,31 @@ class WorkspaceContextService:
                     "user_id": request.user.id,
                     "workspace_id": workspace_id,
                     "role": role,
-                    "is_workspace_admin": request.user_permissions[
-                        "is_workspace_admin"
-                    ],
+                    "is_workspace_admin": is_admin,
                     "action": "workspace_permissions_set",
                     "component": "WorkspaceContextService",
                 },
             )
-        else:
-            logger.warning(
-                "User is not a member of the requested workspace",
-                extra={
-                    "user_id": request.user.id,
-                    "workspace_id": workspace_id,
-                    "action": "workspace_access_denied",
-                    "component": "WorkspaceContextService",
-                    "severity": "medium",
-                },
-            )
+
+        print(f"\n[DEBUG] _process_workspace_context:")
+        print(f"  - User ID: {request.user.id}")
+        print(f"  - Workspace ID: {workspace_id}")
+        print(f"  - Is Admin (is_admin): {is_admin}")
+        print(f"  - Role (role): {role}\n")
+
+        # This block should be outside the 'if role or is_admin' block
+        if not role and not is_admin:
+             logger.warning(
+                 "User is not a member or admin of the requested workspace",
+                 extra={
+                     "user_id": request.user.id,
+                     "workspace_id": workspace_id,
+                     "action": "workspace_access_denied",
+                     "component": "WorkspaceContextService",
+                     "severity": "medium",
+                 },
+             )
+
 
     def _reset_impersonation(self, request):
         """Reset impersonation settings to secure defaults."""

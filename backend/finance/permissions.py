@@ -226,6 +226,13 @@ class IsWorkspaceOwner(permissions.BasePermission):
             or user_role == "owner"
         )
 
+        print(f"\n[DEBUG] IsWorkspaceOwner CHECK:")
+        print(f"  - User ID: {request.user.id}")
+        print(f"  - Is Superuser: {permissions_data.get('is_superuser')}")
+        print(f"  - Is Workspace Admin: {permissions_data.get('is_workspace_admin')}")
+        print(f"  - User Role: {user_role}")
+        print(f"  - Is Authorized: {is_authorized}\n")
+
         if is_authorized:
             logger.debug(
                 "Ownership-level access granted",

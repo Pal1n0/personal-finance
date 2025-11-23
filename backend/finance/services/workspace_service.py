@@ -187,42 +187,25 @@ class WorkspaceService:
                     f"old_owner_action must be one of: {', '.join(valid_actions)}"
                 )
 
-            old_owner = workspace.owner
-
-            # Update workspace owner
-            workspace.owner = new_owner
-            workspace.save()
-
-            # Handle old owner based on action parameter
-            if old_owner_action == "remove":
-                # Remove old owner completely from workspace
-                WorkspaceMembership.objects.filter(
-                    workspace=workspace, user=old_owner
-                ).delete()
-                WorkspaceAdmin.objects.filter(
-                    workspace=workspace, user=old_owner
-                ).update(is_active=False)
-                new_role = None
-            else:
-                # Change old owner's role to specified role
-                WorkspaceMembership.objects.filter(
-                    workspace=workspace, user=old_owner
-                ).update(role=old_owner_action)
-                new_role = old_owner_action
-
-            # Invalidate cache for both users
-            self.membership_service.invalidate_user_cache(old_owner.id)
-            self.membership_service.invalidate_user_cache(new_owner.id)
+            # This single call handles all validation, membership updates, and saving
+            # in an atomic transaction, preventing data inconsistency.
+            try:
+                workspace.change_owner(
+                    new_owner=new_owner,
+                    changed_by=changed_by,
+                    old_owner_action=old_owner_action
+                )
+            except (PermissionError, ValidationError) as e:
+                # Re-raise as a service-level exception for the view to handle
+                raise WorkspaceServiceError(str(e)) from e
 
             logger.info(
                 "Workspace ownership transferred successfully",
                 extra={
                     "workspace_id": workspace.id,
-                    "old_owner_id": old_owner.id,
                     "new_owner_id": new_owner.id,
                     "changed_by_id": changed_by.id,
                     "old_owner_action": old_owner_action,
-                    "old_owner_new_role": new_role,
                     "action": "workspace_ownership_transfer_success",
                     "component": "WorkspaceService",
                 },

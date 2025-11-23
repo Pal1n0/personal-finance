@@ -285,40 +285,38 @@ class MembershipService:
                     "You don't have permission to view workspace members"
                 )
 
-            # Use cache service to get members
-            user_data = self.cache_service.get_comprehensive_user_data(
-                requesting_user.id
-            )
-            memberships_data = user_data.get("memberships", {})
+            # OPTIMIZATION: Fetch all members and their roles in a single, optimized query.
+            # This is more reliable than trying to construct the list from a single user's cache.
+            memberships = WorkspaceMembership.objects.filter(
+                workspace=workspace
+            ).select_related('user')
 
-            # Get all members for this workspace from cache
-            all_members_data = []
-            for user_id, user_cache_data in memberships_data.items():
-                if user_cache_data.get("workspace_id") == workspace.id:
-                    member_data = {
-                        "user_id": user_id,
-                        "username": user_cache_data.get("user__username", ""),
-                        "email": user_cache_data.get("user__email", ""),
-                        "role": user_cache_data.get("role"),
-                        "joined_at": user_cache_data.get("joined_at"),
-                        "is_owner": workspace.owner_id == user_id,
-                        "is_admin": self.cache_service.is_workspace_admin(
-                            user_id, workspace.id
-                        ),
-                    }
-                    all_members_data.append(member_data)
+            members_data = []
+            for membership in memberships:
+                user_id = membership.user.id
+                members_data.append({
+                    "user_id": user_id,
+                    "username": membership.user.username,
+                    "email": membership.user.email,
+                    "role": membership.role,
+                    "joined_at": membership.joined_at,
+                    "is_owner": workspace.owner_id == user_id,
+                    "is_admin": self.cache_service.is_workspace_admin(
+                        user_id, workspace.id
+                    ),
+                })
 
             logger.debug(
-                "Workspace members retrieved successfully from cache",
+                "Workspace members retrieved successfully",
                 extra={
                     "workspace_id": workspace.id,
-                    "member_count": len(all_members_data),
+                    "member_count": len(members_data),
                     "action": "workspace_members_retrieval_success",
                     "component": "MembershipService",
                 },
             )
 
-            return all_members_data
+            return members_data
 
         except PermissionDenied:
             raise
@@ -431,7 +429,7 @@ class MembershipService:
         user_role = self.cache_service.get_user_workspace_role(user.id, workspace.id)
         is_admin = self.cache_service.is_workspace_admin(user.id, workspace.id)
 
-        return user_role in ["admin", "owner"] or is_admin
+        return user_role == "owner" or is_admin
 
     def _can_view_members(self, workspace: Workspace, user) -> bool:
         """

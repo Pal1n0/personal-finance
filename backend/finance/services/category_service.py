@@ -133,21 +133,13 @@ class CategoryService:
             is_used = check_category_usage(category.id, type(category))
 
             # Enhanced move restriction analysis
-            can_be_moved = (
-                not is_used or category.level != 5
-            )  # Non-leaf or unused leaf can be moved
+            # Business rule: leaf is always level 5
+            can_be_moved = (not is_used or category.level != 5)
 
             move_restrictions = {
-                "reason": (
-                    "Used in transactions"
-                    if is_used and category.level == 5
-                    else "None"
-                ),
-                "requires_confirmation": category.level != 5
-                and not is_used,  # Non-leaf categories need confirmation
-                "transaction_count": (
-                    self._get_category_transaction_count(category) if is_used else 0
-                ),
+                "reason": ("Used in transactions" if is_used and category.level == 5 else "None"),
+                "requires_confirmation": category.level != 5 and not is_used,
+                "transaction_count": (self._get_category_transaction_count(category) if is_used else 0),
             }
 
             result = {
