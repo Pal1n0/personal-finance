@@ -1047,29 +1047,41 @@ class CategoryAPITests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_category_move_validation_unused_category(self):
-        """Test that unused category can be moved."""
-        # Ensure category is not used
-        self.assertFalse(
-            Transaction.objects.filter(
-                expense_category=self.child_expense_category
-            ).exists()
-        )
-
-        # Move unused category via sync endpoint
         url = reverse(
             "workspace-category-sync",
             kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
         )
 
+        # Frontend's temporary ID for the new category
+        temp_new_child_id = "temp_grandchild_1"
+
         sync_data = {
+            "create": [
+                {
+                    "temp_id": temp_new_child_id,
+                    "name": "Grandchild Expense Category",
+                    "level": 2, # Will be child of level 1 category
+                    "parent_temp_id": self.child_expense_category.id, # New parent by its real ID
+                }
+            ],
             "update": [
+                # Existing parent of self.child_expense_category. No change to its own properties.
+                # Its children relationship is implicitly updated by child_expense_category changing parent.
+                {
+                    "id": self.expense_category.id,
+                    "name": self.expense_category.name,
+                    "level": self.expense_category.level,
+                    "parent_id": None,
+                },
+                # The category being moved to top level
                 {
                     "id": self.child_expense_category.id,
                     "name": self.child_expense_category.name,
-                    "level": 1,
-                    "parent_id": None,
-                }
-            ]
+                    "level": 1, # Moved to top level
+                    "parent_id": None, # No parent at top level
+                },
+            ],
+            "delete": []
         }
 
         response = self.client.post(url, sync_data, format="json")

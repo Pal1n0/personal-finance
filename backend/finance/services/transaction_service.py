@@ -7,6 +7,7 @@ operations with atomicity guarantees and comprehensive error handling.
 
 import logging
 from datetime import date
+from decimal import Decimal
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import transaction as db_transaction
@@ -1116,7 +1117,8 @@ class TransactionService:
         # Amount validation
         if "original_amount" in data:
             try:
-                amount = float(data["original_amount"])
+                # Attempt to convert to Decimal for validation and consistent typing
+                amount = Decimal(str(data["original_amount"]))
                 if amount <= 0:
                     raise ValidationError("Amount must be positive")
             except (ValueError, TypeError):
