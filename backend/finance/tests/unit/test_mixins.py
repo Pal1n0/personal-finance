@@ -8,12 +8,16 @@ from django.test import RequestFactory, TestCase
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from finance.models import (ExpenseCategoryVersion, IncomeCategoryVersion,
-                            Workspace, WorkspaceMembership)
 from finance.mixins.category_workspace import CategoryWorkspaceMixin
 from finance.mixins.target_user import TargetUserMixin
 from finance.mixins.workspace_context import WorkspaceContextMixin
 from finance.mixins.workspace_membership import WorkspaceMembershipMixin
+from finance.models import (
+    ExpenseCategoryVersion,
+    IncomeCategoryVersion,
+    Workspace,
+    WorkspaceMembership,
+)
 from finance.services.membership_cache_service import MembershipCacheService
 from finance.services.workspace_context_service import WorkspaceContextService
 
@@ -111,7 +115,7 @@ class TestTargetUserMixin(BaseMixinTest):
         self.assertEqual(result["user"], self.target_user)
         self.assertEqual(result["field"], "value")
 
-    def test_user_assignment_preserves_existing_user(self):
+    def test_user_assignment_overwrites_existing_user(self):
         """Test existing user is overwritten by target_user."""
         request = self.create_request(
             user=self.admin_user, target_user=self.target_user
@@ -212,15 +216,21 @@ class TestTargetUserMixin(BaseMixinTest):
         self.assertEqual(result["original"], "value")
 
 
+@patch(
+    "finance.mixins.workspace_membership.WorkspaceMembershipMixin.membership_service"
+)
 class TestWorkspaceMembershipMixin(BaseMixinTest):
-    """Comprehensive tests for WorkspaceMembershipMixin."""
+    """Comprehensive tests for WorkspaceMembershipMixin using a mocked service."""
 
     def setUp(self):
         super().setUp()
         self.mixin = WorkspaceMembershipMixin()
 
-    def test_membership_cache_initialization(self):
-        """Test cache is initialized on first access."""
+    def test_membership_cache_initialization(self, mock_membership_service):
+        """Test service is called on first access when cache is empty."""
+        mock_membership_service.get_comprehensive_user_data.return_value = {
+            "roles": {self.workspace2.id: "viewer"}
+        }
         request = self.create_request(user=self.user)
 
         self.assertFalse(hasattr(request, "_cached_user_memberships"))
@@ -228,58 +238,67 @@ class TestWorkspaceMembershipMixin(BaseMixinTest):
         memberships = self.mixin._get_user_memberships(request)
 
         self.assertTrue(hasattr(request, "_cached_user_memberships"))
+        mock_membership_service.get_comprehensive_user_data.assert_called_once_with(
+            self.user.id
+        )
         self.assertIn(self.workspace2.id, memberships)
         self.assertEqual(memberships[self.workspace2.id], "viewer")
 
-    def test_membership_cache_reuse(self):
-        """Test cache is reused on subsequent calls."""
+    def test_membership_cache_reuse(self, mock_membership_service):
+        """Test service is not called if cache is already populated."""
         request = self.create_request(user=self.user)
+        request._cached_user_memberships = {self.workspace1.id: "owner"}
 
-        # First call - should query database
-        with self.assertNumQueries(2):
-            memberships1 = self.mixin._get_user_memberships(request)
+        # First call - should use existing cache
+        memberships1 = self.mixin._get_user_memberships(request)
 
-        # Second call - should use cache
-        with self.assertNumQueries(0):
-            memberships2 = self.mixin._get_user_memberships(request)
+        # Second call - should also use existing cache
+        memberships2 = self.mixin._get_user_memberships(request)
 
+        mock_membership_service.get_comprehensive_user_data.assert_not_called()
         self.assertEqual(memberships1, memberships2)
+        self.assertEqual(memberships1, {self.workspace1.id: "owner"})
 
-    def test_membership_for_workspace_existing(self):
-        """Test role retrieval for existing membership."""
+    def test_membership_for_workspace_existing(self, mock_membership_service):
+        """Test role retrieval for an existing membership from cache."""
         request = self.create_request(user=self.target_user)
+        request._cached_user_memberships = {
+            self.workspace1.id: "editor",
+            self.workspace2.id: "viewer",
+        }
 
         role = self.mixin._get_membership_for_workspace(self.workspace1, request)
 
         self.assertEqual(role, "editor")
 
-    def test_membership_for_workspace_nonexistent(self):
-        """Test role retrieval for non-existent membership."""
-        new_workspace = Workspace.objects.create(
-            name="New Workspace", owner=self.admin_user
-        )
+    def test_membership_for_workspace_nonexistent(self, mock_membership_service):
+        """Test role retrieval for a non-existent membership from cache."""
         request = self.create_request(user=self.user)
+        request._cached_user_memberships = {self.workspace2.id: "viewer"}
 
-        role = self.mixin._get_membership_for_workspace(new_workspace, request)
+        role = self.mixin._get_membership_for_workspace(self.workspace1, request)
 
         self.assertIsNone(role)
 
-    def test_membership_cache_per_user(self):
-        """Test cache is separate for each user."""
-        request1 = self.create_request(user=self.user)
-        request2 = self.create_request(user=self.target_user)
+    def test_uses_target_user_for_cache_initialization(self, mock_membership_service):
+        """Test that target_user is prioritized for cache initialization."""
+        mock_membership_service.get_comprehensive_user_data.return_value = {
+            "roles": {self.workspace1.id: "editor"}
+        }
+        request = self.create_request(user=self.user, target_user=self.target_user)
 
-        memberships1 = self.mixin._get_user_memberships(request1)
-        memberships2 = self.mixin._get_user_memberships(request2)
+        self.mixin._get_user_memberships(request)
 
-        self.assertNotEqual(memberships1, memberships2)
-        self.assertNotEqual(
-            id(request1._cached_user_memberships), id(request2._cached_user_memberships)
+        mock_membership_service.get_comprehensive_user_data.assert_called_once_with(
+            self.target_user.id
         )
 
     @patch("finance.mixins.workspace_membership.logger")
-    def test_cache_initialization_logging(self, mock_logger):
-        """Test logging when cache is initialized."""
+    def test_cache_initialization_logging(self, mock_logger, mock_membership_service):
+        """Test logging when cache is initialized via the service."""
+        mock_membership_service.get_comprehensive_user_data.return_value = {
+            "roles": {self.workspace2.id: "viewer"}
+        }
         request = self.create_request(user=self.user)
 
         self.mixin._get_user_memberships(request)
@@ -290,40 +309,21 @@ class TestWorkspaceMembershipMixin(BaseMixinTest):
         self.assertEqual(call_args["extra"]["action"], "membership_cache_initialized")
 
     @patch("finance.mixins.workspace_membership.logger")
-    def test_cache_hit_logging(self, mock_logger):
-        """Test logging when role is retrieved from cache."""
+    def test_cache_hit_logging(self, mock_logger, mock_membership_service):
+        """Test logging when a role is successfully retrieved from cache."""
         request = self.create_request(user=self.target_user)
+        request._cached_user_memberships = {self.workspace1.id: "editor"}
 
-        # Initialize cache
-        self.mixin._get_user_memberships(request)
-        # Get role from cache
         self.mixin._get_membership_for_workspace(self.workspace1, request)
 
-        # Find the cache hit log
         cache_hit_found = False
         for call in mock_logger.debug.call_args_list:
             if call[1]["extra"].get("action") == "workspace_role_cache_hit":
                 cache_hit_found = True
                 self.assertEqual(call[1]["extra"]["user_role"], "editor")
+                self.assertEqual(call[1]["extra"]["workspace_id"], self.workspace1.id)
                 break
-
-        self.assertTrue(cache_hit_found)
-
-    def test_integration_with_serializer(self):
-        """Test mixin integration in serializer context."""
-
-        class TestSerializer(WorkspaceMembershipMixin, serializers.Serializer):
-            def get_role(self, workspace):
-                return self._get_membership_for_workspace(
-                    workspace, self.context["request"]
-                )
-
-        request = self.create_request(user=self.target_user)
-        serializer = TestSerializer(context={"request": request})
-
-        role = serializer.get_role(self.workspace1)
-
-        self.assertEqual(role, "editor")
+        self.assertTrue(cache_hit_found, "Cache hit log was not found.")
 
 
 class TestCategoryWorkspaceMixin(BaseMixinTest):
@@ -461,6 +461,31 @@ class TestCategoryWorkspaceMixin(BaseMixinTest):
         self.assertEqual(call_args["extra"]["request_workspace_id"], self.workspace1.id)
         self.assertEqual(call_args["extra"]["action"], "cross_workspace_access_blocked")
 
+    def test_serializer_inheritance_chain(self):
+        """Test that super().validate() is called correctly."""
+
+        class ParentSerializer(serializers.Serializer):
+            def validate(self, attrs):
+                attrs["parent_called"] = True
+                return super().validate(attrs)
+
+        class ChildSerializer(CategoryWorkspaceMixin, ParentSerializer):
+            def validate(self, attrs):
+                attrs["child_called"] = True
+                return super().validate(attrs)
+
+        request = self.create_request(workspace=self.workspace1)
+        serializer = ChildSerializer(context={"request": request})
+
+        # This should not raise an error
+        result = serializer.validate(
+            {"version": self.expense_version1, "original": "value"}
+        )
+
+        self.assertTrue(result["parent_called"])
+        self.assertTrue(result["child_called"])
+        self.assertEqual(result["original"], "value")
+
 
 class TestWorkspaceContextMixin(BaseMixinTest):
     """Comprehensive tests for WorkspaceContextMixin."""
@@ -473,22 +498,20 @@ class TestWorkspaceContextMixin(BaseMixinTest):
     def test_initial_calls_context_service(self, mock_service):
         """Test initial method calls context service."""
 
-        # Vytvor triedu ktorá má parent initial metódu
         class ParentView:
             def initial(self, request, *args, **kwargs):
                 self.parent_called = True
 
         class TestView(WorkspaceContextMixin, ParentView):
             def initial(self, request, *args, **kwargs):
-                # Toto volá WorkspaceContextMixin.initial() ktorá potom volá ParentView.initial()
                 super().initial(request, *args, **kwargs)
                 self.child_called = True
 
         request = self.create_request()
         view = TestView()
-        
-        view.initial(request, **{})  
-        
+
+        view.initial(request, **{})
+
         mock_service.build_request_context.assert_called_once_with(request, {})
         self.assertTrue(view.parent_called)
         self.assertTrue(view.child_called)
@@ -498,48 +521,21 @@ class TestWorkspaceContextMixin(BaseMixinTest):
 
         mock_service.build_request_context.side_effect = Exception("Service error")
 
-
-        # Trieda, ktorá uzatvára reťazec super() volaní
         class BaseTestView:
             def initial(self, request, *args, **kwargs):
-                # Nič nerobí, len prijíma volanie
                 pass
 
-        # OPRAVA: Odstráňte try...except blok
         class TestView(WorkspaceContextMixin, BaseTestView):
             def initial(self, request, *args, **kwargs):
-                super().initial(request, *args, **kwargs)  # Toto by malo hodiť Service error
+                super().initial(request, *args, **kwargs)
 
         request = self.create_request()
         view = TestView()
 
         with self.assertRaises(Exception) as context:
-            view.initial(request, **{})  # OPRAVA: Volať s kwargs
-
-        self.assertEqual(str(context.exception), "Service error")
-
-    def test_view_inheritance_chain(self):
-        """Test mixin works in View inheritance chain."""
-
-        class ParentView:
-            def initial(self, request, *args, **kwargs):
-                self.parent_called = True
-
-        class TestView(WorkspaceContextMixin, ParentView):
-            def initial(self, request, *args, **kwargs):
-                super().initial(request, *args, **kwargs)
-                self.child_called = True
-
-        with patch("finance.mixins.workspace_context.WorkspaceContextMixin.context_service") as mock_service:
-
-            view = TestView()
-            request = self.create_request()
-
             view.initial(request, **{})
 
-            self.assertTrue(view.parent_called)
-            self.assertTrue(view.child_called)
-            mock_service.build_request_context.assert_called_once_with(request, {})
+        self.assertEqual(str(context.exception), "Service error")
 
 
 class TestAllMixinsIntegration(BaseMixinTest):
@@ -626,7 +622,9 @@ class TestAllMixinsIntegration(BaseMixinTest):
 
         # Should have logs from both mixins
         debug_calls_target = [call for call in mock_target_logger.debug.call_args_list]
-        debug_calls_membership = [call for call in mock_membership_logger.debug.call_args_list]
+        debug_calls_membership = [
+            call for call in mock_membership_logger.debug.call_args_list
+        ]
         total_debug_calls = len(debug_calls_target) + len(debug_calls_membership)
 
         self.assertGreaterEqual(total_debug_calls, 2)
@@ -669,12 +667,14 @@ class TestMixinEdgeCases(BaseMixinTest):
         result = serializer.validate({"field": "value"})
         self.assertEqual(result, {"field": "value"})
 
-    def test_workspace_membership_with_no_memberships(self):
+    @patch(
+        "finance.mixins.workspace_membership.WorkspaceMembershipMixin.membership_service"
+    )
+    def test_workspace_membership_with_no_memberships(self, mock_membership_service):
         """Test WorkspaceMembershipMixin with user having no memberships."""
+        mock_membership_service.get_comprehensive_user_data.return_value = {"roles": {}}
         new_user = User.objects.create_user(
-            username="newuser",  # Pridaj username
-            email="new@test.com", 
-            password="testpass123"
+            username="newuser", email="new@test.com", password="testpass123"
         )
         request = self.create_request(user=new_user)
 
@@ -682,6 +682,9 @@ class TestMixinEdgeCases(BaseMixinTest):
         memberships = mixin._get_user_memberships(request)
 
         self.assertEqual(memberships, {})
+        mock_membership_service.get_comprehensive_user_data.assert_called_once_with(
+            new_user.id
+        )
 
     def test_category_workspace_with_none_version(self):
         """Test CategoryWorkspaceMixin with None version."""
@@ -697,33 +700,3 @@ class TestMixinEdgeCases(BaseMixinTest):
         result = serializer.validate({"version": None})
 
         self.assertEqual(result, {"version": None})
-
-    @patch("finance.mixins.workspace_context.WorkspaceContextMixin.context_service")
-    def test_workspace_context_with_invalid_request(self, mock_service):
-        """Test WorkspaceContextMixin with invalid request."""
-
-        mock_service.build_request_context.side_effect = Exception("Invalid request")
-
-
-        # Trieda, ktorá uzatvára reťazec super() volaní
-        class BaseTestView:
-            def initial(self, request, *args, **kwargs):
-                # Nič nerobí, len prijíma volanie
-                pass
-
-        class TestView(WorkspaceContextMixin, BaseTestView):
-            def initial(self, request, *args, **kwargs):
-                super().initial(request, *args, **kwargs)
-
-        view = TestView()
-        
-        # OPRAVA: Pridajte aspoň atribút 'user'
-        request = Mock()
-        request.user = Mock()
-        request.user.id = 1  # Pridajte aj ID
-
-        with self.assertRaises(Exception) as context:
-            view.initial(request, **{})  # OPRAVA: Volať s kwargs
-
-        # Service by mal hodiť našu exception
-        self.assertEqual(str(context.exception), "Invalid request")

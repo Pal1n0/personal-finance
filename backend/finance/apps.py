@@ -7,6 +7,5 @@ class FinanceConfig(AppConfig):
     name = "finance"
 
     def ready(self):
-        # ✅ Načítanie signálov
-        # import finance.signals
-        pass
+        """Import signals to ensure they are connected when the app is ready."""
+        import finance.signals

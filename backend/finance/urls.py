@@ -47,7 +47,6 @@ router.register(
 urlpatterns = [
     # Include all router-generated URLs
     path("", include(router.urls)),
-
     # --- NESTED TRANSACTION ENDPOINTS ---
     path(
         "workspaces/<int:workspace_pk>/transactions/",
@@ -57,7 +56,12 @@ urlpatterns = [
     path(
         "workspaces/<int:workspace_pk>/transactions/<int:pk>/",
         views.TransactionViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
         ),
         name="workspace-transaction-detail",
     ),
@@ -70,7 +74,12 @@ urlpatterns = [
     path(
         "workspaces/<int:workspace_pk>/tags/<int:pk>/",
         views.TagViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
         ),
         name="workspace-tag-detail",
     ),
@@ -83,7 +92,12 @@ urlpatterns = [
     path(
         "workspaces/<int:workspace_pk>/transaction-drafts/<int:pk>/",
         views.TransactionDraftViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
         ),
         name="workspace-transactiondraft-detail",
     ),
@@ -97,18 +111,16 @@ urlpatterns = [
     path(
         "workspaces/<int:workspace_id>/categories/<str:category_type>/sync/",
         views.CategorySyncViewSet.as_view({"post": "sync_categories"}),
-        name="category-sync-sync-categories", # Keeping old name for backward compatibility
+        name="category-sync-sync-categories",  # Keeping old name for backward compatibility
     ),
-
-
     # Workspace members endpoint
     path(
         "workspaces/<int:pk>/members/",
         views.WorkspaceViewSet.as_view(
             {
-                "get": "members", 
-                "patch": "members", # Update member role
-                "delete": "members" # Remove member
+                "get": "members",
+                "patch": "members",  # Update member role
+                "delete": "members",  # Remove member
             }
         ),
         name="workspace-members",

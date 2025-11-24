@@ -289,22 +289,24 @@ class MembershipService:
             # This is more reliable than trying to construct the list from a single user's cache.
             memberships = WorkspaceMembership.objects.filter(
                 workspace=workspace
-            ).select_related('user')
+            ).select_related("user")
 
             members_data = []
             for membership in memberships:
                 user_id = membership.user.id
-                members_data.append({
-                    "user_id": user_id,
-                    "username": membership.user.username,
-                    "email": membership.user.email,
-                    "role": membership.role,
-                    "joined_at": membership.joined_at,
-                    "is_owner": workspace.owner_id == user_id,
-                    "is_admin": self.cache_service.is_workspace_admin(
-                        user_id, workspace.id
-                    ),
-                })
+                members_data.append(
+                    {
+                        "user_id": user_id,
+                        "username": membership.user.username,
+                        "email": membership.user.email,
+                        "role": membership.role,
+                        "joined_at": membership.joined_at,
+                        "is_owner": workspace.owner_id == user_id,
+                        "is_admin": self.cache_service.is_workspace_admin(
+                            user_id, workspace.id
+                        ),
+                    }
+                )
 
             logger.debug(
                 "Workspace members retrieved successfully",
@@ -488,9 +490,12 @@ class MembershipService:
             "can_see_inactive": can_see_inactive,
             # Workspace management
             "can_edit": (is_owner or is_admin) and workspace_active,
-            "can_activate": (is_owner or is_admin or is_superuser) and not workspace_active,
-            "can_deactivate": (is_owner or is_admin or is_superuser) and workspace_active,
-            "can_soft_delete": (is_owner or is_admin or is_superuser) and workspace_active,
+            "can_activate": (is_owner or is_admin or is_superuser)
+            and not workspace_active,
+            "can_deactivate": (is_owner or is_admin or is_superuser)
+            and workspace_active,
+            "can_soft_delete": (is_owner or is_admin or is_superuser)
+            and workspace_active,
             # Member management
             "can_manage_members": can_manage_members and workspace_active,
             "can_invite": can_manage_members and workspace_active,

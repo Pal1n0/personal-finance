@@ -10,10 +10,18 @@ from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
 from rest_framework.exceptions import PermissionDenied
 
-from ..models import (ExpenseCategory, ExpenseCategoryVersion, IncomeCategory,
-                      IncomeCategoryVersion, Transaction)
-from ..utils.category_utils import (check_category_usage, sync_categories_tree,
-                                    validate_category_hierarchy)
+from ..models import (
+    ExpenseCategory,
+    ExpenseCategoryVersion,
+    IncomeCategory,
+    IncomeCategoryVersion,
+    Transaction,
+)
+from ..utils.category_utils import (
+    check_category_usage,
+    sync_categories_tree,
+    validate_category_hierarchy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -134,12 +142,18 @@ class CategoryService:
 
             # Enhanced move restriction analysis
             # Business rule: leaf is always level 5
-            can_be_moved = (not is_used or category.level != 5)
+            can_be_moved = not is_used or category.level != 5
 
             move_restrictions = {
-                "reason": ("Used in transactions" if is_used and category.level == 5 else "None"),
+                "reason": (
+                    "Used in transactions"
+                    if is_used and category.level == 5
+                    else "None"
+                ),
                 "requires_confirmation": category.level != 5 and not is_used,
-                "transaction_count": (self._get_category_transaction_count(category) if is_used else 0),
+                "transaction_count": (
+                    self._get_category_transaction_count(category) if is_used else 0
+                ),
             }
 
             result = {

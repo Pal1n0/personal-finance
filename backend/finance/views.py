@@ -21,18 +21,42 @@ from rest_framework.response import Response
 from .mixins.service_exception_handler import ServiceExceptionHandlerMixin
 from .mixins.workspace_context import WorkspaceContextMixin
 from .mixins.workspace_membership import WorkspaceMembershipMixin
-from .models import (ExchangeRate, ExpenseCategory, ExpenseCategoryVersion, Tags,
-                     IncomeCategory, IncomeCategoryVersion, Transaction,
-                     TransactionDraft, UserSettings, Workspace, WorkspaceAdmin,
-                     WorkspaceMembership, WorkspaceSettings)
-from .permissions import (IsSuperuser, IsWorkspaceAdmin, IsWorkspaceEditor,
-                          IsWorkspaceMember, IsWorkspaceOwner)
-from .serializers import (ExchangeRateSerializer, ExpenseCategorySerializer, TagSerializer,
-                          IncomeCategorySerializer, TransactionDraftSerializer,
-                          TransactionListSerializer, TransactionSerializer,
-                          UserSettingsSerializer, WorkspaceAdminSerializer,
-                          WorkspaceMembershipSerializer, WorkspaceSerializer,
-                          WorkspaceSettingsSerializer)
+from .models import (
+    ExchangeRate,
+    ExpenseCategory,
+    ExpenseCategoryVersion,
+    IncomeCategory,
+    IncomeCategoryVersion,
+    Tags,
+    Transaction,
+    TransactionDraft,
+    UserSettings,
+    Workspace,
+    WorkspaceAdmin,
+    WorkspaceMembership,
+    WorkspaceSettings,
+)
+from .permissions import (
+    IsSuperuser,
+    IsWorkspaceAdmin,
+    IsWorkspaceEditor,
+    IsWorkspaceMember,
+    IsWorkspaceOwner,
+)
+from .serializers import (
+    ExchangeRateSerializer,
+    ExpenseCategorySerializer,
+    IncomeCategorySerializer,
+    TagSerializer,
+    TransactionDraftSerializer,
+    TransactionListSerializer,
+    TransactionSerializer,
+    UserSettingsSerializer,
+    WorkspaceAdminSerializer,
+    WorkspaceMembershipSerializer,
+    WorkspaceSerializer,
+    WorkspaceSettingsSerializer,
+)
 from .services.currency_service import CurrencyService
 from .services.draft_service import DraftService
 from .services.membership_service import MembershipService
@@ -77,7 +101,7 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
     Uses ServiceExceptionHandlerMixin for unified error handling and BaseWorkspaceViewSet for context.
     """
 
-    serializer_class = WorkspaceAdminSerializer  
+    serializer_class = WorkspaceAdminSerializer
     permission_classes = [IsAuthenticated, IsSuperuser]
 
     def __init__(self, *args, **kwargs):
@@ -87,7 +111,7 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
     def get_permissions(self):
         """Enforce superuser requirement for all administrative actions."""
         return [IsAuthenticated(), IsSuperuser()]
-    
+
     def get_queryset(self):
         """
         Secure queryset - returns empty for non-superusers to prevent information leakage.
@@ -99,12 +123,12 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             "user", "workspace", "assigned_by"
         ).order_by("-assigned_at")
 
-        workspace_id = self.request.query_params.get('workspace')
+        workspace_id = self.request.query_params.get("workspace")
         if workspace_id:
             queryset = queryset.filter(workspace_id=workspace_id)
-            
+
         return queryset
-    
+
     @action(detail=False, methods=["post"])
     def assign_admin(self, request, workspace_pk=None):
         """
@@ -142,36 +166,33 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 {"error": "Workspace access denied"}, status=status.HTTP_403_FORBIDDEN
             )
 
-        target_user = request.target_user
+        # Correctly fetch the user to be made an admin from the user_id in the request body.
+        # Do NOT use request.target_user here, as that is for impersonation context.
+        try:
+            from django.contrib.auth import get_user_model
 
-        # Verify target user matches requested user_id
-        if target_user.id != int(user_id):
-            logger.warning(
-                "User ID mismatch in admin assignment",
-                extra={
-                    "request_user_id": request.user.id,
-                    "target_user_id": target_user.id,
-                    "requested_user_id": user_id,
-                    "action": "admin_assignment_user_mismatch",
-                    "component": "WorkspaceAdminViewSet",
-                    "severity": "medium",
-                },
-            )
+            User = get_user_model()
+            user_to_assign = User.objects.get(id=user_id)
+        except User.DoesNotExist:
             return Response(
-                {"error": "User ID mismatch with request context"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"error": "User to be assigned not found."},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
         # Check membership using cached data
         user_memberships = getattr(request, "_cached_user_memberships", {})
         is_member = workspace.id in user_memberships
+        # Correctly check if the USER TO BE ASSIGNED is a member of the workspace.
+        is_member = WorkspaceMembership.objects.filter(
+            workspace=workspace, user=user_to_assign
+        ).exists()
 
         if not is_member:
             logger.warning(
                 "User not workspace member for admin assignment",
                 extra={
                     "user_id": request.user.id,
-                    "target_user_id": target_user.id,
+                    "target_user_id": user_to_assign.id,
                     "workspace_id": workspace_pk,
                     "action": "admin_assignment_not_member",
                     "component": "WorkspaceAdminViewSet",
@@ -188,7 +209,7 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
 
         try:
             admin_assignment, created = WorkspaceAdmin.objects.get_or_create(
-                user=target_user,
+                user=user_to_assign,
                 workspace=workspace,
                 defaults={"assigned_by": assigning_admin, "is_active": True},
             )
@@ -199,13 +220,13 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 admin_assignment.save()
 
             # Invalidate cached permissions
-            self._invalidate_admin_caches(target_user.id, workspace.id)
+            self._invalidate_admin_caches(user_to_assign.id, workspace.id)
 
             logger.info(
                 "Workspace administrator privileges assigned successfully",
                 extra={
                     "admin_user_id": assigning_admin.id,
-                    "target_user_id": target_user.id,
+                    "target_user_id": user_to_assign.id,
                     "workspace_id": workspace.id,
                     "assignment_created": created,
                     "action": "workspace_admin_assigned",
@@ -215,7 +236,7 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
 
             return Response(
                 {
-                    "message": f"Administrator privileges assigned to {target_user.username}",
+                    "message": f"Administrator privileges assigned to {user_to_assign.username}",
                     "admin_assignment_id": admin_assignment.id,
                     "assigned_at": admin_assignment.assigned_at,
                     "assigned_by_admin_id": assigning_admin.id,
@@ -228,7 +249,7 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 "Admin assignment failed",
                 extra={
                     "admin_user_id": assigning_admin.id,
-                    "target_user_id": target_user.id,
+                    "target_user_id": user_to_assign.id,
                     "workspace_id": workspace.id,
                     "error": str(e),
                     "action": "admin_assignment_failed",
@@ -267,7 +288,7 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             },
         )
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def deactivate_admin(self, request, pk=None):
         """
         THIN deactivate admin - delegates to WorkspaceService.
@@ -296,24 +317,24 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                         "message": "Workspace admin deactivated successfully",
                         "admin_assignment_id": pk,
                     },
-                    status=status.HTTP_200_OK
+                    status=status.HTTP_200_OK,
                 )
             else:
                 return Response(
-                    {"error": "Workspace admin assignment not found or already inactive"},
-                    status=status.HTTP_404_NOT_FOUND
+                    {
+                        "error": "Workspace admin assignment not found or already inactive"
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
                 )
 
         except WorkspaceAdmin.DoesNotExist:
             return Response(
                 {"error": "Workspace admin assignment not found"},
-                status=status.HTTP_404_NOT_FOUND
+                status=status.HTTP_404_NOT_FOUND,
             )
         except ValidationError as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 # -------------------------------------------------------------------
 # WORKSPACE MANAGEMENT
@@ -345,20 +366,20 @@ class WorkspaceViewSet(
             return [IsAuthenticated(), IsWorkspaceEditor()]
         elif self.action in ["destroy", "hard_delete"]:
             return [IsAuthenticated(), IsWorkspaceOwner()]
-        elif self.action in ["change_owner"]:
-            return [IsAuthenticated(), IsWorkspaceAdmin()]
+        elif self.action == "change_owner":
+            return [IsAuthenticated(), IsWorkspaceOwner()]
         elif self.action == "members":
             if self.request.method in ["PATCH", "DELETE"]:
                 # Only owners/admins can modify members
                 return [IsAuthenticated(), IsWorkspaceOwner()]
             # All members can view the list
-            return [IsAuthenticated(), IsWorkspaceMember()]
-        return [IsAuthenticated(), IsWorkspaceMember()]
-    
+            return [IsAuthenticated()]  # Queryset handles membership check
+        return [IsAuthenticated()]  # Queryset handles membership check for detail views
+
     def get_queryset(self):
         """THIN queryset - only security filtering"""
         target_user = self.request.target_user
-    
+
         # Build query - get all workspaces where user is member
         workspaces = Workspace.objects.filter(members=target_user)
 
@@ -369,7 +390,9 @@ class WorkspaceViewSet(
             and self.request.impersonation_workspace_ids
         ):
             # Impersonation: filter to allowed workspace IDs
-            workspaces = workspaces.filter(id__in=self.request.impersonation_workspace_ids)
+            workspaces = workspaces.filter(
+                id__in=self.request.impersonation_workspace_ids
+            )
         else:
             # Normal case: owners see all workspaces, members see only active
             workspaces = workspaces.filter(
@@ -378,7 +401,7 @@ class WorkspaceViewSet(
 
         # Apply optimizations - single database query
         workspaces = workspaces.select_related("owner").prefetch_related("members")
-        
+
         return workspaces
 
     def perform_create(self, serializer):
@@ -429,7 +452,7 @@ class WorkspaceViewSet(
             user=target_user,
         )
 
-    @action(detail=True, methods=['get'])
+    @action(detail=True, methods=["get"])
     def membership_info(self, request, pk=None):
         """
         THIN membership info - get current user's membership information
@@ -463,7 +486,7 @@ class WorkspaceViewSet(
                 "can_delete": is_owner or is_admin,
                 "can_manage_users": is_owner or is_admin,
                 "can_impersonate": is_admin,
-            }
+            },
         }
 
         if request.is_admin_impersonation:
@@ -643,7 +666,9 @@ class WorkspaceViewSet(
             user_id = request.data.get("user_id")
             new_role = request.data.get("role")
             if not user_id or not new_role:
-                raise ValidationError("Both 'user_id' and 'role' are required for update.")
+                raise ValidationError(
+                    "Both 'user_id' and 'role' are required for update."
+                )
 
             self.handle_service_call(
                 self.membership_service.update_member_role,
@@ -674,7 +699,9 @@ class WorkspaceViewSet(
             if removed:
                 return Response(status=status.HTTP_204_NO_CONTENT)
             else:
-                return Response({"error": "Member not found."}, status=status.HTTP_404_NOT_FOUND)
+                return Response(
+                    {"error": "Member not found."}, status=status.HTTP_404_NOT_FOUND
+                )
 
         # Fallback for unsupported methods
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
@@ -701,8 +728,8 @@ class WorkspaceSettingsViewSet(
     serializer_class = WorkspaceSettingsSerializer
     permission_classes = [IsAuthenticated]
     # Tell DRF to use 'workspace_pk' from the URL for lookups instead of the default 'pk'
-    lookup_field = 'workspace_pk'
-    lookup_url_kwarg = 'workspace_pk'
+    lookup_field = "workspace_pk"
+    lookup_url_kwarg = "workspace_pk"
 
     def get_permissions(self):
         """
@@ -718,7 +745,7 @@ class WorkspaceSettingsViewSet(
         """
         workspace_pk = self.kwargs.get(self.lookup_url_kwarg)
         queryset = self.get_queryset()
-        
+
         # Filter by the workspace's primary key from the URL
         obj = get_object_or_404(queryset, workspace_id=workspace_pk)
         self.check_object_permissions(self.request, obj)
@@ -744,26 +771,23 @@ class WorkspaceSettingsViewSet(
             workspace__members=target_user.id
         ).select_related("workspace")
 
-    def update(self, request, *args, **kwargs):
-        """
-        THIN update - handles currency changes via service.
-        """
-        # Delegate PUT to the more flexible PATCH logic
-        return self.partial_update(request, *args, **kwargs)
-
     def partial_update(self, request, *args, **kwargs):
         """
         THIN partial update - handles currency changes via service.
         """
         instance = self.get_object()
-        # If a currency change is requested, handle it first.
-        # The _handle_currency_change method returns a Response, so we don't proceed further in that case.
-        # However, if other fields are also being updated, we need to handle them.
-        # The most robust way is to let the standard update handle everything if currency is not the ONLY thing.
-        # A simpler fix for now is to just let the standard update run.
-        if "domestic_currency" in request.data:
-            return self._handle_currency_change(request, instance)
+        new_currency = request.data.get("domestic_currency")
+
+        # If currency is being changed and it's different from the current one,
+        # handle the special currency change logic first.
+        if new_currency and new_currency != instance.domestic_currency:
+            # This method will raise an exception on failure, which is handled by the mixin.
+            self._handle_currency_change(request, instance)
+
+        # Now, let the standard DRF update handle saving all fields,
+        # including the new currency and any other fields in the payload.
         response = super().partial_update(request, *args, **kwargs)
+
         return self._add_impersonation_context(response, request)
 
     def _handle_currency_change(self, request, instance):
@@ -786,55 +810,27 @@ class WorkspaceSettingsViewSet(
             },
         )
 
-        try:
-            # Delegate to CurrencyService
-            result = CurrencyService.change_workspace_currency(instance, new_currency)
+        # Delegate to CurrencyService. The ServiceExceptionHandlerMixin will catch any
+        # exceptions (like ValidationError) and convert them to a proper DRF response.
+        # We don't need a try/except block here.
+        result = self.handle_service_call(
+            CurrencyService.change_workspace_currency,
+            workspace_settings=instance,
+            new_currency=new_currency,
+        )
 
-            if result["changed"]:
-                logger.info(
-                    "Currency change completed successfully",
-                    extra={
-                        "request_user_id": request.user.id,
-                        "workspace_id": instance.workspace.id,
-                        "transactions_updated": result["transactions_updated"],
-                        "action": "currency_change_success",
-                        "component": "WorkspaceSettingsViewSet",
-                    },
-                )
-
-            serializer = self.get_serializer(instance)
-            response_data = {
-                **serializer.data,
-                "recalculation_details": {
-                    "transactions_updated": result["transactions_updated"],
-                    "currency_changed": result["changed"],
-                },
-            }
-
-            return self._add_impersonation_context(Response(response_data), request)
-
-        except Exception as e:
+        if not result.get("changed", False):
             logger.error(
-                "Currency change failed",
+                "Currency change failed - service call indicated no change or failure",
                 extra={
                     "request_user_id": request.user.id,
                     "workspace_id": instance.workspace.id,
                     "new_currency": new_currency,
-                    "error": str(e),
+                    "reason": "Currency change service call indicated no change or failure.",
                     "action": "currency_change_failed",
                     "component": "WorkspaceSettingsViewSet",
                     "severity": "high",
                 },
-            )
-
-            error_response = {
-                "error": "Currency update failed",
-                "code": "currency_change_failed",
-                "detail": str(e),
-            }
-
-            return self._add_impersonation_context(
-                Response(error_response, status=status.HTTP_400_BAD_REQUEST), request
             )
 
     def _add_impersonation_context(self, response, request):
@@ -863,7 +859,7 @@ class WorkspaceSettingsViewSet(
 
 
 class UserSettingsViewSet(
-    BaseWorkspaceViewSet,
+    WorkspaceContextMixin,  # Add this mixin to ensure context is built
     ServiceExceptionHandlerMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -876,6 +872,17 @@ class UserSettingsViewSet(
 
     serializer_class = UserSettingsSerializer
     permission_classes = [IsAuthenticated]
+    # This view does not have a workspace, so we must tell the context mixin
+    # that it's not required.
+    workspace_required = False
+
+    def get_object(self):
+        """
+        Retrieve the UserSettings instance for the currently authenticated user.
+        """
+        # The queryset is already filtered by the target user.
+        # We can use get_object_or_404 on the filtered queryset.
+        return get_object_or_404(self.get_queryset())
 
     def get_queryset(self):
         """
@@ -893,7 +900,7 @@ class UserSettingsViewSet(
             },
         )
 
-        return UserSettings.objects.filter(user=target_user.id)
+        return UserSettings.objects.filter(user=target_user)
 
     def partial_update(self, request, *args, **kwargs):
         """
@@ -902,7 +909,7 @@ class UserSettingsViewSet(
         target_user = request.target_user
 
         # Validate allowed fields
-        allowed_fields = {"language"}
+        allowed_fields = {"language", "preferred_currency", "date_format"}
         invalid_fields = [
             key for key in request.data.keys() if key not in allowed_fields
         ]
@@ -1469,9 +1476,10 @@ class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
         # Get workspace_pk from URL
         workspace_pk = (
             self.kwargs.get("workspace_pk")
-            or getattr(self.request, "workspace", None) and self.request.workspace.id
+            or getattr(self.request, "workspace", None)
+            and self.request.workspace.id
         )
-        
+
         if not workspace_pk:
             logger.warning(
                 "Transaction queryset requested without workspace_pk in URL.",
@@ -1485,7 +1493,9 @@ class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             )
 
             # This should not happen with correct URL configuration, but as a safeguard:
-            logger.warning("Transaction queryset requested without workspace_pk in URL.")
+            logger.warning(
+                "Transaction queryset requested without workspace_pk in URL."
+            )
             return Transaction.objects.none()
 
         # Base queryset for the given workspace. Permissions are handled by IsWorkspaceEditor.
@@ -1493,7 +1503,9 @@ class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
 
         # Performance optimizations
         light_mode = self.request.query_params.get("light") == "true"
-        if light_mode and self.action == "list": # Note: This is now part of get_serializer_class logic
+        if (
+            light_mode and self.action == "list"
+        ):  # Note: This is now part of get_serializer_class logic
             qs = qs.select_related("workspace").only(
                 "id",
                 "type",
@@ -1712,6 +1724,7 @@ class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
 
         return response
 
+
 # -------------------------------------------------------------------
 # TAGS MANAGEMENT
 # -------------------------------------------------------------------
@@ -1793,8 +1806,10 @@ class TagViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
         For now, this demonstrates service delegation.
         """
         return Response(
-            {"message": "This is an example. Tag assignment should be part of transaction operations."},
-            status=status.HTTP_501_NOT_IMPLEMENTED
+            {
+                "message": "This is an example. Tag assignment should be part of transaction operations."
+            },
+            status=status.HTTP_501_NOT_IMPLEMENTED,
         )
 
 
@@ -2024,8 +2039,8 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
             }
 
         return response
-    
-    @action(detail=True, methods=['delete'])
+
+    @action(detail=True, methods=["delete"])
     def discard(self, request, pk=None):
         """
         THIN discard draft - delegates to DraftService.
@@ -2044,7 +2059,7 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
 
         try:
             draft = self.get_object()
-            
+
             # Delegate to service
             discarded = self.handle_service_call(
                 self.draft_service.discard_draft,
@@ -2058,11 +2073,10 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
             else:
                 return Response(
                     {"error": "Draft not found or already discarded"},
-                    status=status.HTTP_404_NOT_FOUND
+                    status=status.HTTP_404_NOT_FOUND,
                 )
 
         except TransactionDraft.DoesNotExist:
             return Response(
-                {"error": "Draft not found"},
-                status=status.HTTP_404_NOT_FOUND
+                {"error": "Draft not found"}, status=status.HTTP_404_NOT_FOUND
             )

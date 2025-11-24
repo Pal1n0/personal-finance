@@ -32,7 +32,7 @@ class WorkspaceContextMixin:
             *args: Additional arguments
             **kwargs: Additional keyword arguments from URL routing
         """
-        
+
         # PHASE 1: Build workspace context FIRST (before permissions)
         self._process_workspace_context(request, kwargs)
 

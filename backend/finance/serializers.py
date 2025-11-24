@@ -20,10 +20,21 @@ from .mixins.category_workspace import CategoryWorkspaceMixin
 from .mixins.service_exception_handler import ServiceExceptionHandlerMixin
 from .mixins.target_user import TargetUserMixin
 from .mixins.workspace_membership import WorkspaceMembershipMixin
-from .models import (ExchangeRate, ExpenseCategory, ExpenseCategoryVersion,
-                     IncomeCategory, IncomeCategoryVersion, Tags, Transaction,
-                     TransactionDraft, UserSettings, Workspace,
-                     WorkspaceMembership, WorkspaceSettings, WorkspaceAdmin)
+from .models import (
+    ExchangeRate,
+    ExpenseCategory,
+    ExpenseCategoryVersion,
+    IncomeCategory,
+    IncomeCategoryVersion,
+    Tags,
+    Transaction,
+    TransactionDraft,
+    UserSettings,
+    Workspace,
+    WorkspaceAdmin,
+    WorkspaceMembership,
+    WorkspaceSettings,
+)
 from .services.category_service import CategoryService
 from .services.draft_service import DraftService
 from .services.tag_service import TagService
@@ -339,6 +350,7 @@ class WorkspaceMembershipSerializer(serializers.ModelSerializer):
     user_email = serializers.CharField(source="user.email", read_only=True)
     workspace_name = serializers.CharField(source="workspace.name", read_only=True)
     is_workspace_owner = serializers.SerializerMethodField()
+    role = serializers.CharField()
 
     class Meta:
         model = WorkspaceMembership
@@ -367,7 +379,7 @@ class WorkspaceMembershipSerializer(serializers.ModelSerializer):
 
     def validate_role(self, value):
         """Validate role assignment with permission checks."""
-        valid_roles = ["admin", "editor", "viewer"]
+        valid_roles = [choice[0] for choice in WorkspaceMembership.ROLE_CHOICES]
 
         if value not in valid_roles:
             logger.warning(
@@ -380,9 +392,7 @@ class WorkspaceMembershipSerializer(serializers.ModelSerializer):
                     "severity": "medium",
                 },
             )
-            raise serializers.ValidationError(
-                f"Invalid role. Choose from: {', '.join(valid_roles)}"
-            )
+            raise serializers.ValidationError("Invalid role")
 
         request = self.context.get("request")
         instance = self.instance
@@ -439,9 +449,11 @@ class WorkspaceMembershipSerializer(serializers.ModelSerializer):
 
         return value
 
+
 # -------------------------------------------------------------------
 # WORKSPACE ADMIN SERIALIZER
 # -------------------------------------------------------------------
+
 
 class WorkspaceAdminSerializer(serializers.ModelSerializer):
     """
@@ -453,7 +465,9 @@ class WorkspaceAdminSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
     workspace_id = serializers.IntegerField(source="workspace.id", read_only=True)
     workspace_name = serializers.CharField(source="workspace.name", read_only=True)
-    assigned_by_username = serializers.CharField(source="assigned_by.username", read_only=True)
+    assigned_by_username = serializers.CharField(
+        source="assigned_by.username", read_only=True
+    )
 
     class Meta:
         model = WorkspaceAdmin
@@ -461,7 +475,7 @@ class WorkspaceAdminSerializer(serializers.ModelSerializer):
             "id",
             "user_id",
             "username",
-            "workspace_id", 
+            "workspace_id",
             "workspace_name",
             "assigned_by_username",
             "assigned_at",
@@ -471,8 +485,14 @@ class WorkspaceAdminSerializer(serializers.ModelSerializer):
             "can_manage_users",
         ]
         read_only_fields = [
-            "id", "user_id", "username", "workspace_id", "workspace_name",
-            "assigned_by_username", "assigned_at", "deactivated_at"
+            "id",
+            "user_id",
+            "username",
+            "workspace_id",
+            "workspace_name",
+            "assigned_by_username",
+            "assigned_at",
+            "deactivated_at",
         ]
 
     def validate(self, attrs):
@@ -494,6 +514,7 @@ class WorkspaceAdminSerializer(serializers.ModelSerializer):
         raise serializers.ValidationError(
             "Use the assign-admin endpoint to create workspace admin assignments."
         )
+
 
 # -------------------------------------------------------------------
 # WORKSPACE SETTINGS SERIALIZER
@@ -655,8 +676,12 @@ class TransactionSerializer(
         request = self.context.get("request")
         if request and hasattr(request, "workspace"):
 
-            self.fields["expense_category"].queryset = ExpenseCategory.objects.all()
-            self.fields["income_category"].queryset = IncomeCategory.objects.all()
+            self.fields["expense_category"].queryset = ExpenseCategory.objects.filter(
+                version__workspace=request.workspace
+            )
+            self.fields["income_category"].queryset = IncomeCategory.objects.filter(
+                version__workspace=request.workspace
+            )
 
             logger.debug(
                 "TransactionSerializer initialized with cached categories",
@@ -697,7 +722,7 @@ class TransactionSerializer(
         )
 
         # 2. Structural Constraint: Leaf Category Check (Level 5)
-        # We check incoming data. If not present in data (e.g. PATCH), we don't re-validate 
+        # We check incoming data. If not present in data (e.g. PATCH), we don't re-validate
         # unless necessary, but here we strictly check if a new category is being set.
         expense_category = data.get("expense_category")
         income_category = data.get("income_category")
@@ -712,7 +737,7 @@ class TransactionSerializer(
                     "level": category.level,
                     "required_level": 5,
                     "action": "transaction_validation_failed",
-                }
+                },
             )
             raise serializers.ValidationError(
                 {
@@ -728,7 +753,7 @@ class TransactionSerializer(
             # Delegate complex validation (currency, date rules, limits) to service layer.
             # ServiceExceptionHandlerMixin handles converting service exceptions to HTTP 400.
             is_update = self.instance is not None
-            
+
             self.handle_service_call(
                 TransactionService._validate_transaction_data,
                 data=data,
@@ -827,6 +852,7 @@ class TagSerializer(serializers.ModelSerializer):
         model = Tags
         fields = ["id", "name", "workspace"]
         read_only_fields = ["id", "workspace"]
+        extra_kwargs = {"name": {"allow_blank": True}}
 
     def validate_name(self, value):
         """
@@ -846,12 +872,14 @@ class TagSerializer(serializers.ModelSerializer):
         Handle creation of a tag, ensuring it's scoped to the workspace
         from the request context. This implements get_or_create logic.
         """
-        workspace = self.context['request'].workspace
-        tag_name = validated_data['name']
+        workspace = self.context["request"].workspace
+        tag_name = validated_data["name"]
 
         # Use TagService for get_or_create logic
         tag_service = TagService()
-        tag = tag_service.get_or_create_tags(workspace=workspace, tag_names=[tag_name])[0]
+        tag = tag_service.get_or_create_tags(workspace=workspace, tag_names=[tag_name])[
+            0
+        ]
 
         return tag
 
@@ -904,7 +932,11 @@ class TransactionDraftSerializer(
         within transactions_data.
         """
         # Prevent changing the draft_type on an existing draft.
-        if self.instance and "draft_type" in data and data["draft_type"] != self.instance.draft_type:
+        if (
+            self.instance
+            and "draft_type" in data
+            and data["draft_type"] != self.instance.draft_type
+        ):
             raise serializers.ValidationError(
                 "Changing the type of an existing draft is not allowed."
             )
@@ -914,7 +946,6 @@ class TransactionDraftSerializer(
         draft_type = data.get("draft_type")
         if self.instance and "draft_type" not in data:
             draft_type = self.instance.draft_type
-
 
         transactions_data = data.get("transactions_data")
 

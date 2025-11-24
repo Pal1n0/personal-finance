@@ -243,7 +243,7 @@ class DraftService:
                     "workspace_id": workspace_id,
                     "draft_id": draft.id,
                     "draft_type": draft_type,
-                    "created": created,
+                    "was_created": created,
                     "transaction_count": draft.get_transactions_count(),
                     "action": f"draft_get_or_create_{action_type}",
                     "component": "DraftService",
@@ -497,11 +497,8 @@ class DraftService:
                     "severity": "low",
                 },
             )
-            return {
-                "total_drafts": 0,
-                "workspaces": {},
-                "by_type": {"income": 0, "expense": 0},
-            }
+            raise
+
 
     def _get_workspace_with_access(self, user, workspace_id: int) -> Workspace:
         """

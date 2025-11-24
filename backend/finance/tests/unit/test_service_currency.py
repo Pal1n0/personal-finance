@@ -1,13 +1,43 @@
 # finance/tests/unit/test_service_currency.py
 from datetime import date
 from decimal import Decimal
+import logging
+from unittest.mock import patch
 
 import pytest
 from django.core.exceptions import ValidationError
 
-from finance.models import Transaction
+from finance.models import Transaction, ExchangeRate
 from finance.services.currency_service import CurrencyService
 from finance.services.transaction_service import TransactionService
+
+
+@pytest.fixture
+def exchange_rate_usd_2025_11_08(db):
+    return ExchangeRate.objects.create(currency="USD", rate_to_eur=Decimal("0.85"), date=date(2025, 11, 8))
+
+@pytest.fixture
+def exchange_rate_gbp(db):
+    return ExchangeRate.objects.create(currency="GBP", rate_to_eur=Decimal("1.18"), date=date(2025, 11, 8))
+
+@pytest.fixture
+def exchange_rate_usd_2024(db):
+    return ExchangeRate.objects.create(currency="USD", rate_to_eur=Decimal("0.92"), date=date(2024, 1, 1))
+
+@pytest.fixture
+def exchange_rate_usd_jan15(db):
+    return ExchangeRate.objects.create(currency="USD", rate_to_eur=Decimal("0.85"), date=date(2024, 1, 15))
+
+@pytest.fixture
+def exchange_rate_usd_jan20(db):
+    ExchangeRate.objects.filter(currency="USD", date=date(2024, 1, 20)).delete()
+    return ExchangeRate.objects.create(currency="USD", rate_to_eur=Decimal("0.90"), date=date(2024, 1, 20))
+
+@pytest.fixture
+def exchange_rate_usd_2024_jan20(db):
+    ExchangeRate.objects.filter(currency="USD", date=date(2024, 1, 20)).delete()
+    return ExchangeRate.objects.create(currency="USD", rate_to_eur=Decimal("0.86"), date=date(2024, 1, 20))
+
 
 
 class TestCurrencyService:
@@ -41,7 +71,8 @@ class TestCurrencyService:
         assert "invalid" in result["message"].lower()
         assert "INVALID" in result["message"]
 
-    def test_change_workspace_currency_same_currency(self, workspace_settings):
+    @patch('finance.services.currency_service.logger')
+    def test_change_workspace_currency_same_currency(self, mock_logger, workspace_settings):
         """Test zmeny na rovnakú menu - malo by preskočiť"""
         original_currency = workspace_settings.domestic_currency
 
@@ -54,11 +85,17 @@ class TestCurrencyService:
         assert result["transactions_updated"] == 0
         assert "unchanged" in result["message"].lower()
 
+        # Check that logger.info was called with the correct message
+        mock_logger.info.assert_called_once()
+        call_args, _ = mock_logger.info.call_args
+        assert "Currency change skipped - same currency" in call_args[0]
+
         # Over že sa nič nezmenilo
         workspace_settings.refresh_from_db()
         assert workspace_settings.domestic_currency == original_currency
 
-    def test_change_workspace_currency_invalid_currency(self, workspace_settings):
+    @patch('finance.services.currency_service.logger')
+    def test_change_workspace_currency_invalid_currency(self, mock_logger, workspace_settings):
         """Test zmeny na neplatnú menu"""
         with pytest.raises(ValidationError) as exc_info:
             CurrencyService.change_workspace_currency(
@@ -67,9 +104,15 @@ class TestCurrencyService:
 
         assert "Invalid currency" in str(exc_info.value)
         assert "INVALID_CURRENCY" in str(exc_info.value)
+        
+        # Check that logger.error was called
+        mock_logger.error.assert_called_once()
+        call_args, _ = mock_logger.error.call_args
+        assert "Invalid currency requested" in call_args[0]
 
+    @patch('finance.services.currency_service.logger')
     def test_change_workspace_currency_success(
-        self, workspace_settings, expense_transaction, exchange_rate_usd_2025_11_08
+        self, mock_logger, workspace_settings, expense_transaction, exchange_rate_usd_2025_11_08
     ):
         """Test úspešnej zmeny meny"""
         # Presvedčíme sa že máme transakciu s EUR
@@ -86,12 +129,18 @@ class TestCurrencyService:
             result["transactions_updated"] >= 0
         )  # Môže byť 0 ak žiadne transakcie nepotrebujú prepočet
 
+        # Check for log messages
+        info_calls = [call.args[0] for call in mock_logger.info.call_args_list]
+        assert any("Starting atomic currency change process" in call for call in info_calls)
+        assert any("Atomic currency change completed successfully" in call for call in info_calls)
+
         # Over že sa zmenila mena v settings
         workspace_settings.refresh_from_db()
         assert workspace_settings.domestic_currency == "USD"
 
+    @patch('finance.services.currency_service.logger')
     def test_change_workspace_currency_atomic_rollback(
-        self, workspace_settings, monkeypatch
+        self, mock_logger, workspace_settings, monkeypatch
     ):
         """Test že sa zmeny rollbacknú pri chybe"""
         original_currency = workspace_settings.domestic_currency
@@ -114,6 +163,24 @@ class TestCurrencyService:
         )
         assert "failed" in error_message.lower()
         assert "rolled back" in error_message.lower()
+
+        # Check for log messages
+        mock_logger.info.assert_called_with(
+            "Starting atomic currency change process",
+            extra={
+                "workspace_settings_id": workspace_settings.id,
+                "workspace_id": workspace_settings.workspace.id,
+                "old_currency": original_currency,
+                "new_currency": "USD",
+                "currency_name": "US Dollar",
+                "action": "atomic_currency_change_started",
+                "component": "CurrencyService",
+            },
+        )
+        mock_logger.error.assert_called_once()
+        error_call_args, _ = mock_logger.error.call_args
+        assert "Atomic currency change failed - transaction will roll back" in error_call_args[0]
+
 
         # Over že sa rollbacklo - mena by mala zostať pôvodná
         workspace_settings.refresh_from_db()
@@ -255,7 +322,7 @@ class TestTransactionService:
         test_workspace,
         expense_root_category,
         workspace_settings,
-        exchange_rate_usd_2024,
+        exchange_rate_usd_jan15,
     ):
         """Test update transakcií so zmenou meny - malo by spustiť recalculáciu"""
 

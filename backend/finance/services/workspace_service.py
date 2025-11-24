@@ -11,11 +11,15 @@ from django.core.cache import cache
 from django.db import DatabaseError, transaction
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from ..models import (Transaction, Workspace, WorkspaceAdmin,
-                      WorkspaceMembership)
+from ..models import Transaction, Workspace, WorkspaceAdmin, WorkspaceMembership
 from .membership_cache_service import MembershipCacheService
 
 logger = logging.getLogger(__name__)
+
+
+class WorkspaceServiceError(Exception):
+    """Custom exception for WorkspaceService related errors."""
+    pass
 
 
 class WorkspaceService:
@@ -193,7 +197,7 @@ class WorkspaceService:
                 workspace.change_owner(
                     new_owner=new_owner,
                     changed_by=changed_by,
-                    old_owner_action=old_owner_action
+                    old_owner_action=old_owner_action,
                 )
             except (PermissionError, ValidationError) as e:
                 # Re-raise as a service-level exception for the view to handle
@@ -657,17 +661,19 @@ class WorkspaceService:
                 )
 
     @transaction.atomic
-    def deactivate_workspace_admin(self, admin_assignment_id: int, deactivated_by) -> bool:
+    def deactivate_workspace_admin(
+        self, admin_assignment_id: int, deactivated_by
+    ) -> bool:
         """
         Atomically deactivate workspace admin assignment with security validation.
-        
+
         Args:
             admin_assignment_id: WorkspaceAdmin instance ID
             deactivated_by: User performing the deactivation
-            
+
         Returns:
             bool: True if deactivated, False if already inactive
-            
+
         Raises:
             PermissionDenied: If user cannot deactivate admin
             ValidationError: If admin assignment not found
@@ -684,8 +690,10 @@ class WorkspaceService:
 
         try:
             # Get admin assignment with related data
-            admin_assignment = WorkspaceAdmin.objects.select_related('user', 'workspace').get(id=admin_assignment_id)
-            
+            admin_assignment = WorkspaceAdmin.objects.select_related(
+                "user", "workspace"
+            ).get(id=admin_assignment_id)
+
             # Security validation - only superusers can deactivate
             if not deactivated_by.is_superuser:
                 logger.warning(
@@ -698,14 +706,16 @@ class WorkspaceService:
                         "severity": "high",
                     },
                 )
-                raise PermissionDenied("Only superusers can deactivate workspace admins")
-                
+                raise PermissionDenied(
+                    "Only superusers can deactivate workspace admins"
+                )
+
             # Deactivate using model method
             admin_assignment.deactivate(deactivated_by=deactivated_by)
-            
+
             # Invalidate relevant caches
             self.membership_service.invalidate_user_cache(admin_assignment.user.id)
-            
+
             logger.info(
                 "Workspace admin deactivated successfully",
                 extra={
@@ -717,9 +727,9 @@ class WorkspaceService:
                     "component": "WorkspaceService",
                 },
             )
-            
+
             return True
-            
+
         except WorkspaceAdmin.DoesNotExist:
             logger.warning(
                 "Workspace admin assignment not found for deactivation",

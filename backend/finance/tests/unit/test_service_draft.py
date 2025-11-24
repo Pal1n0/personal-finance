@@ -117,7 +117,7 @@ class TestDraftServiceSaveDraft:
                 test_user, test_workspace.id, "expense", transactions_data
             )
 
-        assert "Invalid draft type" in str(exc_info.value)
+        assert "has invalid type" in str(exc_info.value)
 
     def test_save_draft_validation_error_type_mismatch(self, test_user, test_workspace):
         """Test uloženia draftu s nezhodujúcim sa typom transakcie"""
@@ -153,17 +153,24 @@ class TestDraftServiceSaveDraft:
         assert "Invalid amount" in str(exc_info.value)
 
     def test_save_draft_database_error(self, test_user, test_workspace):
-        """Test uloženia draftu s databázovou chybou"""
+        """Test uloženia draftu s databázovou chybou pri vytváraní."""
         service = DraftService()
-        transactions_data = [{"type": "expense", "original_amount": 100}]
+        transactions_data = [
+            {"type": "expense", "original_amount": 100, "original_currency": "EUR"}
+        ]
 
-        with patch.object(Workspace.objects, "get") as mock_get:
-            mock_get.side_effect = DatabaseError("Connection failed")
-
-            with pytest.raises(DatabaseError):
-                service.save_draft(
-                    test_user, test_workspace.id, "expense", transactions_data
-                )
+        # Patch _get_workspace_with_access to avoid hitting the DB for workspace
+        with patch.object(
+            service, "_get_workspace_with_access", return_value=test_workspace
+        ):
+            # Patch the create method to simulate a DB error during creation
+            with patch.object(
+                TransactionDraft.objects, "create", side_effect=DatabaseError("Connection failed")
+            ):
+                with pytest.raises(DatabaseError):
+                    service.save_draft(
+                        test_user, test_workspace.id, "expense", transactions_data
+                    )
 
 
 class TestDraftServiceGetWorkspaceDraft:
@@ -175,15 +182,23 @@ class TestDraftServiceGetWorkspaceDraft:
         """Test úspešného získania draftu"""
         service = DraftService()
 
-        with patch.object(TransactionDraft.objects, "get") as mock_get:
-            mock_get.return_value = transaction_draft
+        with patch.object(
+            service, "_get_workspace_with_access", return_value=test_workspace
+        ):
+            with patch.object(
+                TransactionDraft.objects, "select_related"
+            ) as mock_select_related:
+                mock_get = mock_select_related.return_value.get
+                mock_get.return_value = transaction_draft
 
-            draft = service.get_workspace_draft(test_user, test_workspace.id, "expense")
+                draft = service.get_workspace_draft(
+                    test_user, test_workspace.id, "expense"
+                )
 
-        assert draft == transaction_draft
-        mock_get.assert_called_once_with(
-            user=test_user, workspace_id=test_workspace.id, draft_type="expense"
-        )
+                assert draft == transaction_draft
+                mock_get.assert_called_once_with(
+                    user=test_user, workspace_id=test_workspace.id, draft_type="expense"
+                )
 
     def test_get_workspace_draft_not_found(self, test_user, test_workspace):
         """Test získania neexistujúceho draftu"""
@@ -208,6 +223,17 @@ class TestDraftServiceGetWorkspaceDraft:
 
             with pytest.raises(PermissionDenied):
                 service.get_workspace_draft(test_user, test_workspace.id, "expense")
+
+    def test_get_workspace_draft_general_exception(self, test_user, test_workspace):
+        """Test všeobecnej chyby pri získavaní draftu"""
+        service = DraftService()
+        with patch.object(
+            service, "_get_workspace_with_access", return_value=test_workspace
+        ):
+            with patch.object(TransactionDraft.objects, "select_related") as mock_select:
+                mock_select.side_effect = Exception("Something went wrong")
+                with pytest.raises(Exception, match="Something went wrong"):
+                    service.get_workspace_draft(test_user, test_workspace.id, "expense")
 
 
 class TestDraftServiceGetOrCreateDraft:
@@ -267,6 +293,18 @@ class TestDraftServiceGetOrCreateDraft:
             with pytest.raises(PermissionDenied):
                 service.get_or_create_draft(test_user, test_workspace.id, "expense")
 
+    def test_get_or_create_draft_general_exception(self, test_user, test_workspace):
+        """Test všeobecnej chyby pri get_or_create_draft"""
+        service = DraftService()
+        with patch.object(
+            service, "_get_workspace_with_access", return_value=test_workspace
+        ):
+            with patch.object(
+                TransactionDraft.objects, "get_or_create", side_effect=Exception("Unexpected error")
+            ):
+                with pytest.raises(Exception, match="Unexpected error"):
+                    service.get_or_create_draft(test_user, test_workspace.id, "expense")
+
 
 class TestDraftServiceDiscardDraft:
     """Testy pre discard_draft metódu"""
@@ -275,15 +313,19 @@ class TestDraftServiceDiscardDraft:
         """Test úspešného zrušenia draftu"""
         service = DraftService()
 
-        with patch.object(TransactionDraft.objects, "get") as mock_get:
-            with patch.object(TransactionDraft, "delete") as mock_delete:
-                mock_get.return_value = transaction_draft
-                transaction_draft.get_transactions_count.return_value = 1
+        with patch.object(
+            service, "_get_workspace_with_access", return_value=test_workspace
+        ), patch.object(
+            TransactionDraft.objects, "get", return_value=transaction_draft
+        ), patch.object(
+            transaction_draft, "get_transactions_count", return_value=1
+        ), patch.object(
+            transaction_draft, "delete"
+        ) as mock_delete:
+            result = service.discard_draft(test_user, test_workspace.id, "expense")
 
-                result = service.discard_draft(test_user, test_workspace.id, "expense")
-
-        assert result is True
-        mock_delete.assert_called_once()
+            assert result is True
+            mock_delete.assert_called_once()
 
     def test_discard_draft_not_found(self, test_user, test_workspace):
         """Test zrušenia neexistujúceho draftu"""
@@ -307,6 +349,18 @@ class TestDraftServiceDiscardDraft:
 
             with pytest.raises(PermissionDenied):
                 service.discard_draft(test_user, test_workspace.id, "expense")
+
+    def test_discard_draft_general_exception(self, test_user, test_workspace):
+        """Test všeobecnej chyby pri mazaní draftu"""
+        service = DraftService()
+        with patch.object(
+            service, "_get_workspace_with_access", return_value=test_workspace
+        ):
+            with patch.object(
+                TransactionDraft.objects, "get", side_effect=Exception("Unexpected error")
+            ):
+                with pytest.raises(Exception, match="Unexpected error"):
+                    service.discard_draft(test_user, test_workspace.id, "expense")
 
 
 class TestDraftServiceCleanupDrafts:
@@ -358,6 +412,20 @@ class TestDraftServiceCleanupDrafts:
                     test_user, test_workspace.id, "expense"
                 )
 
+    def test_cleanup_drafts_general_exception(self, test_user, test_workspace):
+        """Test všeobecnej chyby pri čistení draftov"""
+        service = DraftService()
+        with patch.object(
+            service, "_get_workspace_with_access", return_value=test_workspace
+        ):
+            with patch.object(
+                TransactionDraft.objects, "filter", side_effect=Exception("Unexpected error")
+            ):
+                with pytest.raises(Exception, match="Unexpected error"):
+                    service.cleanup_drafts_for_transaction(
+                        test_user, test_workspace.id, "expense"
+                    )
+
 
 class TestDraftServiceGetUserDraftsSummary:
     """Testy pre get_user_drafts_summary metódu"""
@@ -369,6 +437,8 @@ class TestDraftServiceGetUserDraftsSummary:
         service = DraftService()
 
         with patch.object(TransactionDraft.objects, "filter") as mock_filter:
+            # Create a mock that can be iterated and has a count() method
+            mock_queryset = MagicMock()
             mock_draft = Mock(
                 id=1,
                 user=test_user,
@@ -378,11 +448,12 @@ class TestDraftServiceGetUserDraftsSummary:
             )
             mock_draft.workspace.id = test_workspace.id
             mock_draft.workspace.name = "Test Workspace"
-            mock_draft.get_transactions_count.return_value = 1
+            
+            # Make the mock iterable
+            mock_queryset.__iter__.return_value = [mock_draft]
+            mock_queryset.count.return_value = 1
 
-            mock_filter.return_value.select_related.return_value.order_by.return_value = [
-                mock_draft
-            ]
+            mock_filter.return_value.select_related.return_value.order_by.return_value = mock_queryset
 
             summary = service.get_user_drafts_summary(test_user)
 
@@ -399,9 +470,10 @@ class TestDraftServiceGetUserDraftsSummary:
         service = DraftService()
 
         with patch.object(TransactionDraft.objects, "filter") as mock_filter:
-            mock_filter.return_value.select_related.return_value.order_by.return_value = (
-                []
-            )
+            mock_queryset = MagicMock()
+            mock_queryset.__iter__.return_value = []
+            mock_queryset.count.return_value = 0
+            mock_filter.return_value.select_related.return_value.order_by.return_value = mock_queryset
 
             summary = service.get_user_drafts_summary(test_user)
 
@@ -411,46 +483,54 @@ class TestDraftServiceGetUserDraftsSummary:
         assert summary["workspaces"] == {}
 
     def test_get_user_drafts_summary_multiple_workspaces(
-        self, test_user, test_workspace
+        self, test_user
     ):
         """Test sumárie s viacerými workspace a typmi"""
         service = DraftService()
+
+        # Mock workspaces
+        mock_workspace1 = Mock(id=1, name="Workspace 1")
+        mock_workspace2 = Mock(id=2, name="Workspace 2")
 
         # Mock rôzne drafty
         mock_draft1 = Mock(
             id=1,
             user=test_user,
-            workspace=test_workspace,
+            workspace=mock_workspace1,
             draft_type="expense",
             last_modified="2024-01-15",
         )
-        mock_draft1.workspace.id = test_workspace.id
-        mock_draft1.workspace.name = "Workspace 1"
-
         mock_draft2 = Mock(
             id=2,
             user=test_user,
-            workspace=test_workspace,
+            workspace=mock_workspace1,
             draft_type="income",
             last_modified="2024-01-16",
         )
-        mock_draft2.workspace.id = test_workspace.id
-        mock_draft2.workspace.name = "Workspace 1"
+        mock_draft3 = Mock(
+            id=3,
+            user=test_user,
+            workspace=mock_workspace2,
+            draft_type="expense",
+            last_modified="2024-01-17",
+        )
 
         with patch.object(TransactionDraft.objects, "filter") as mock_filter:
-            mock_filter.return_value.select_related.return_value.order_by.return_value = [
-                mock_draft1,
-                mock_draft2,
-            ]
+            mock_queryset = MagicMock()
+            mock_queryset.__iter__.return_value = [mock_draft3, mock_draft2, mock_draft1] # Order by last_modified desc
+            mock_queryset.count.return_value = 3
+            mock_filter.return_value.select_related.return_value.order_by.return_value = mock_queryset
 
             summary = service.get_user_drafts_summary(test_user)
 
-        assert summary["total_drafts"] == 2
-        assert summary["by_type"]["expense"] == 1
+        assert summary["total_drafts"] == 3
+        assert summary["by_type"]["expense"] == 2
         assert summary["by_type"]["income"] == 1
-        assert summary["workspaces"][test_workspace.id]["draft_count"] == 2
-        assert "expense" in summary["workspaces"][test_workspace.id]["types"]
-        assert "income" in summary["workspaces"][test_workspace.id]["types"]
+        assert summary["workspaces"][1]["draft_count"] == 2
+        assert summary["workspaces"][2]["draft_count"] == 1
+        assert "expense" in summary["workspaces"][1]["types"]
+        assert "income" in summary["workspaces"][1]["types"]
+        assert "expense" in summary["workspaces"][2]["types"]
 
     def test_get_user_drafts_summary_exception_handling(self, test_user):
         """Test handlingu výnimiek pri získavaní sumárie"""
@@ -459,12 +539,8 @@ class TestDraftServiceGetUserDraftsSummary:
         with patch.object(TransactionDraft.objects, "filter") as mock_filter:
             mock_filter.side_effect = Exception("Database error")
 
-            summary = service.get_user_drafts_summary(test_user)
-
-        # Malo by vrátiť bezpečnú default sumáriu
-        assert summary["total_drafts"] == 0
-        assert summary["by_type"]["income"] == 0
-        assert summary["by_type"]["expense"] == 0
+            with pytest.raises(Exception, match="Database error"):
+                service.get_user_drafts_summary(test_user)
 
 
 class TestDraftServiceValidation:
@@ -564,8 +640,8 @@ class TestDraftServiceIntegration:
         ]
 
         with patch.object(TransactionDraft.objects, "filter") as mock_filter:
+            mock_filter.return_value.delete.return_value = (0, {})
             with patch.object(TransactionDraft.objects, "create") as mock_create:
-                mock_filter.return_value.delete.return_value = (0, {})
                 mock_draft = Mock(
                     id=1,
                     user=test_user,
@@ -582,8 +658,12 @@ class TestDraftServiceIntegration:
         assert saved_draft.id == 1
 
         # 2. Získanie draftu
-        with patch.object(TransactionDraft.objects, "get") as mock_get:
-            mock_get.return_value = mock_draft
+        with patch.object(
+            service, "_get_workspace_with_access", return_value=test_workspace
+        ), patch.object(
+            TransactionDraft.objects, "select_related"
+        ) as mock_select_related:
+            mock_select_related.return_value.get.return_value = mock_draft
             retrieved_draft = service.get_workspace_draft(
                 test_user, test_workspace.id, "expense"
             )
@@ -591,16 +671,19 @@ class TestDraftServiceIntegration:
         assert retrieved_draft.id == 1
 
         # 3. Zrušenie draftu
-        with patch.object(TransactionDraft.objects, "get") as mock_get:
-            with patch.object(TransactionDraft, "delete") as mock_delete:
-                mock_get.return_value = mock_draft
-                mock_draft.get_transactions_count.return_value = 1
+        with patch.object(
+            service, "_get_workspace_with_access", return_value=test_workspace
+        ), patch.object(
+            TransactionDraft.objects, "get", return_value=mock_draft
+        ), patch.object(
+            mock_draft, "delete"
+        ) as mock_delete:
+            discard_result = service.discard_draft(
+                test_user, test_workspace.id, "expense"
+            )
 
-                discard_result = service.discard_draft(
-                    test_user, test_workspace.id, "expense"
-                )
-
-        assert discard_result is True
+            assert discard_result is True
+            mock_delete.assert_called_once()
 
     def test_draft_lifecycle_multiple_types(self, test_user, test_workspace):
         """Test lifecycle draftov s viacerými typmi"""
@@ -608,7 +691,8 @@ class TestDraftServiceIntegration:
 
         # Expense draft
         expense_data = [{"type": "expense", "original_amount": 100}]
-        with patch.object(TransactionDraft.objects, "filter"):
+        with patch.object(TransactionDraft.objects, "filter") as mock_filter:
+            mock_filter.return_value.delete.return_value = (0, {})
             with patch.object(TransactionDraft.objects, "create") as mock_create:
                 mock_expense_draft = Mock(id=1, draft_type="expense")
                 mock_create.return_value = mock_expense_draft
@@ -621,7 +705,8 @@ class TestDraftServiceIntegration:
 
         # Income draft
         income_data = [{"type": "income", "original_amount": 500}]
-        with patch.object(TransactionDraft.objects, "filter"):
+        with patch.object(TransactionDraft.objects, "filter") as mock_filter:
+            mock_filter.return_value.delete.return_value = (0, {})
             with patch.object(TransactionDraft.objects, "create") as mock_create:
                 mock_income_draft = Mock(id=2, draft_type="income")
                 mock_create.return_value = mock_income_draft
@@ -634,10 +719,11 @@ class TestDraftServiceIntegration:
 
         # Sumária
         with patch.object(TransactionDraft.objects, "filter") as mock_filter:
-            mock_filter.return_value.select_related.return_value.order_by.return_value = [
-                mock_expense_draft,
-                mock_income_draft,
-            ]
+            mock_queryset = MagicMock()
+            mock_queryset.__iter__.return_value = [mock_expense_draft, mock_income_draft]
+            mock_queryset.count.return_value = 2
+            mock_filter.return_value.select_related.return_value.order_by.return_value = mock_queryset
+
 
             summary = service.get_user_drafts_summary(test_user)
 
@@ -654,7 +740,8 @@ class TestDraftServiceEdgeCases:
         service = DraftService()
         empty_transactions = []
 
-        with patch.object(TransactionDraft.objects, "filter"):
+        with patch.object(TransactionDraft.objects, "filter") as mock_filter:
+            mock_filter.return_value.delete.return_value = (0, {})
             with patch.object(TransactionDraft.objects, "create") as mock_create:
                 mock_draft = Mock(id=1, transactions_data=[])
                 mock_create.return_value = mock_draft

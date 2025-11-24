@@ -148,9 +148,13 @@ class TagService:
         if tag.name == normalized_new_name:
             return tag  # No change needed
 
-        if Tags.objects.filter(workspace=tag.workspace, name=normalized_new_name).exists():
-            raise ValidationError(f"A tag with the name '{new_name}' already exists in this workspace.")
+        if Tags.objects.filter(
+            workspace=tag.workspace, name=normalized_new_name
+        ).exists():
+            raise ValidationError(
+                f"A tag with the name '{new_name}' already exists in this workspace."
+            )
 
         tag.name = normalized_new_name
-        tag.save(update_fields=['name'])
+        tag.save(update_fields=["name"])
         return tag

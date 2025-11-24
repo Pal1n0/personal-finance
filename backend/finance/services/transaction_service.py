@@ -13,10 +13,17 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import transaction as db_transaction
 from rest_framework.exceptions import PermissionDenied
 
-from ..models import (ExpenseCategory, IncomeCategory, Transaction,
-                      TransactionDraft, Workspace)
-from ..utils.currency_utils import (CurrencyConversionError,
-                                    recalculate_transactions_domestic_amount)
+from ..models import (
+    ExpenseCategory,
+    IncomeCategory,
+    Transaction,
+    TransactionDraft,
+    Workspace,
+)
+from ..utils.currency_utils import (
+    CurrencyConversionError,
+    recalculate_transactions_domestic_amount,
+)
 
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
@@ -57,27 +64,49 @@ class TransactionService:
             raise ValidationError("; ".join(validation_errors))
 
         # (Keep existing category pre-fetching logic)
-        expense_category_ids = [t.get("expense_category") for t in transactions_data if t.get("expense_category")]
-        income_category_ids = [t.get("income_category") for t in transactions_data if t.get("income_category")]
-        expense_categories = {str(c.id): c for c in ExpenseCategory.objects.filter(id__in=expense_category_ids)}
-        income_categories = {str(c.id): c for c in IncomeCategory.objects.filter(id__in=income_category_ids)}
+        expense_category_ids = [
+            t.get("expense_category")
+            for t in transactions_data
+            if t.get("expense_category")
+        ]
+        income_category_ids = [
+            t.get("income_category")
+            for t in transactions_data
+            if t.get("income_category")
+        ]
+        expense_categories = {
+            str(c.id): c
+            for c in ExpenseCategory.objects.filter(id__in=expense_category_ids)
+        }
+        income_categories = {
+            str(c.id): c
+            for c in IncomeCategory.objects.filter(id__in=income_category_ids)
+        }
 
         transactions = []
         for data in transactions_data:
             # (Keep existing category resolution logic)
             expense_cat = expense_categories.get(str(data.get("expense_category")))
             income_cat = income_categories.get(str(data.get("income_category")))
-            
+
             transaction = Transaction(
                 user=user,
                 workspace=workspace,
                 type=data["type"],
-                original_amount=data["original_amount"],
+                original_amount=Decimal(data["original_amount"]),  # Ensure correct type
                 original_currency=data["original_currency"],
-                date=date.fromisoformat(data["date"]) if isinstance(data["date"], str) else data["date"],
+                date=(
+                    date.fromisoformat(data["date"])
+                    if isinstance(data["date"], str)
+                    else data["date"]
+                ),
                 expense_category=expense_cat,
                 income_category=income_cat,
-                month=(date.fromisoformat(data["date"]) if isinstance(data["date"], str) else data["date"]).replace(day=1),
+                month=(
+                    date.fromisoformat(data["date"])
+                    if isinstance(data["date"], str)
+                    else data["date"]
+                ).replace(day=1),
                 note_manual=data.get("note_manual", ""),
                 note_auto=data.get("note_auto", ""),
                 amount_domestic=data.get("original_amount"),
@@ -89,6 +118,7 @@ class TransactionService:
 
         # 2. Handle ManyToMany tags relationship
         from .tag_service import TagService
+
         tag_service = TagService()
         ThroughModel = Transaction.tags.through
         relations_to_create = []
@@ -101,19 +131,26 @@ class TransactionService:
                     relations_to_create.append(
                         ThroughModel(transaction_id=transaction.id, tags_id=tag_obj.id)
                     )
-        
+
         if relations_to_create:
             ThroughModel.objects.bulk_create(relations_to_create, ignore_conflicts=True)
 
         # 3. Recalculate domestic amounts
         try:
-            transactions = recalculate_transactions_domestic_amount(transactions, workspace)
+            transactions = recalculate_transactions_domestic_amount(
+                transactions, workspace
+            )
             Transaction.objects.bulk_update(transactions, ["amount_domestic"])
         except CurrencyConversionError as e:
-            logger.error("Currency conversion failed during bulk create", extra={"error": str(e)})
+            logger.error(
+                "Currency conversion failed during bulk create", extra={"error": str(e)}
+            )
             raise
 
-        logger.info("Bulk transaction creation completed successfully", extra={"created_count": len(transactions)})
+        logger.info(
+            "Bulk transaction creation completed successfully",
+            extra={"created_count": len(transactions)},
+        )
         return transactions
 
     @staticmethod
@@ -330,7 +367,8 @@ class TransactionService:
                     if "type" in data:
                         transaction.type = data["type"]
                     if "original_amount" in data:
-                        transaction.original_amount = data["original_amount"]
+                        # Ensure the amount is a Decimal before assignment
+                        transaction.original_amount = Decimal(data["original_amount"])
                         needs_recalculation = True
                     if "original_currency" in data:
                         transaction.original_currency = data["original_currency"]
@@ -339,8 +377,6 @@ class TransactionService:
                         transaction.date = data["date"]
                         transaction.month = data["date"].replace(day=1)
                         needs_recalculation = True
-                    if "tags" in data:
-                        transaction.tags = data["tags"]
                     if "note_manual" in data:
                         transaction.note_manual = data["note_manual"]
                     if "note_auto" in data:
@@ -431,7 +467,6 @@ class TransactionService:
                                 "expense_category",
                                 "income_category",
                                 "amount_domestic",
-                                "tags",
                                 "note_manual",
                                 "note_auto",
                                 "month",
@@ -439,6 +474,49 @@ class TransactionService:
                         )
 
                     results["updated"] = [t.id for t in all_updates]
+
+                    # 4. HANDLE TAGS SEPARATELY AFTER UPDATING MAIN FIELDS
+                    from .tag_service import TagService
+
+                    tag_service = TagService()
+                    ThroughModel = Transaction.tags.through
+
+                    # First, clear existing tags for all updated transactions in one go
+                    ThroughModel.objects.filter(
+                        transaction_id__in=[t.id for t in all_updates]
+                    ).delete()
+
+                    # Then, build the new relationships to be created
+                    relations_to_create = []
+                    all_tag_names = set()
+                    for data in transactions_data["update"]:
+                        if "tags" in data and data.get("id") in transactions_dict:
+                            all_tag_names.update(data["tags"])
+
+                    # Get or create all needed tags in a single service call
+                    tag_map = {
+                        tag.name: tag
+                        for tag in tag_service.get_or_create_tags(
+                            workspace, list(all_tag_names)
+                        )
+                    }
+
+                    # Create the through-model instances for bulk creation
+                    for data in transactions_data["update"]:
+                        if "tags" in data and data.get("id") in transactions_dict:
+                            transaction_id = data["id"]
+                            for tag_name in data["tags"]:
+                                if tag_name in tag_map:
+                                    relations_to_create.append(
+                                        ThroughModel(
+                                            transaction_id=transaction_id,
+                                            tags_id=tag_map[tag_name].id,
+                                        )
+                                    )
+
+                    ThroughModel.objects.bulk_create(
+                        relations_to_create, ignore_conflicts=True
+                    )
 
                 except CurrencyConversionError as e:
                     logger.error(

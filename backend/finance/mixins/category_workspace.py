@@ -29,6 +29,7 @@ class CategoryWorkspaceMixin:
         Raises:
             DRFValidationError: If workspace validation fails
         """
+        data = super().validate(data)
         request = self.context.get("request")
 
         if request and hasattr(request, "workspace"):

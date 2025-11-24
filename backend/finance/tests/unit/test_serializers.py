@@ -18,24 +18,42 @@ Test Structure:
 from datetime import date
 from unittest.mock import Mock, patch
 
-import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from finance.models import (ExpenseCategory, ExpenseCategoryVersion,
-                            IncomeCategory, IncomeCategoryVersion, Transaction,
-                            UserSettings, Workspace, WorkspaceMembership,
-                            WorkspaceSettings)
-from finance.serializers import (ExpenseCategorySerializer,
-                                 IncomeCategorySerializer,
-                                 TransactionListSerializer,
-                                 TransactionSerializer, UserSettingsSerializer,
-                                 WorkspaceMembershipSerializer,
-                                 WorkspaceSerializer,
-                                 WorkspaceSettingsSerializer)
-
-from ...services.workspace_service import WorkspaceService
+from finance.models import (
+    ExchangeRate,
+    ExpenseCategory,
+    ExpenseCategoryVersion,
+    IncomeCategory,
+    IncomeCategoryVersion,
+    Tags,
+    Transaction,
+    TransactionDraft,
+    UserSettings,
+    Workspace,
+    WorkspaceAdmin,
+    WorkspaceMembership,
+    WorkspaceSettings,
+)
+from finance.serializers import (
+    ExchangeRateSerializer,
+    ExpenseCategorySerializer,
+    ExpenseCategoryVersionSerializer,
+    IncomeCategorySerializer,
+    IncomeCategoryVersionSerializer,
+    TagSerializer,
+    TransactionDraftSerializer,
+    TransactionListSerializer,
+    TransactionSerializer,
+    UserSettingsSerializer,
+    WorkspaceAdminSerializer,
+    WorkspaceMembershipSerializer,
+    WorkspaceSerializer,
+    WorkspaceSettingsSerializer,
+)
 
 User = get_user_model()
 
@@ -77,18 +95,30 @@ class TestUserSettingsSerializer(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("language", serializer.errors)
 
+    def test_update_currency_and_date_format(self):
+        """Test that preferred_currency and date_format can be updated."""
+        data = {"preferred_currency": "USD", "date_format": "YYYY-MM-DD"}
+        serializer = UserSettingsSerializer(
+            instance=self.user_settings, data=data, partial=True
+        )
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        serializer.save()
+
+        self.user_settings.refresh_from_db()
+        self.assertEqual(self.user_settings.preferred_currency, "USD")
+        self.assertEqual(self.user_settings.date_format, "YYYY-MM-DD")
+
 
 class TestWorkspaceSerializer(TestCase):
     """
-    Tests for WorkspaceSerializer with membership context.
+    Tests for WorkspaceSerializer with cached permission context.
 
-    Comprehensive tests covering workspace serialization, member count calculation,
-    user role detection, permission calculation, and workspace creation logic
-    with proper request context handling.
+    Covers workspace serialization, member count, user role, permissions,
+    and creation logic using a mocked request context with cached permissions.
     """
 
     def setUp(self):
-        """Set up test workspace, owner, member, and request context."""
+        """Set up test workspace, owner, member, and a mock request."""
         self.owner = User.objects.create_user(
             email="owner@test.com", password="testpass123", username="owner"
         )
@@ -104,25 +134,19 @@ class TestWorkspaceSerializer(TestCase):
 
         self.request = Mock()
         self.request.user = self.member
+        # Define a base set of permissions for a typical 'editor' role
+        self.request.user_permissions = {
+            "workspace_role": "editor",
+            "can_view": True,
+            "can_edit": True,
+            "can_manage_members": False,
+            "can_create_transactions": True,
+        }
+        # The target_user is required for the create method
+        self.request.target_user = self.owner
 
-    def test_is_admin_from_middleware_cache(self):
-        """Test admin status detection from middleware cache."""
-        # Oprava: Nastav priamo cached memberships
-        self.request._cached_user_memberships = {self.workspace.id: "admin"}
-
-        serializer = WorkspaceSerializer(
-            instance=self.workspace, context={"request": self.request}
-        )
-
-        is_owner = serializer.get_is_owner(self.workspace)
-        # Member is not owner, should be False
-        self.assertFalse(is_owner)
-
-    def test_serialization_with_membership_data(self):
-        """Test workspace serialization includes membership context."""
-        # Oprava: Nastav priamo cached memberships
-        self.request._cached_user_memberships = {self.workspace.id: "editor"}
-
+    def test_serialization_with_cached_permissions(self):
+        """Test workspace serialization includes data from cached context."""
         serializer = WorkspaceSerializer(
             instance=self.workspace, context={"request": self.request}
         )
@@ -130,145 +154,139 @@ class TestWorkspaceSerializer(TestCase):
         data = serializer.data
         self.assertEqual(data["name"], "Test Workspace")
         self.assertEqual(data["owner_username"], "owner")
-        # Môžeš pridať aj kontrolu user_role v data ak chceš
         self.assertEqual(data["user_role"], "editor")
+        self.assertEqual(data["user_permissions"], self.request.user_permissions)
 
-    def test_user_role_retrieval(self):
-        """Test retrieval of current user's role in workspace."""
-        # Oprava: Nastav priamo cached memberships
-        self.request._cached_user_memberships = {self.workspace.id: "editor"}
-
+    def test_user_role_retrieval_from_cache(self):
+        """Test retrieval of user's role from cached permissions."""
         serializer = WorkspaceSerializer(
             instance=self.workspace, context={"request": self.request}
         )
-
         role = serializer.get_user_role(self.workspace)
         self.assertEqual(role, "editor")
 
     def test_member_count_calculation(self):
-        """Test calculation of total members in workspace."""
-        serializer = WorkspaceSerializer(
-            instance=self.workspace, context={"request": self.request}
-        )
-
-        # Test through serialized data (correct approach)
-        serialized_data = serializer.data
-        self.assertEqual(serialized_data["member_count"], 2)  # owner + member
+        """Test calculation of total members in a workspace."""
+        # Refresh instance to get the latest count from the database
+        self.workspace.refresh_from_db()
+        serializer = WorkspaceSerializer(instance=self.workspace)
+        # Owner + member = 2
+        self.assertEqual(serializer.data["member_count"], 2)
 
     def test_ownership_check_for_owner(self):
-        """Test ownership detection for workspace owner."""
+        """Test ownership detection for the workspace owner."""
         self.request.user = self.owner
-        # Oprava: Nastav priamo cached memberships
-        self.request._cached_user_memberships = {
-            self.workspace.id: "admin"
-        }  # owner má admin rolu
-
         serializer = WorkspaceSerializer(
             instance=self.workspace, context={"request": self.request}
         )
-
         is_owner = serializer.get_is_owner(self.workspace)
         self.assertTrue(is_owner)
 
     def test_ownership_check_for_non_owner(self):
-        """Test ownership detection for non-owner members."""
-        # Oprava: Nastav priamo cached memberships
-        self.request._cached_user_memberships = {self.workspace.id: "editor"}
-
+        """Test ownership detection for a non-owner member."""
+        self.request.user = self.member  # This is the default from setUp
         serializer = WorkspaceSerializer(
             instance=self.workspace, context={"request": self.request}
         )
-
         is_owner = serializer.get_is_owner(self.workspace)
         self.assertFalse(is_owner)
 
-    @patch.object(WorkspaceSerializer, "_get_membership_for_workspace")
-    def test_user_permissions_calculation(self, mock_get_membership):
-        """Test calculation of user permissions based on role."""
-        mock_get_membership.return_value = "editor"
-
+    def test_user_permissions_retrieval_from_cache(self):
+        """Test retrieval of user permissions from the cached context."""
         serializer = WorkspaceSerializer(
             instance=self.workspace, context={"request": self.request}
         )
-
         permissions = serializer.get_user_permissions(self.workspace)
-
-        # Editor by mal mať tieto povolenia:
-        self.assertTrue(permissions["can_view"])
-        self.assertTrue(permissions["can_create_transactions"])
-        self.assertFalse(permissions["can_manage_members"])
-        self.assertFalse(permissions["can_edit"])
+        self.assertEqual(permissions, self.request.user_permissions)
 
     def test_anonymous_user_permissions(self):
-        """Test permission calculation for anonymous users."""
-        serializer = WorkspaceSerializer(instance=self.workspace)
-
+        """Test permission calculation for anonymous (unauthenticated) users."""
+        self.request.user = AnonymousUser()
+        serializer = WorkspaceSerializer(
+            instance=self.workspace, context={"request": self.request}
+        )
         permissions = serializer.get_user_permissions(self.workspace)
         self.assertFalse(permissions["can_view"])
         self.assertFalse(permissions["can_create_transactions"])
 
     def test_valid_name_validation(self):
-        """Test validation of properly formatted workspace names."""
-        serializer = WorkspaceSerializer(data={"name": "Valid Name"})
-
-        self.assertTrue(serializer.is_valid())
+        """Test validation of a properly formatted workspace name."""
+        serializer = WorkspaceSerializer(
+            data={"name": "Valid Name"}, context={"request": self.request}
+        )
+        self.assertTrue(serializer.is_valid(raise_exception=True))
 
     def test_name_too_short_validation(self):
-        """Test rejection of overly short workspace names."""
-        serializer = WorkspaceSerializer(data={"name": "A"})
-
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("name", serializer.errors)
+        """Test rejection of an overly short workspace name."""
+        serializer = WorkspaceSerializer(
+            data={"name": "A"}, context={"request": self.request}
+        )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("name", context.exception.detail)
 
     def test_name_too_long_validation(self):
-        """Test rejection of overly long workspace names."""
+        """Test rejection of an overly long workspace name."""
         long_name = "A" * 101
-        serializer = WorkspaceSerializer(data={"name": long_name})
-
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("name", serializer.errors)
+        serializer = WorkspaceSerializer(
+            data={"name": long_name}, context={"request": self.request}
+        )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("name", context.exception.detail)
 
     def test_name_stripping_validation(self):
         """Test automatic whitespace stripping from workspace names."""
-        serializer = WorkspaceSerializer(data={"name": "  Test Workspace  "})
-
-        self.assertTrue(serializer.is_valid())
+        serializer = WorkspaceSerializer(
+            data={"name": "  Test Workspace  "}, context={"request": self.request}
+        )
+        self.assertTrue(serializer.is_valid(raise_exception=True))
         self.assertEqual(serializer.validated_data["name"], "Test Workspace")
 
-    @patch("finance.serializers.logger")
-    def test_workspace_creation_with_owner_membership(self, mock_logger):
-        """Test workspace creation WITH owner automatically added to membership."""
+    @patch("finance.serializers.WorkspaceService.create_workspace")
+    def test_workspace_creation_delegates_to_service(self, mock_create_workspace):
+        """Test that workspace creation is delegated to the WorkspaceService."""
+        # Arrange
         self.request.user = self.owner
+        self.request.target_user = self.owner
+
+        # Define the mock return value
+        mock_workspace = Workspace(id=99, name="New Workspace", owner=self.owner)
+
+        # Create a mock for the serializer's handle_service_call
+        # This isolates the test to the serializer's `create` method logic
+        handle_service_call_mock = Mock(return_value=mock_workspace)
+
         serializer = WorkspaceSerializer(
-            data={"name": "New Workspace"}, context={"request": self.request}
+            data={"name": "New Workspace", "description": "A description"},
+            context={"request": self.request},
+        )
+        serializer.handle_service_call = handle_service_call_mock
+
+        # Act
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        created_workspace = serializer.save()
+
+        # Assert
+        # Check that handle_service_call was called correctly
+        handle_service_call_mock.assert_called_once_with(
+            serializer.workspace_service.create_workspace,
+            name="New Workspace",
+            description="A description",
+            owner=self.owner,
         )
 
-        self.assertTrue(serializer.is_valid())
-        workspace = serializer.save()
-
-        self.assertEqual(workspace.name, "New Workspace")
-        self.assertEqual(workspace.owner, self.owner)
-
-        # ✅ Owner SHOULD be in WorkspaceMembership (new behavior)
-        membership = WorkspaceMembership.objects.get(
-            workspace=workspace, user=self.owner
-        )
-        self.assertEqual(membership.role, "owner")
-
-        # ✅ Owner je započítaný v member_count (cez serializer)
-        serialized_data = serializer.data
-        self.assertEqual(serialized_data["member_count"], 1)
-
-        # ✅ Verify logging
-        mock_logger.debug.assert_called()
+        # Check that the serializer returns the object from the service
+        self.assertEqual(created_workspace, mock_workspace)
+        self.assertEqual(created_workspace.name, "New Workspace")
 
 
 class TestWorkspaceMembershipSerializer(TestCase):
     """
     Tests for WorkspaceMembershipSerializer handling role assignments.
 
-    Covers role validation, permission checks, serialization format,
-    and security controls for membership management operations.
+    Covers role validation, permission checks based on cached context,
+    and security controls for membership management.
     """
 
     def setUp(self):
@@ -276,7 +294,7 @@ class TestWorkspaceMembershipSerializer(TestCase):
         self.owner = User.objects.create_user(
             email="owner@test.com", password="testpass123", username="owner"
         )
-        self.admin = User.objects.create_user(
+        self.admin_user = User.objects.create_user(
             email="admin@test.com", password="testpass123", username="admin"
         )
         self.member = User.objects.create_user(
@@ -286,59 +304,100 @@ class TestWorkspaceMembershipSerializer(TestCase):
             name="Test Workspace", owner=self.owner
         )
 
-        # Create admin membership
-        WorkspaceMembership.objects.create(
-            workspace=self.workspace, user=self.admin, role="admin"
-        )
-
-        # Create regular membership to update
-        self.membership = WorkspaceMembership.objects.create(
+        # Membership for the user whose role is being changed
+        self.membership_to_change = WorkspaceMembership.objects.create(
             workspace=self.workspace, user=self.member, role="viewer"
+        )
+        # Membership for the owner is created automatically, so we get it
+        self.owner_membership = WorkspaceMembership.objects.get(
+            workspace=self.workspace, user=self.owner
         )
 
         self.request = Mock()
-        self.request.user = self.admin
+        # By default, the acting user is an admin
+        self.request.user = self.admin_user
+        self.request.user_permissions = {"workspace_role": "admin"}
 
     def test_serialization_with_user_data(self):
         """Test membership serialization includes user and workspace details."""
-        serializer = WorkspaceMembershipSerializer(instance=self.membership)
-
+        serializer = WorkspaceMembershipSerializer(instance=self.membership_to_change)
         data = serializer.data
         self.assertEqual(data["user_username"], "member")
         self.assertEqual(data["workspace_name"], "Test Workspace")
+        self.assertEqual(data["role"], "viewer")
+        self.assertFalse(data["is_workspace_owner"])
 
-    def test_valid_role_validation(self):
-        """Test validation of permitted role assignments."""
+    def test_is_workspace_owner_field(self):
+        """Test the `is_workspace_owner` field is correctly serialized."""
+        serializer = WorkspaceMembershipSerializer(instance=self.owner_membership)
+        self.assertTrue(serializer.data["is_workspace_owner"])
+
+        serializer = WorkspaceMembershipSerializer(instance=self.membership_to_change)
+        self.assertFalse(serializer.data["is_workspace_owner"])
+
+    def test_admin_can_change_role(self):
+        """Test that a user with an 'admin' role can change another member's role."""
         serializer = WorkspaceMembershipSerializer(
-            instance=self.membership,
+            instance=self.membership_to_change,
             data={"role": "editor"},
             context={"request": self.request},
+            partial=True,
+        )
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        self.assertEqual(serializer.validated_data["role"], "editor")
+
+    def test_owner_can_change_role(self):
+        """Test that a user with an 'owner' role can change another member's role."""
+        self.request.user = self.owner
+        self.request.user_permissions = {"workspace_role": "owner"}
+        serializer = WorkspaceMembershipSerializer(
+            instance=self.membership_to_change,
+            data={"role": "editor"},
+            context={"request": self.request},
+            partial=True,
+        )
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        self.assertEqual(serializer.validated_data["role"], "editor")
+
+    def test_viewer_cannot_change_role(self):
+        """Test that a user with a 'viewer' role cannot change roles."""
+        self.request.user = self.member
+        self.request.user_permissions = {"workspace_role": "viewer"}
+        serializer = WorkspaceMembershipSerializer(
+            instance=self.membership_to_change,
+            data={"role": "editor"},
+            context={"request": self.request},
+            partial=True,
+        )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn(
+            "You don't have permission to change roles.", str(context.exception)
         )
 
-        self.assertTrue(serializer.is_valid())
+    def test_cannot_change_owner_role(self):
+        """Test that no one can change the role of the workspace owner."""
+        serializer = WorkspaceMembershipSerializer(
+            instance=self.owner_membership,
+            data={"role": "editor"},
+            context={"request": self.request},
+            partial=True,
+        )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("Cannot change owner's role.", str(context.exception))
 
     def test_invalid_role_validation(self):
-        """Test rejection of invalid role values."""
+        """Test rejection of an invalid role value."""
         serializer = WorkspaceMembershipSerializer(
-            instance=self.membership,
+            instance=self.membership_to_change,
             data={"role": "invalid_role"},
             context={"request": self.request},
+            partial=True,
         )
-
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("role", serializer.errors)
-
-    def test_regular_user_cannot_change_roles(self):
-        """Test permission enforcement for role change operations."""
-        self.request.user = self.member
-        serializer = WorkspaceMembershipSerializer(
-            instance=self.membership,
-            data={"role": "editor"},
-            context={"request": self.request},
-        )
-
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("role", serializer.errors)
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("Invalid role", str(context.exception))
 
 
 class TestWorkspaceSettingsSerializer(TestCase):
@@ -407,59 +466,72 @@ class TestWorkspaceSettingsSerializer(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("fiscal_year_start", serializer.errors)
 
+    def test_update_display_and_accounting_modes(self):
+        """Test that display_mode and accounting_mode can be updated."""
+        data = {"display_mode": "day", "accounting_mode": False}
+        serializer = WorkspaceSettingsSerializer(
+            instance=self.settings, data=data, partial=True
+        )
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        serializer.save()
+
+        self.settings.refresh_from_db()
+        self.assertEqual(self.settings.display_mode, "day")
+        self.assertEqual(self.settings.accounting_mode, False)
+
 
 class TestTransactionSerializer(TestCase):
     """
-    Tests for TransactionSerializer handling financial transactions.
+    Tests for TransactionSerializer with service-layer integration.
 
-    Comprehensive tests covering transaction validation, category assignment,
-    currency handling, amount validation, and security controls for
-    cross-workspace access prevention.
+    Covers transaction validation (delegated to services), category and tag
+    management, and security controls like cross-workspace prevention.
     """
 
     def setUp(self):
-        """Set up test users, workspace, categories, and request context."""
+        """Set up users, workspace, categories (at the required leaf level), and a mock request."""
         self.owner = User.objects.create_user(
-            email="owner@test.com", password="testpass123", username="owner"
+            username="owner", email="owner@test.com", password="password"
         )
         self.user = User.objects.create_user(
-            email="user@test.com", password="testpass123", username="user"
+            username="user", email="user@test.com", password="password"
         )
         self.workspace = Workspace.objects.create(
             name="Test Workspace", owner=self.owner
         )
 
-        # Create category versions
+        # Category versions are required for categories
         self.expense_version = ExpenseCategoryVersion.objects.create(
-            workspace=self.workspace, name="Expense Version", created_by=self.owner
+            workspace=self.workspace, name="Expense V1", created_by=self.owner
         )
         self.income_version = IncomeCategoryVersion.objects.create(
-            workspace=self.workspace, name="Income Version", created_by=self.owner
+            workspace=self.workspace, name="Income V1", created_by=self.owner
         )
 
-        # Create categories
+        # IMPORTANT: Categories must be at level 5 to be valid for transactions
         self.expense_category = ExpenseCategory.objects.create(
-            name="Office Supplies", version=self.expense_version, level=1
+            name="Office Supplies", version=self.expense_version, level=5
         )
         self.income_category = IncomeCategory.objects.create(
-            name="Sales", version=self.income_version, level=1
+            name="Sales", version=self.income_version, level=5
         )
 
+        # Mock request with essential context
         self.request = Mock()
-        self.request.workspace = self.workspace
         self.request.user = self.user
-        # Initialize cached categories for serializer
+        self.request.workspace = self.workspace
+        self.request.target_user = self.user
+        # The serializer uses these cached querysets for security and performance
         self.request._cached_expense_categories = ExpenseCategory.objects.filter(
-            version__workspace=self.workspace, is_active=True
+            id=self.expense_category.id
         )
         self.request._cached_income_categories = IncomeCategory.objects.filter(
-            version__workspace=self.workspace, is_active=True
+            id=self.income_category.id
         )
 
-    def test_serializer_initialization_with_workspace(self):
-        """Test serializer initialization with workspace-scoped categories."""
+    def test_serializer_initialization_with_workspace_querysets(self):
+        """Test serializer initializes with workspace-scoped category querysets."""
         serializer = TransactionSerializer(context={"request": self.request})
-
         self.assertEqual(
             serializer.fields["expense_category"].queryset.model, ExpenseCategory
         )
@@ -467,246 +539,253 @@ class TestTransactionSerializer(TestCase):
             serializer.fields["income_category"].queryset.model, IncomeCategory
         )
 
-    def test_target_user_mixin_functionality(self):
-        """Test user assignment through TargetUserMixin."""
-        self.request.target_user = self.user
-        self.request.workspace = self.workspace  # DÔLEŽITÉ: Pridaj toto!
+    @patch(
+        "finance.serializers.TransactionService._validate_transaction_data",
+        return_value=None,
+    )
+    def test_valid_transaction_creation(self, mock_validate):
+        """Test successful creation of a valid expense transaction."""
+        mock_validate.__name__ = "mock_validate_transaction"
+        data = {
+            "type": "expense",
+            "expense_category": self.expense_category.id,
+            "original_amount": 100.00,
+            "original_currency": "EUR",
+            "date": "2023-01-01",
+        }
+        serializer = TransactionSerializer(data=data, context={"request": self.request})
 
-        serializer = TransactionSerializer(
-            data={
-                "type": "expense",
-                "expense_category": self.expense_category.id,
-                "original_amount": 100.00,
-                "original_currency": "EUR",
-                "date": "2023-01-01",
-            },
-            context={"request": self.request},
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+
+        # Mock the service call for isolation
+        with patch.object(
+            serializer, "handle_service_call", return_value=None
+        ) as mock_handle:
+            instance = serializer.save()
+
+        # Check that the underlying model instance was created with correct data
+        self.assertEqual(instance.user, self.user)
+        self.assertEqual(instance.workspace, self.workspace)
+        self.assertEqual(instance.type, "expense")
+        # Assert that the service validation was called
+        mock_validate.assert_called_once()
+
+    def test_invalid_category_level_validation(self):
+        """Test rejection of transactions using a non-leaf category (level != 5)."""
+        # Create a category with an invalid level
+        parent_category = ExpenseCategory.objects.create(
+            name="Parent Category", version=self.expense_version, level=4
         )
+        data = {
+            "type": "expense",
+            "expense_category": parent_category.id,
+            "original_amount": 50.00,
+            "original_currency": "USD",
+            "date": "2023-01-10",
+        }
+        serializer = TransactionSerializer(data=data, context={"request": self.request})
 
-        self.assertTrue(serializer.is_valid())
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("Only Level 5 categories are allowed", str(context.exception))
 
-        # Vytvor transaction a over že má správneho usera a workspace
-        transaction = serializer.save()
-        self.assertEqual(transaction.user, self.user)
-        self.assertEqual(transaction.workspace, self.workspace)
+    @patch(
+        "finance.serializers.TransactionService._validate_transaction_data",
+        side_effect=DRFValidationError("Service validation failed"),
+    )
+    def test_service_layer_validation_failure(self, mock_validate):
+        """Test that service-layer validation failures are converted to DRF exceptions."""
+        mock_validate.__name__ = "mock_validate_transaction"
+        data = {
+            "type": "expense",
+            "expense_category": self.expense_category.id,
+            "original_amount": 100.00,
+            "original_currency": "EUR",
+            "date": "2023-01-01",
+        }
+        serializer = TransactionSerializer(data=data, context={"request": self.request})
 
-    def test_valid_expense_transaction(self):
-        """Test validation of properly formatted expense transactions."""
-        serializer = TransactionSerializer(
-            data={
-                "type": "expense",
-                "expense_category": self.expense_category.id,
-                "original_amount": 100.00,
-                "original_currency": "EUR",
-                "date": "2023-01-01",  # Pridané povinné pole
-            },
-            context={"request": self.request},
-        )
-
-        self.assertTrue(serializer.is_valid())
-
-    def test_valid_income_transaction(self):
-        """Test validation of properly formatted income transactions."""
-        serializer = TransactionSerializer(
-            data={
-                "type": "income",
-                "income_category": self.income_category.id,
-                "original_amount": 200.00,
-                "original_currency": "USD",
-                "date": "2023-01-01",  # Pridané povinné pole
-            },
-            context={"request": self.request},
-        )
-
-        self.assertTrue(serializer.is_valid())
-
-    def test_both_categories_provided_validation_error(self):
-        """Test rejection of transactions with both category types."""
-        serializer = TransactionSerializer(
-            data={
-                "type": "expense",
-                "expense_category": self.expense_category.id,
-                "income_category": self.income_category.id,
-                "original_amount": 100.00,
-                "original_currency": "EUR",
-                "date": "2023-01-01",  # Pridané povinné pole
-            },
-            context={"request": self.request},
-        )
-
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("non_field_errors", serializer.errors)
-
-    def test_no_category_provided_validation_error(self):
-        """Test rejection of transactions without any category."""
-        serializer = TransactionSerializer(
-            data={
-                "type": "expense",
-                "original_amount": 100.00,
-                "original_currency": "EUR",
-                "date": "2023-01-01",  # Pridané povinné pole
-            },
-            context={"request": self.request},
-        )
-
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("non_field_errors", serializer.errors)
-
-    def test_expense_with_income_category_validation_error(self):
-        """Test rejection of expense transactions with income categories."""
-        serializer = TransactionSerializer(
-            data={
-                "type": "expense",
-                "income_category": self.income_category.id,
-                "original_amount": 100.00,
-                "original_currency": "EUR",
-                "date": "2023-01-01",  # Pridané povinné pole
-            },
-            context={"request": self.request},
-        )
-
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("non_field_errors", serializer.errors)
-
-    def test_income_with_expense_category_validation_error(self):
-        """Test rejection of income transactions with expense categories."""
-        serializer = TransactionSerializer(
-            data={
-                "type": "income",
-                "expense_category": self.expense_category.id,
-                "original_amount": 200.00,
-                "original_currency": "USD",
-                "date": "2023-01-01",  # Pridané povinné pole
-            },
-            context={"request": self.request},
-        )
-
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("non_field_errors", serializer.errors)
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("Service validation failed", str(context.exception))
+        mock_validate.assert_called_once()
 
     def test_cross_workspace_category_access_blocked(self):
-        """Test prevention of cross-workspace category access attempts."""
+        """Test prevention of using a category from another workspace."""
         other_workspace = Workspace.objects.create(
             name="Other Workspace", owner=self.owner
         )
         other_version = ExpenseCategoryVersion.objects.create(
-            workspace=other_workspace, name="Other Version", created_by=self.owner
+            workspace=other_workspace, name="Other V1", created_by=self.owner
         )
         other_category = ExpenseCategory.objects.create(
-            name="Other Category", version=other_version, level=1
+            name="Other's Category", version=other_version, level=5
         )
 
+        data = {
+            "type": "expense",
+            "expense_category": other_category.id,  # This ID is not in the request's cached queryset
+            "original_amount": 100.00,
+            "original_currency": "EUR",
+            "date": "2023-01-01",
+        }
+        serializer = TransactionSerializer(data=data, context={"request": self.request})
+
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        # DRF's PrimaryKeyRelatedField raises this error when the object is not in the queryset
+        self.assertIn("Invalid pk", str(context.exception))
+        self.assertIn("expense_category", context.exception.detail)
+
+    @patch(
+        "finance.serializers.TransactionService._validate_transaction_data",
+        return_value=None,
+    )
+    @patch("finance.serializers.TagService.assign_tags_to_transaction")
+    def test_transaction_creation_with_tags(self, mock_assign_tags, mock_validate):
+        """Test that tags are correctly assigned during transaction creation."""
+        mock_validate.__name__ = "mock_validate_transaction"
+        mock_assign_tags.__name__ = "mock_assign_tags"
+        data = {
+            "type": "expense",
+            "expense_category": self.expense_category.id,
+            "original_amount": 100.00,
+            "original_currency": "EUR",
+            "date": "2023-01-01",
+            "tags": ["urgent", "project-x"],  # Passing tags
+        }
+        serializer = TransactionSerializer(data=data, context={"request": self.request})
+
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        instance = serializer.save()
+
+        # Assert that the tag service was called with the correct arguments
+        mock_assign_tags.assert_called_once_with(
+            transaction_instance=instance, tag_names=["urgent", "project-x"]
+        )
+
+    @patch(
+        "finance.serializers.TransactionService._validate_transaction_data",
+        return_value=None,
+    )
+    @patch("finance.serializers.TagService.get_or_create_tags")
+    def test_transaction_update_with_tags(self, mock_get_or_create_tags, mock_validate):
+        """Test that tags are correctly updated on an existing transaction."""
+        mock_validate.__name__ = "mock_validate_transaction"
+        mock_get_or_create_tags.__name__ = "mock_get_or_create_tags"
+        # Create initial transaction
+        transaction = Transaction.objects.create(
+            user=self.user,
+            workspace=self.workspace,
+            type="expense",
+            expense_category=self.expense_category,
+            original_amount=50.0,
+            original_currency="USD",
+            date=date(2023, 1, 5),
+        )
+        # Mock the return of the tag service
+        mock_get_or_create_tags.return_value = []
+
+        update_data = {
+            "original_amount": 55.00,
+            "tags": ["reviewed", "final"],  # New set of tags
+        }
         serializer = TransactionSerializer(
-            data={
-                "type": "expense",
-                "expense_category": other_category.id,
-                "original_amount": 100.00,
-                "original_currency": "EUR",
-                "date": "2023-01-01",
-            },
+            instance=transaction,
+            data=update_data,
             context={"request": self.request},
+            partial=True,
         )
 
-        self.assertFalse(serializer.is_valid())
-        # Oprava: Očakávame chybu v expense_category, nie non_field_errors
-        self.assertIn("expense_category", serializer.errors)
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        serializer.save()
 
-    def test_invalid_amount_validation(self):
-        """Test rejection of zero amount transactions."""
+        # Assert that the tag service was called to fetch the new tags
+        mock_get_or_create_tags.assert_called_once_with(
+            workspace=transaction.workspace, tag_names=["reviewed", "final"]
+        )
+        # The serializer's `update` calls `instance.tags.set()`, which we can't easily mock
+        # without a more complex setup. The call to the service is a good indicator.
+
+    def test_transaction_update_without_tags_preserves_existing_tags(self):
+        """Test that updating a transaction without the 'tags' key preserves existing tags."""
+        # Arrange: Create a transaction and assign some tags to it
+        transaction = Transaction.objects.create(
+            user=self.user,
+            workspace=self.workspace,
+            type="expense",
+            expense_category=self.expense_category,
+            original_amount=75.0,
+            original_currency="EUR",
+            date=date(2023, 1, 15),
+        )
+        tag1 = Tags.objects.create(workspace=self.workspace, name="important")
+        tag2 = Tags.objects.create(workspace=self.workspace, name="q1")
+        transaction.tags.set([tag1, tag2])
+
+        # Act: Update a different field on the transaction, without providing the 'tags' key
+        update_data = {"original_amount": 80.00}
         serializer = TransactionSerializer(
-            data={
-                "type": "expense",
-                "expense_category": self.expense_category.id,
-                "original_amount": 0,
-                "original_currency": "EUR",
-                "date": "2023-01-01",  # Pridané povinné pole
-            },
+            instance=transaction,
+            data=update_data,
             context={"request": self.request},
+            partial=True,
         )
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        serializer.save()
 
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("non_field_errors", serializer.errors)
+        # Assert: Check that the original tags are still present
+        transaction.refresh_from_db()
+        self.assertEqual(transaction.tags.count(), 2)
+        self.assertIn(tag1, transaction.tags.all())
+        self.assertIn(tag2, transaction.tags.all())
 
-    def test_negative_amount_validation(self):
-        """Test rejection of negative amount transactions."""
-        serializer = TransactionSerializer(
-            data={
-                "type": "expense",
-                "expense_category": self.expense_category.id,
-                "original_amount": -50.00,
-                "original_currency": "EUR",
-                "date": "2023-01-01",  # Pridané povinné pole
-            },
-            context={"request": self.request},
+    def test_original_currency_validation(self):
+        """Test validation for the original_currency field."""
+        # Test valid currency
+        data_valid = {
+            "type": "expense",
+            "expense_category": self.expense_category.id,
+            "original_amount": 100.00,
+            "original_currency": "CZK",
+            "date": "2023-01-01",
+        }
+        serializer_valid = TransactionSerializer(
+            data=data_valid, context={"request": self.request}
         )
+        self.assertTrue(serializer_valid.is_valid(raise_exception=True))
 
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("non_field_errors", serializer.errors)
-
-    def test_valid_currency_validation(self):
-        """Test validation of supported currency codes."""
-        serializer = TransactionSerializer(
-            data={
-                "type": "expense",
-                "expense_category": self.expense_category.id,
-                "original_amount": 100.00,
-                "original_currency": "USD",
-                "date": "2023-01-01",  # Pridané povinné pole
-            },
-            context={"request": self.request},
+        # Test invalid currency
+        data_invalid = {
+            "type": "expense",
+            "expense_category": self.expense_category.id,
+            "original_amount": 100.00,
+            "original_currency": "BTC",
+            "date": "2023-01-01",
+        }
+        serializer_invalid = TransactionSerializer(
+            data=data_invalid, context={"request": self.request}
         )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer_invalid.is_valid(raise_exception=True)
+        self.assertIn("original_currency", context.exception.detail)
 
-        self.assertTrue(serializer.is_valid())
-
-    def test_invalid_currency_validation(self):
-        """Test rejection of invalid currency codes."""
-        serializer = TransactionSerializer(
-            data={
-                "type": "expense",
-                "expense_category": self.expense_category.id,
-                "original_amount": 100.00,
-                "original_currency": "INVALID",
-                "date": "2023-01-01",  # Pridané povinné pole
-            },
-            context={"request": self.request},
+    def test_get_tag_list_serialization(self):
+        transaction = Transaction.objects.create(
+            user=self.user,
+            workspace=self.workspace,
+            type="expense",
+            expense_category=self.expense_category,
+            original_amount=50.0,
+            original_currency="USD",
+            date=date(2023, 1, 5),
         )
+        tag1 = Tags.objects.create(workspace=self.workspace, name="tag1")
+        tag2 = Tags.objects.create(workspace=self.workspace, name="tag2")
+        transaction.tags.set([tag1, tag2])
 
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("original_currency", serializer.errors)
-
-    @patch("finance.serializers.logger")
-    def test_security_violation_logging(self, mock_logger):
-        """Test logging of security violation attempts."""
-        other_workspace = Workspace.objects.create(
-            name="Other Workspace", owner=self.owner
-        )
-        other_version = ExpenseCategoryVersion.objects.create(
-            workspace=other_workspace, name="Other Version", created_by=self.owner
-        )
-        other_category = ExpenseCategory.objects.create(
-            name="Other Category", version=other_version, level=1
-        )
-
-        serializer = TransactionSerializer(
-            data={
-                "type": "expense",
-                "expense_category": other_category.id,
-                "original_amount": 100.00,
-                "original_currency": "EUR",
-                "date": "2023-01-01",
-            },
-            context={"request": self.request},
-        )
-
-        serializer.is_valid()
-
-        # Logger sa nezavolá, pretože validácia zlyhá na úrovni PrimaryKeyRelatedField
-        # Toto je správne správanie - security je zabezpečená už na úrovni querysetu
-        # mock_logger.warning.assert_called()  # Odstráň tento assertion
-
-        # Namiesto toho overíme, že validácia zlyhala s chybou v expense_category
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("expense_category", serializer.errors)
+        serializer = TransactionSerializer(instance=transaction)
+        self.assertEqual(sorted(serializer.data["tag_list"]), ["tag1", "tag2"])
 
 
 class TestTransactionListSerializer(TestCase):
@@ -876,40 +955,550 @@ class TestCategorySerializers(TestCase):
 
         self.assertFalse(serializer.is_valid())
 
-    def test_service_exception_conversion(self):
-        """Test že service exceptions sa správne konvertujú na DRF exceptions."""
-        with patch.object(
-            WorkspaceService,
-            "create_workspace",
-            side_effect=ValueError("Service error"),
-        ):
-            serializer = WorkspaceSerializer(
-                data={"name": "Test"}, context={"request": self.request}
-            )
-            with self.assertRaises(DRFValidationError):
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
 
-    def test_cached_permissions_usage(self):
-        """Test že serializer používa cached permissions namiesto DB query."""
-        self.request.user_permissions = {"workspace_role": "editor", "can_edit": True}
+class TestTagSerializer(TestCase):
+    """Tests for the TagSerializer."""
 
-        serializer = WorkspaceSerializer(
-            instance=self.workspace, context={"request": self.request}
+    def setUp(self):
+        """Set up a user, workspace, and mock request."""
+        self.owner = User.objects.create_user(
+            username="owner", email="owner@test.com", password="password"
+        )
+        self.workspace = Workspace.objects.create(
+            name="Test Workspace", owner=self.owner
+        )
+        self.request = Mock()
+        self.request.workspace = self.workspace
+
+    def test_valid_tag_serialization(self):
+        """Test that a tag is serialized correctly."""
+        tag = Tags.objects.create(workspace=self.workspace, name="test tag")
+        serializer = TagSerializer(instance=tag)
+        data = serializer.data
+        self.assertEqual(data["name"], "test tag")
+        self.assertEqual(data["workspace"], self.workspace.id)
+
+    def test_valid_name_validation(self):
+        """Test validation of a valid tag name."""
+        serializer = TagSerializer(
+            data={"name": "  valid tag  "}, context={"request": self.request}
+        )
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        self.assertEqual(serializer.validated_data["name"], "valid tag")
+
+    def test_name_too_long_validation(self):
+        """Test that a tag name longer than 50 characters is invalid."""
+        long_name = "a" * 51
+        serializer = TagSerializer(
+            data={"name": long_name}, context={"request": self.request}
+        )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn(
+            "Ensure this field has no more than 50 characters.", str(context.exception)
         )
 
-        role = serializer.get_user_role(self.workspace)
-        self.assertEqual(role, "editor")  # Z cache, nie z DB
+    def test_empty_name_validation(self):
+        """Test that an empty tag name is invalid."""
+        serializer = TagSerializer(data={"name": ""}, context={"request": self.request})
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("Tag name cannot be empty.", str(context.exception))
 
-    def test_target_user_in_transaction_creation(self):
-        """Test že transaction sa vytvára pre správneho target_user."""
-        self.request.target_user = self.other_user
+    def test_whitespace_name_validation(self):
+        """Test that a tag name with only whitespace is invalid."""
+        serializer = TagSerializer(
+            data={"name": "   "}, context={"request": self.request}
+        )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("Tag name cannot be empty.", str(context.exception))
 
-        serializer = TransactionSerializer(
-            data={...}, context={"request": self.request}
+    @patch("finance.serializers.TagService.get_or_create_tags")
+    def test_create_uses_get_or_create_service(self, mock_get_or_create_tags):
+        """Test that the create method uses the TagService for get-or-create logic."""
+        # Arrange
+        tag_name = "new-tag"
+        mock_tag = Tags(id=1, workspace=self.workspace, name=tag_name)
+        mock_get_or_create_tags.return_value = [mock_tag]
+
+        serializer = TagSerializer(
+            data={"name": tag_name}, context={"request": self.request}
         )
 
-        transaction = serializer.save()
+        # Act
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        created_tag = serializer.save()
+
+        # Assert
+        mock_get_or_create_tags.assert_called_once_with(
+            workspace=self.workspace, tag_names=[tag_name]
+        )
+        self.assertEqual(created_tag, mock_tag)
         self.assertEqual(
-            transaction.user, self.other_user
-        )  # Target user, nie request.user
+            Tags.objects.count(), 0
+        )  # Service is mocked, so no object is actually created
+
+    def test_create_actually_creates_tag(self):
+        """Test the get-or-create logic for a new tag."""
+        self.assertEqual(Tags.objects.count(), 0)
+        serializer = TagSerializer(
+            data={"name": "new tag"}, context={"request": self.request}
+        )
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        serializer.save()
+        self.assertEqual(Tags.objects.count(), 1)
+        self.assertTrue(Tags.objects.filter(name="new tag").exists())
+
+    def test_create_returns_existing_tag(self):
+        """Test the get-or-create logic for an existing tag."""
+        existing_tag = Tags.objects.create(
+            workspace=self.workspace, name="existing tag"
+        )
+        self.assertEqual(Tags.objects.count(), 1)
+
+        serializer = TagSerializer(
+            data={"name": "  EXISTING TAG  "},  # Test normalization
+            context={"request": self.request},
+        )
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        returned_tag = serializer.save()
+
+        self.assertEqual(Tags.objects.count(), 1)
+        self.assertEqual(returned_tag, existing_tag)
+
+
+class TestTransactionDraftSerializer(TestCase):
+    """Tests for the TransactionDraftSerializer."""
+
+    def setUp(self):
+        """Set up user, workspace, categories, and a mock request."""
+        self.owner = User.objects.create_user(
+            username="owner", email="owner@test.com", password="password"
+        )
+        self.user = User.objects.create_user(
+            username="user", email="user@test.com", password="password"
+        )
+        self.workspace = Workspace.objects.create(
+            name="Test Workspace", owner=self.owner
+        )
+
+        self.expense_version = ExpenseCategoryVersion.objects.create(
+            workspace=self.workspace, name="V1", created_by=self.owner
+        )
+        self.expense_category_lvl5 = ExpenseCategory.objects.create(
+            name="Supplies", version=self.expense_version, level=5
+        )
+        self.expense_category_lvl4 = ExpenseCategory.objects.create(
+            name="General", version=self.expense_version, level=4
+        )
+
+        self.request = Mock()
+        self.request.user = self.user
+        self.request.workspace = self.workspace
+        self.request.target_user = self.user
+        # Mock cached categories for validation
+        self.request._cached_expense_categories = [
+            self.expense_category_lvl5,
+            self.expense_category_lvl4,
+        ]
+        self.request._cached_income_categories = []
+
+        self.valid_tx_data = [
+            {
+                "type": "expense",
+                "expense_category_id": self.expense_category_lvl5.id,
+                "original_amount": 10,
+                "original_currency": "USD",
+                "date": "2023-01-01",
+            }
+        ]
+
+    def test_valid_draft_creation(self):
+        """Test creating a valid transaction draft."""
+        data = {"draft_type": "expense", "transactions_data": self.valid_tx_data}
+        serializer = TransactionDraftSerializer(
+            data=data, context={"request": self.request}
+        )
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+
+    def test_draft_type_mismatch_validation(self):
+        """Test validation fails if draft_type and transaction type mismatch."""
+        data = {
+            "draft_type": "income",  # Mismatch
+            "transactions_data": self.valid_tx_data,
+        }
+        serializer = TransactionDraftSerializer(
+            data=data, context={"request": self.request}
+        )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("does not match the draft_type", str(context.exception))
+
+    def test_changing_draft_type_on_update_is_invalid(self):
+        """Test that changing the draft_type of an existing draft is not allowed."""
+        draft = TransactionDraft.objects.create(
+            user=self.user,
+            workspace=self.workspace,
+            draft_type="expense",
+            transactions_data=[],
+        )
+        serializer = TransactionDraftSerializer(
+            instance=draft,
+            data={"draft_type": "income"},
+            context={"request": self.request},
+            partial=True,
+        )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn(
+            "Changing the type of an existing draft is not allowed",
+            str(context.exception),
+        )
+
+    def test_invalid_category_level_in_draft(self):
+        """Test validation fails if a transaction in the draft uses a non-leaf category."""
+        invalid_tx_data = [
+            {
+                "type": "expense",
+                "expense_category_id": self.expense_category_lvl4.id,  # Invalid level
+                "original_amount": 20,
+                "original_currency": "EUR",
+                "date": "2023-02-01",
+            }
+        ]
+        data = {"draft_type": "expense", "transactions_data": invalid_tx_data}
+        serializer = TransactionDraftSerializer(
+            data=data, context={"request": self.request}
+        )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("is not at the lowest level", str(context.exception))
+
+    def test_malformed_transaction_data_in_draft(self):
+        """Test validation fails if a transaction in the draft is missing the 'type' key."""
+        malformed_tx_data = [
+            {
+                # Missing 'type'
+                "expense_category_id": self.expense_category_lvl5.id,
+                "original_amount": 30,
+                "original_currency": "USD",
+                "date": "2023-03-01",
+            }
+        ]
+        data = {"draft_type": "expense", "transactions_data": malformed_tx_data}
+        serializer = TransactionDraftSerializer(
+            data=data, context={"request": self.request}
+        )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("must have a type", str(context.exception))
+
+    def test_both_categories_in_draft_is_invalid(self):
+        """Test validation fails if a transaction in the draft has both category types."""
+        invalid_tx_data = [
+            {
+                "type": "expense",
+                "expense_category_id": self.expense_category_lvl5.id,
+                "income_category_id": 1,  # Dummy ID for an income category
+                "original_amount": 40,
+                "original_currency": "EUR",
+                "date": "2023-04-01",
+            }
+        ]
+        data = {"draft_type": "expense", "transactions_data": invalid_tx_data}
+        serializer = TransactionDraftSerializer(
+            data=data, context={"request": self.request}
+        )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn(
+            "cannot have both expense and income categories", str(context.exception)
+        )
+
+    def test_update_without_draft_type_uses_instance_type(self):
+        """Test that updating transactions_data without passing draft_type validates against the instance's draft_type."""
+        # Arrange: Create an 'expense' draft
+        draft = TransactionDraft.objects.create(
+            user=self.user,
+            workspace=self.workspace,
+            draft_type="expense",
+            transactions_data=[],
+        )
+        # This transaction has the wrong type ('income')
+        mismatched_tx_data = [
+            {
+                "type": "income",
+                "original_amount": 100,
+                "original_currency": "USD",
+                "date": "2023-01-01",
+            }
+        ]
+
+        # Act & Assert: Attempt to update the draft with mismatched data.
+        # The serializer should use the instance's 'expense' type for validation.
+        serializer = TransactionDraftSerializer(
+            instance=draft,
+            data={"transactions_data": mismatched_tx_data},
+            context={"request": self.request},
+            partial=True,
+        )
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("does not match the draft_type 'expense'", str(context.exception))
+
+    @patch("finance.serializers.DraftService.save_draft")
+    def test_create_delegates_to_service(self, mock_save_draft):
+        """Test that the create method delegates to the DraftService."""
+        mock_save_draft.__name__ = "mock_save_draft"
+        mock_draft = TransactionDraft(id=1)
+        mock_save_draft.return_value = mock_draft
+
+        data = {"draft_type": "expense", "transactions_data": self.valid_tx_data}
+        serializer = TransactionDraftSerializer(
+            data=data, context={"request": self.request}
+        )
+
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        created_draft = serializer.save()
+
+        mock_save_draft.assert_called_once_with(
+            user=self.user,
+            workspace_id=self.workspace.id,
+            draft_type="expense",
+            transactions_data=self.valid_tx_data,
+        )
+        self.assertEqual(created_draft, mock_draft)
+
+    @patch("finance.models.TransactionDraft.save")
+    def test_update_saves_instance(self, mock_instance_save):
+        """Test that the update method correctly modifies and saves the instance."""
+        draft = TransactionDraft.objects.create(
+            user=self.user,
+            workspace=self.workspace,
+            draft_type="expense",
+            transactions_data=[],
+        )
+        mock_instance_save.reset_mock()
+
+        updated_data = {"transactions_data": self.valid_tx_data}
+
+        serializer = TransactionDraftSerializer(
+            instance=draft,
+            data=updated_data,
+            context={"request": self.request},
+            partial=True,
+        )
+
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        updated_instance = serializer.save()
+
+        # Check that the instance field was updated
+        self.assertEqual(updated_instance.transactions_data, self.valid_tx_data)
+        # Check that the instance's save method was called
+        mock_instance_save.assert_called_once()
+        self.assertEqual(updated_instance, draft)
+
+
+class TestWorkspaceAdminSerializer(TestCase):
+    """Tests for the WorkspaceAdminSerializer."""
+
+    def setUp(self):
+        """Set up users, workspace, and a workspace admin instance."""
+        self.superuser = User.objects.create_superuser(
+            username="superuser", email="super@test.com", password="password"
+        )
+        self.regular_user = User.objects.create_user(
+            username="regular", email="regular@test.com", password="password"
+        )
+        self.admin_user = User.objects.create_user(
+            username="admin", email="admin@test.com", password="password"
+        )
+
+        self.workspace = Workspace.objects.create(
+            name="Test Workspace", owner=self.superuser
+        )
+
+        self.workspace_admin = WorkspaceAdmin.objects.create(
+            user=self.admin_user,
+            workspace=self.workspace,
+            assigned_by=self.superuser,
+            can_impersonate=False,
+            can_manage_users=False,
+        )
+
+        self.request = Mock()
+
+    def test_serialization(self):
+        """Test that the serializer correctly serializes a WorkspaceAdmin instance."""
+        serializer = WorkspaceAdminSerializer(instance=self.workspace_admin)
+        data = serializer.data
+
+        self.assertEqual(data["user_id"], self.admin_user.id)
+        self.assertEqual(data["username"], self.admin_user.username)
+        self.assertEqual(data["workspace_id"], self.workspace.id)
+        self.assertEqual(data["assigned_by_username"], self.superuser.username)
+        self.assertFalse(data["can_impersonate"])
+        self.assertTrue(data["is_active"])
+
+    def test_non_superuser_cannot_modify_permissions(self):
+        """Test that a non-superuser's attempt to modify permissions is rejected."""
+        self.request.user = self.regular_user
+
+        serializer = WorkspaceAdminSerializer(
+            instance=self.workspace_admin,
+            data={"can_impersonate": True},
+            context={"request": self.request},
+            partial=True,
+        )
+
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn(
+            "Only superusers can modify admin permissions.", str(context.exception)
+        )
+
+    def test_superuser_can_modify_permissions(self):
+        """Test that a superuser can successfully modify permissions."""
+        self.request.user = self.superuser
+
+        serializer = WorkspaceAdminSerializer(
+            instance=self.workspace_admin,
+            data={"can_impersonate": True, "can_manage_users": True},
+            context={"request": self.request},
+            partial=True,
+        )
+
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+        self.assertTrue(serializer.validated_data["can_impersonate"])
+        self.assertTrue(serializer.validated_data["can_manage_users"])
+
+    def test_create_method_raises_error(self):
+        """Test that the create method is blocked and raises a ValidationError."""
+        serializer = WorkspaceAdminSerializer(
+            data={}, context={"request": self.request}
+        )
+
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.create({})
+        self.assertIn("Use the assign-admin endpoint", str(context.exception))
+
+
+class TestCategoryVersionSerializers(TestCase):
+    """Tests for the category version serializers."""
+
+    def setUp(self):
+        """Set up a user, workspace, and category versions."""
+        self.user = User.objects.create_user(
+            username="testuser", email="test@test.com", password="password"
+        )
+        self.workspace = Workspace.objects.create(
+            name="Test Workspace", owner=self.user
+        )
+
+        self.expense_version = ExpenseCategoryVersion.objects.create(
+            workspace=self.workspace,
+            name="Expense V1",
+            description="First version of expenses",
+            created_by=self.user,
+            levels_count=5,
+        )
+        self.income_version = IncomeCategoryVersion.objects.create(
+            workspace=self.workspace,
+            name="Income V1",
+            description="First version of incomes",
+            created_by=self.user,
+            levels_count=3,
+        )
+
+    def test_expense_category_version_serialization(self):
+        """Test the serialization of an ExpenseCategoryVersion instance."""
+        serializer = ExpenseCategoryVersionSerializer(instance=self.expense_version)
+        data = serializer.data
+
+        self.assertEqual(data["id"], self.expense_version.id)
+        self.assertEqual(data["workspace"], self.workspace.id)
+        self.assertEqual(data["name"], "Expense V1")
+        self.assertEqual(data["description"], "First version of expenses")
+        self.assertEqual(data["levels_count"], 5)
+        self.assertEqual(data["created_by"], self.user.id)
+        self.assertTrue(data["is_active"])
+        self.assertIn("created_at", data)
+
+    def test_income_category_version_serialization(self):
+        """Test the serialization of an IncomeCategoryVersion instance."""
+        serializer = IncomeCategoryVersionSerializer(instance=self.income_version)
+        data = serializer.data
+
+        self.assertEqual(data["id"], self.income_version.id)
+        self.assertEqual(data["workspace"], self.workspace.id)
+        self.assertEqual(data["name"], "Income V1")
+        self.assertEqual(data["description"], "First version of incomes")
+        self.assertEqual(data["levels_count"], 3)
+        self.assertEqual(data["created_by"], self.user.id)
+        self.assertTrue(data["is_active"])
+        self.assertIn("created_at", data)
+
+
+class TestExchangeRateSerializer(TestCase):
+    """
+    Tests for the ExchangeRateSerializer.
+    """
+
+    def setUp(self):
+        """Set up an exchange rate instance for testing."""
+        self.exchange_rate = ExchangeRate.objects.create(
+            currency="USD", rate_to_eur="0.95", date="2023-10-26"
+        )
+
+    def test_valid_serialization(self):
+        """Test successful serialization of an ExchangeRate instance."""
+        serializer = ExchangeRateSerializer(instance=self.exchange_rate)
+        data = serializer.data
+        self.assertEqual(data["currency"], "USD")
+        self.assertEqual(
+            data["rate_to_eur"], "0.950000"
+        )  # Decimal fields are serialized as strings
+        self.assertEqual(data["date"], "2023-10-26")
+
+    def test_valid_currency_validation(self):
+        """Test validation of supported currency codes."""
+        data = {"currency": "GBP", "rate_to_eur": "1.15", "date": "2023-10-27"}
+        serializer = ExchangeRateSerializer(data=data)
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+
+    def test_invalid_currency_validation(self):
+        """Test rejection of invalid currency codes."""
+        data = {"currency": "XYZ", "rate_to_eur": "1.0", "date": "2023-10-27"}
+        serializer = ExchangeRateSerializer(data=data)
+        with self.assertRaises(DRFValidationError) as context:
+            serializer.is_valid(raise_exception=True)
+        self.assertIn("currency", context.exception.detail)
+
+    def test_positive_rate_validation(self):
+        """Test validation of a positive exchange rate."""
+        data = {"currency": "USD", "rate_to_eur": "0.000001", "date": "2023-10-27"}
+        serializer = ExchangeRateSerializer(data=data)
+        self.assertTrue(serializer.is_valid(raise_exception=True))
+
+    def test_non_positive_rate_validation(self):
+        """Test rejection of a zero or negative exchange rate."""
+        # Test with zero
+        data_zero = {"currency": "USD", "rate_to_eur": "0.0", "date": "2023-10-27"}
+        serializer_zero = ExchangeRateSerializer(data=data_zero)
+        with self.assertRaises(DRFValidationError) as context:
+            serializer_zero.is_valid(raise_exception=True)
+        self.assertIn("rate_to_eur", context.exception.detail)
+        self.assertIn(
+            "must be positive", str(context.exception.detail["rate_to_eur"][0])
+        )
+
+        # Test with negative
+        data_negative = {"currency": "USD", "rate_to_eur": "-1.0", "date": "2023-10-27"}
+        serializer_negative = ExchangeRateSerializer(data=data_negative)
+        with self.assertRaises(DRFValidationError) as context:
+            serializer_negative.is_valid(raise_exception=True)
+        self.assertIn("rate_to_eur", context.exception.detail)
+        self.assertIn(
+            "must be positive", str(context.exception.detail["rate_to_eur"][0])
+        )

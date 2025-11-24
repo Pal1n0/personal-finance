@@ -11,15 +11,25 @@ from django.utils import timezone
 from factory.django import DjangoModelFactory
 from faker import Faker
 
-from finance.models import (ExchangeRate, ExpenseCategory,
-                            ExpenseCategoryVersion, IncomeCategory,
-                            IncomeCategoryVersion, Transaction,
-                            TransactionDraft, UserSettings, Workspace,
-                            WorkspaceAdmin, WorkspaceMembership,
-                            WorkspaceSettings, Tags)
+from finance.models import (
+    ExchangeRate,
+    ExpenseCategory,
+    ExpenseCategoryVersion,
+    IncomeCategory,
+    IncomeCategoryVersion,
+    Tags,
+    Transaction,
+    TransactionDraft,
+    UserSettings,
+    Workspace,
+    WorkspaceAdmin,
+    WorkspaceMembership,
+    WorkspaceSettings,
+)
 
 fake = Faker()
 User = get_user_model()
+
 
 class UserFactory(DjangoModelFactory):
     class Meta:
@@ -47,6 +57,15 @@ class UserFactory(DjangoModelFactory):
             email=kwargs.get("email", "admin@example.com"),
             password=kwargs.get("password", "testpass123"),
         )
+
+    @factory.post_generation
+    def settings(self, create, extracted, **kwargs):
+        if not create:
+            # Simple build, do nothing.
+            return
+        # Create the UserSettings object for the user, mimicking the signal.
+        # This ensures all created users in tests have settings.
+        UserSettings.objects.get_or_create(user=self)
 
 
 class UserSettingsFactory(DjangoModelFactory):
@@ -120,14 +139,13 @@ class WorkspaceAdminFactory(DjangoModelFactory):
     can_manage_categories = True
     can_manage_settings = True
 
+
 class TagFactory(DjangoModelFactory):
     class Meta:
         model = Tags
 
     workspace = factory.SubFactory(WorkspaceFactory)
     name = factory.Sequence(lambda n: f"tag-{n}")
-
-
 
 
 class ExpenseCategoryVersionFactory(DjangoModelFactory):
@@ -139,6 +157,7 @@ class ExpenseCategoryVersionFactory(DjangoModelFactory):
     description = factory.LazyAttribute(lambda _: fake.text(max_nb_chars=200))
     created_by = factory.SubFactory(UserFactory)
     is_active = True
+    levels_count = 5
 
 
 class IncomeCategoryVersionFactory(DjangoModelFactory):
@@ -150,6 +169,7 @@ class IncomeCategoryVersionFactory(DjangoModelFactory):
     description = factory.LazyAttribute(lambda _: fake.text(max_nb_chars=200))
     created_by = factory.SubFactory(UserFactory)
     is_active = True
+    levels_count = 5
 
 
 class ExpenseCategoryFactory(DjangoModelFactory):
@@ -210,17 +230,20 @@ class ExchangeRateFactory(DjangoModelFactory):
 class TransactionFactory(DjangoModelFactory):
     class Meta:
         model = Transaction
-        skip_postgeneration_save = True
 
     user = factory.SubFactory(UserFactory)
     workspace = factory.SubFactory(WorkspaceFactory)
     type = factory.Iterator(["income", "expense"])
     original_amount = factory.LazyAttribute(
-        lambda _: fake.pydecimal(left_digits=4, right_digits=2, min_value=1, max_value=10000)
+        lambda _: fake.pydecimal(
+            left_digits=4, right_digits=2, min_value=1, max_value=10000
+        )
     )
     original_currency = factory.Iterator(["EUR", "USD", "GBP", "CHF"])
     amount_domestic = factory.LazyAttribute(lambda obj: obj.original_amount)
-    date = factory.LazyFunction(lambda: fake.date_between(start_date="-30d", end_date="today"))
+    date = factory.LazyFunction(
+        lambda: fake.date_between(start_date="-30d", end_date="today")
+    )
     month = factory.LazyAttribute(lambda obj: obj.date.replace(day=1))
     note_manual = factory.LazyAttribute(lambda _: fake.text(max_nb_chars=100))
     note_auto = factory.LazyAttribute(lambda _: fake.text(max_nb_chars=50))
@@ -241,8 +264,7 @@ class TransactionFactory(DjangoModelFactory):
             for tag in extracted:
                 if isinstance(tag, str):
                     tag_obj, _ = Tags.objects.get_or_create(
-                        workspace=self.workspace,
-                        name=tag
+                        workspace=self.workspace, name=tag
                     )
                     self.tags.add(tag_obj)
                 else:
@@ -253,8 +275,7 @@ class TransactionFactory(DjangoModelFactory):
             for _ in range(2):
                 name = fake.word()
                 tag_obj, _ = Tags.objects.get_or_create(
-                    workspace=self.workspace,
-                    name=name
+                    workspace=self.workspace, name=name
                 )
                 self.tags.add(tag_obj)
 
@@ -271,8 +292,6 @@ class TransactionFactory(DjangoModelFactory):
             self.income_category = IncomeCategoryFactory(
                 version__workspace=self.workspace
             )
-
-        self.save()
 
 
 class TransactionDraftFactory(DjangoModelFactory):

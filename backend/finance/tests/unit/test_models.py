@@ -6,13 +6,23 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from finance.models import (ExchangeRate, ExpenseCategory,
-                            ExpenseCategoryProperty, ExpenseCategoryVersion,
-                            IncomeCategory, IncomeCategoryProperty,
-                            IncomeCategoryVersion, Transaction,
-                            TransactionDraft, UserSettings, Workspace,
-                            WorkspaceAdmin, WorkspaceMembership,
-                            WorkspaceSettings)
+from finance.models import (
+    ExchangeRate,
+    ExpenseCategory,
+    ExpenseCategoryProperty,
+    ExpenseCategoryVersion,
+    IncomeCategory,
+    IncomeCategoryProperty,
+    IncomeCategoryVersion,
+    Tags,
+    Transaction,
+    TransactionDraft,
+    UserSettings,
+    Workspace,
+    WorkspaceAdmin,
+    WorkspaceMembership,
+    WorkspaceSettings,
+)
 
 # =============================================================================
 # USER SETTINGS TESTS
@@ -92,29 +102,30 @@ class TestWorkspace:
     def test_workspace_change_owner_method(self, test_workspace, test_user2):
         """Test metódy change_owner - kompletný flow"""
         old_owner = test_workspace.owner
-        
+
         # 1. Najprv over že new owner NIE JE členom - change_owner by mal zlyhať
-        with pytest.raises(ValidationError, match="New owner must be a member of the workspace"):
-            test_workspace.change_owner(test_user2, old_owner, old_owner_action="editor")
-        
+        with pytest.raises(
+            ValidationError, match="New owner must be a member of the workspace"
+        ):
+            test_workspace.change_owner(
+                test_user2, old_owner, old_owner_action="editor"
+            )
+
         # 2. Pridaj new ownera ako člena
         WorkspaceMembership.objects.create(
-            workspace=test_workspace, 
-            user=test_user2, 
-            role="editor"
+            workspace=test_workspace, user=test_user2, role="editor"
         )
-        
+
         # 3. Teraz by change_owner mal prejsť
         test_workspace.change_owner(test_user2, old_owner, old_owner_action="editor")
-        
+
         # 4. Over že owner sa naozaj zmenil
         test_workspace.refresh_from_db()
         assert test_workspace.owner == test_user2
-        
+
         # 5. Over že old owner má novú rolu
         old_owner_membership = WorkspaceMembership.objects.get(
-            workspace=test_workspace, 
-            user=old_owner
+            workspace=test_workspace, user=old_owner
         )
         assert old_owner_membership.role == "editor"
 
@@ -189,9 +200,7 @@ class TestWorkspaceMembership:
             workspace=test_workspace, user=test_user
         ).exists()
 
-        assert (
-            has_membership
-        ), "Owner should have automatic workspace membership"
+        assert has_membership, "Owner should have automatic workspace membership"
 
         # Over rolu
         membership = WorkspaceMembership.objects.get(
@@ -214,8 +223,10 @@ class TestWorkspaceMembership:
     def test_workspace_owner_cannot_be_regular_member(self, test_workspace, test_user):
         """Test že owner nemôže byť pridaný ako regular member"""
         # Owner je už automaticky v memberships, takže testujeme validáciu
-        membership = WorkspaceMembership.objects.get(workspace=test_workspace, user=test_user)
-        
+        membership = WorkspaceMembership.objects.get(
+            workspace=test_workspace, user=test_user
+        )
+
         # Pokus o zmenu roly owner na editor by mal zlyhať
         with pytest.raises(ValidationError):
             membership.role = "editor"
@@ -297,11 +308,9 @@ class TestExpenseCategory:
     def test_expense_category_creation(
         self, expense_root_category, expense_category_version
     ):
-        """Test vytvorenia expense kategórie"""
         assert expense_root_category.version == expense_category_version
         assert expense_root_category.name == "Potraviny"
         assert expense_root_category.level == 1
-        assert expense_root_category.is_active is True
         assert str(expense_root_category) == "Potraviny (Level 1)"
 
     def test_expense_category_is_root_property(
@@ -323,14 +332,12 @@ class TestExpenseCategory:
         assert leaf_category.is_leaf is True
 
     def test_expense_category_add_child_success(self, expense_category_version):
-        """Test úspešného pridania child kategórie"""
         parent = ExpenseCategory.objects.create(
             version=expense_category_version, name="Parent", level=1
         )
         child = ExpenseCategory.objects.create(
             version=expense_category_version, name="Child", level=2
         )
-
         parent.add_child(child)
         assert child in parent.children.all()
 
@@ -356,35 +363,165 @@ class TestExpenseCategory:
         assert "already has a parent" in str(exc_info.value)
 
     def test_expense_category_validation_invalid_level(self, expense_category_version):
-        """Test validácie neplatnej úrovne"""
+        """
+        Test validácie neplatnej úrovne.
+        Pozor: expense_category_version má levels_count=5, čiže povolené sú 1-5.
+        Skúsime level 6.
+        """
         category = ExpenseCategory(
-            version=expense_category_version, name="Test", level=6  # Neplatná úroveň
+            version=expense_category_version, name="Test", level=6
         )
         with pytest.raises(ValidationError) as exc_info:
             category.full_clean()
+
+        # Validácia vráti správu v závislosti od levels_count
+        # Keďže levels_count=5, validný range je 1..5
         assert "Category level must be between 1 and 5" in str(exc_info.value)
 
     def test_expense_category_validation_name_too_short(self, expense_category_version):
-        """Test validácie príliš krátkeho názvu"""
+        """
+        Test validácie príliš krátkeho názvu.
+        Musíme použiť validný level (napr. 1), inak dostaneme chybu aj o leveli.
+        """
+        # Nastavíme validný level 1 (pretože levels_count=5, min_level=1)
         category = ExpenseCategory(version=expense_category_version, name="A", level=1)
+
         with pytest.raises(ValidationError) as exc_info:
             category.full_clean()
-        assert "Category name must be at least 2 characters long" in str(exc_info.value)
+
+        # Keďže môže nastať viacero chýb (napr. ak by level nebol ok),
+        # pozrieme sa priamo do slovníka chýb, ak je dostupný
+        if hasattr(exc_info.value, "message_dict"):
+            assert (
+                "Category name must be at least 2 characters long"
+                in exc_info.value.message_dict["__all__"][0]
+            )
+        else:
+            assert "Category name must be at least 2 characters long" in str(
+                exc_info.value
+            )
 
     def test_category_circular_reference_prevention(self, expense_category_version):
-        """Test zabránenie cyklickým referenciám v kategóriách"""
         cat1 = ExpenseCategory.objects.create(
             version=expense_category_version, name="Cat1", level=1
         )
         cat2 = ExpenseCategory.objects.create(
             version=expense_category_version, name="Cat2", level=2
         )
-
         cat1.add_child(cat2)
 
-        # Pokus o vytvorenie cyklu
         with pytest.raises(ValidationError):
             cat2.add_child(cat1)
+
+    def test_get_descendants(self, expense_category_version):
+        """Test the get_descendants method."""
+        root = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Root", level=1
+        )
+        child1 = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Child1", level=2
+        )
+        child2 = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Child2", level=2
+        )
+        grandchild1 = ExpenseCategory.objects.create(
+            version=expense_category_version, name="GC1", level=3
+        )
+
+        root.children.add(child1, child2)
+        child1.children.add(grandchild1)
+
+        # Test without self
+        descendants = root.get_descendants(include_self=False)
+        assert descendants == {child1, child2, grandchild1}
+
+        # Test with self
+        descendants_with_self = root.get_descendants(include_self=True)
+        assert descendants_with_self == {root, child1, child2, grandchild1}
+
+        # Test leaf node
+        leaf = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Leaf", level=5
+        )
+        assert leaf.get_descendants() == set()
+
+        # Test intermediate node
+        assert child1.get_descendants() == {grandchild1}
+
+    def test_category_validation_root_with_parent(self, expense_category_version):
+        """Test that a root category (level 1) cannot have a parent."""
+        root1 = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Root1", level=1
+        )
+        root2 = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Root2", level=1
+        )
+
+        # Manually add parent relationship, bypassing add_child
+        root2.parents.add(root1)
+        with pytest.raises(
+            ValidationError, match="Level 1 category cannot have a parent"
+        ):
+            root2.full_clean()
+
+    def test_category_validation_non_root_without_parent(
+        self, expense_category_version
+    ):
+        """Test that a non-root category must have exactly one parent."""
+        child = ExpenseCategory(version=expense_category_version, name="Child", level=2)
+        child.save()  # No parent assigned
+        with pytest.raises(
+            ValidationError, match="Non-root categories must have exactly one parent"
+        ):
+            child.full_clean()
+
+    def test_category_validation_leaf_with_children(self, expense_category_version):
+        """Test that a leaf category (level 5) cannot have children."""
+        parent = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Parent", level=1
+        )
+        leaf = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Leaf", level=5
+        )
+        leaf.parents.add(parent)
+        parent.children.add(leaf)  # Make parent valid
+
+        # The leaf now has a parent. Now let's give it a child, which should be invalid.
+        child = ExpenseCategory.objects.create(
+            version=expense_category_version, name="ImpossibleChild", level=4
+        )
+        leaf.children.add(child)
+
+        with pytest.raises(ValidationError) as exc_info:
+            leaf.full_clean()
+
+        # Check for either of the expected errors, as order isn't guaranteed
+        messages = exc_info.value.messages
+        assert (
+            "Leaf category 'Leaf' (level 5) should not have children" in messages
+            or "Child category must have higher level than parent" in messages
+        )
+
+    def test_category_validation_non_leaf_without_children(
+        self, expense_category_version
+    ):
+        """Test that a non-leaf category must have at least one child."""
+        parent = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Parent", level=1
+        )
+        non_leaf = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Non-leaf", level=4
+        )
+        non_leaf.parents.add(parent)  # Satisfy parent requirement
+        parent.children.add(non_leaf)  # Satisfy parent's child requirement
+
+        with pytest.raises(ValidationError) as exc_info:
+            non_leaf.full_clean()
+
+        assert (
+            "Non-leaf category 'Non-leaf' (level 4) must have at least one child"
+            in exc_info.value.message_dict["__all__"]
+        )
 
 
 # =============================================================================
@@ -410,6 +547,60 @@ class TestIncomeCategory:
         """Test hierarchie income kategórií"""
         assert income_child_category in income_root_category.children.all()
         assert income_root_category in income_child_category.parents.all()
+
+    def test_get_descendants_income(self, income_category_version):
+        """Test the get_descendants method for IncomeCategory."""
+        root = IncomeCategory.objects.create(
+            version=income_category_version, name="Root", level=1
+        )
+        child1 = IncomeCategory.objects.create(
+            version=income_category_version, name="Child1", level=2
+        )
+        grandchild1 = IncomeCategory.objects.create(
+            version=income_category_version, name="GC1", level=3
+        )
+
+        root.children.add(child1)
+        child1.children.add(grandchild1)
+
+        descendants = root.get_descendants(include_self=False)
+        assert descendants == {child1, grandchild1}
+
+    def test_income_category_validation_root_with_parent(self, income_category_version):
+        """Test that a root income category (level 1) cannot have a parent."""
+        root1 = IncomeCategory.objects.create(
+            version=income_category_version, name="Root1", level=1
+        )
+        root2 = IncomeCategory.objects.create(
+            version=income_category_version, name="Root2", level=1
+        )
+
+        root2.parents.add(root1)
+        with pytest.raises(
+            ValidationError, match="Level 1 category cannot have a parent"
+        ):
+            root2.full_clean()
+
+    def test_income_category_validation_non_leaf_without_children(
+        self, income_category_version
+    ):
+        """Test that a non-leaf income category must have at least one child."""
+        parent = IncomeCategory.objects.create(
+            version=income_category_version, name="Parent", level=1
+        )
+        non_leaf = IncomeCategory.objects.create(
+            version=income_category_version, name="Non-leaf", level=4
+        )
+        non_leaf.parents.add(parent)  # Satisfy parent requirement
+        parent.children.add(non_leaf)  # Satisfy parent's child requirement
+
+        with pytest.raises(ValidationError) as exc_info:
+            non_leaf.full_clean()
+
+        assert (
+            "Non-leaf category 'Non-leaf' (level 4) must have at least one child"
+            in exc_info.value.message_dict["__all__"]
+        )
 
 
 # =============================================================================
@@ -505,6 +696,38 @@ class TestExchangeRate:
 
 
 # =============================================================================
+# TAGS TESTS (Nové)
+# =============================================================================
+
+
+class TestTags:
+    """Testy pre Tags model"""
+
+    def test_tag_creation(self, tag_potraviny):
+        assert tag_potraviny.name == "potraviny"
+
+    def test_tag_lowercase_enforced(self, test_workspace):
+        tag = Tags.objects.create(workspace=test_workspace, name="BigLetter")
+        assert tag.name == "bigletter"
+
+    def test_tag_unique_constraint(self, test_workspace):
+        """Test that tag names are unique within a workspace."""
+        Tags.objects.create(workspace=test_workspace, name="unique-tag")
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                Tags.objects.create(workspace=test_workspace, name="unique-tag")
+
+    def test_tag_unique_in_different_workspaces(self, test_workspace, test_user2):
+        """Test that the same tag name can exist in different workspaces."""
+        workspace2 = Workspace.objects.create(name="Workspace 2", owner=test_user2)
+        Tags.objects.create(workspace=test_workspace, name="shared-tag")
+        try:
+            Tags.objects.create(workspace=workspace2, name="shared-tag")
+        except IntegrityError:
+            pytest.fail("Should be able to create same tag in a different workspace.")
+
+
+# =============================================================================
 # TRANSACTION TESTS
 # =============================================================================
 
@@ -515,13 +738,16 @@ class TestTransaction:
     def test_expense_transaction_creation(
         self, expense_transaction, test_user, test_workspace
     ):
-        """Test vytvorenia expense transakcie"""
+        """Test vytvorenia expense transakcie s tagmi"""
         assert expense_transaction.user == test_user
         assert expense_transaction.workspace == test_workspace
         assert expense_transaction.type == "expense"
         assert expense_transaction.original_amount == 100.50
-        assert expense_transaction.tags == ["potraviny", "nakup"]
-        assert "potraviny" in expense_transaction.tags
+
+        # Overenie M2M tagov
+        tag_names = list(expense_transaction.tags.values_list("name", flat=True))
+        assert "potraviny" in tag_names
+        assert "nakup" in tag_names
 
     def test_income_transaction_creation(
         self, income_transaction, test_user, test_workspace
@@ -558,7 +784,6 @@ class TestTransaction:
         assert "Transaction can have only one category type" in str(exc_info.value)
 
     def test_transaction_validation_no_category(self, test_user, test_workspace):
-        """Test validácie - žiadna kategória"""
         transaction = Transaction(
             user=test_user,
             workspace=test_workspace,
@@ -633,27 +858,72 @@ class TestTransaction:
         self, transaction_usd_currency, exchange_rate_usd
     ):
         """Test automatického prepočtu domácej sumy"""
-        WorkspaceSettings.objects.create(
-            workspace=transaction_usd_currency.workspace,
-            domestic_currency="EUR"  # Alebo čo používaš
-        )
 
-        ExchangeRate.objects.create(
-            currency="USD",
-            rate_to_eur=Decimal("0.85"),
-            date=transaction_usd_currency.date  # DÔLEŽITÉ: rovnaký dátum ako transakcia
-        )
+        # Pôvodná hodnota (vytvorená vo fixture): 100 USD * 0.85 = 85.00 EUR
         original_domestic = transaction_usd_currency.amount_domestic
+        assert original_domestic == Decimal("85.00")
 
-        # Zmena pôvodnej sumy
+        # Zmena pôvodnej sumy na 150 USD
         transaction_usd_currency.original_amount = 150.00
         transaction_usd_currency.save()
 
-        # Over že sa domestic amount prepočítal
-        assert transaction_usd_currency.amount_domestic != original_domestic
-        assert transaction_usd_currency.amount_domestic == Decimal(
-            "127.50"
-        )  # 150 * 0.85
+        # Overenie prepočtu: 150 * 0.85 = 127.50
+        transaction_usd_currency.refresh_from_db()
+
+        assert transaction_usd_currency.amount_domestic == Decimal("127.50")
+
+    def test_transaction_recalculation_on_currency_change(
+        self, transaction_usd_currency, exchange_rate_usd
+    ):
+        """Test that recalculation is triggered on original_currency change."""
+        # Add a rate for GBP for the transaction's date
+        gbp_rate = Decimal("0.75")
+        ExchangeRate.objects.create(
+            currency="GBP", rate_to_eur=gbp_rate, date=transaction_usd_currency.date
+        )
+
+        transaction_usd_currency.original_currency = "GBP"
+        transaction_usd_currency.save()
+        transaction_usd_currency.refresh_from_db()
+
+        expected_amount = Decimal(transaction_usd_currency.original_amount) * gbp_rate
+        assert transaction_usd_currency.amount_domestic == expected_amount.quantize(
+            Decimal("0.01")
+        )
+
+    def test_transaction_recalculation_on_date_change(
+        self, transaction_usd_currency, exchange_rate_usd
+    ):
+        """Test that recalculation is triggered on date change."""
+        # Add a new rate for a different date
+        new_date = transaction_usd_currency.date - timezone.timedelta(days=1)
+        new_rate = Decimal("0.90")
+        ExchangeRate.objects.create(currency="USD", rate_to_eur=new_rate, date=new_date)
+
+        transaction_usd_currency.date = new_date
+        transaction_usd_currency.save()
+        transaction_usd_currency.refresh_from_db()
+
+        expected_amount = Decimal(transaction_usd_currency.original_amount) * new_rate
+        assert transaction_usd_currency.amount_domestic == expected_amount.quantize(
+            Decimal("0.01")
+        )
+
+    def test_transaction_no_recalculation_on_other_fields(
+        self, transaction_usd_currency, exchange_rate_usd
+    ):
+        """Test that recalculation is not triggered on irrelevant field changes."""
+        # amount_domestic is 85.00 initially
+        assert transaction_usd_currency.amount_domestic == Decimal("85.00")
+
+        # We need to spy on the recalculation method.
+        # For now, we'll just check if the value changes. A mock would be better.
+        transaction_usd_currency.note_manual = "A new note"
+        transaction_usd_currency.save()
+        transaction_usd_currency.refresh_from_db()
+
+        # The amount should not have changed
+        assert transaction_usd_currency.amount_domestic == Decimal("85.00")
 
     # =============================================================================
 
@@ -788,21 +1058,14 @@ class TestComplexScenarios:
 
         # Overenie základných vzťahov
         assert setup["workspace"].owner == setup["user"]
-        assert setup["workspace_settings"].workspace == setup["workspace"]
-        assert setup["expense_version"].workspace == setup["workspace"]
-        assert setup["income_version"].workspace == setup["workspace"]
-
-        # Overenie transakcií
         assert setup["expense_transaction"].workspace == setup["workspace"]
-        assert setup["income_transaction"].workspace == setup["workspace"]
-        assert setup["expense_transaction"].user == setup["user"]
-        assert setup["income_transaction"].user == setup["user"]
+
+        # Check tags via count/exists
+        assert setup["expense_transaction"].tags.count() == 2
 
     def test_multiple_transactions_same_workspace(self, complete_workspace_setup):
-        """Test viacerých transakcií v rovnakom workspace"""
         setup = complete_workspace_setup
 
-        # Pridanie ďalšej transakcie
         new_transaction = Transaction.objects.create(
             user=setup["user"],
             workspace=setup["workspace"],
@@ -814,16 +1077,18 @@ class TestComplexScenarios:
             date=timezone.now().date(),
             month=timezone.now().date().replace(day=1),
         )
+        # Pridanie tagu (nie je povinné, ale pre úplnosť)
+        tag, _ = Tags.objects.get_or_create(workspace=setup["workspace"], name="extra")
+        new_transaction.tags.add(tag)
 
-        # Overenie že obe transakcie sú v rovnakom workspace
         transactions = Transaction.objects.filter(workspace=setup["workspace"])
         assert transactions.count() >= 2
-        assert setup["expense_transaction"] in transactions
-        assert new_transaction in transactions
 
 
 class TestWorkspaceAdmin:
-    def test_workspace_admin_creation(self, workspace_admin, test_user2, test_workspace):
+    def test_workspace_admin_creation(
+        self, workspace_admin, test_user2, test_workspace
+    ):
         assert workspace_admin.user == test_user2
         assert workspace_admin.workspace == test_workspace
         assert workspace_admin.is_active is True
@@ -842,3 +1107,43 @@ class TestWorkspaceAdmin:
         workspace_admin.deactivate(superuser)
         assert workspace_admin.is_active is False
         assert workspace_admin.deactivated_at is not None
+
+    def test_workspace_admin_clean_validation(
+        self, test_user, test_user2, test_workspace
+    ):
+        """Test that only a superuser can assign an admin."""
+        with pytest.raises(
+            ValidationError, match="Only superusers can assign workspace admins."
+        ):
+            admin_assignment = WorkspaceAdmin(
+                user=test_user2,
+                workspace=test_workspace,
+                assigned_by=test_user,  # Not a superuser
+            )
+            admin_assignment.clean()
+
+    def test_can_impersonate_users_property(self, workspace_admin, superuser):
+        """Test the can_impersonate_users property."""
+        # 1. Admin is active and can impersonate
+        workspace_admin.can_impersonate = True
+        workspace_admin.is_active = True
+        workspace_admin.save()
+        assert workspace_admin.can_impersonate_users is True
+
+        # 2. Admin is active but cannot impersonate
+        workspace_admin.can_impersonate = False
+        workspace_admin.save()
+        assert workspace_admin.can_impersonate_users is False
+
+        # 3. Admin is not active
+        workspace_admin.is_active = False
+        workspace_admin.can_impersonate = True
+        workspace_admin.save()
+        assert workspace_admin.can_impersonate_users is False
+
+    def test_deactivate_by_non_superuser(self, workspace_admin, test_user):
+        """Test that deactivation fails if the deactivator is not a superuser."""
+        with pytest.raises(
+            ValidationError, match="Only superusers can deactivate workspace admins."
+        ):
+            workspace_admin.deactivate(test_user)

@@ -9,8 +9,7 @@ from django.core.exceptions import ValidationError
 from django.db import DatabaseError
 from rest_framework.exceptions import PermissionDenied
 
-from finance.models import (Transaction, Workspace, WorkspaceAdmin,
-                            WorkspaceMembership)
+from finance.models import Transaction, Workspace, WorkspaceAdmin, WorkspaceMembership
 from finance.services.workspace_service import WorkspaceService
 
 

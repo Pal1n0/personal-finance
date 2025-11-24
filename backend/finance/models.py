@@ -5,17 +5,14 @@ This module defines all database models for the financial management application
 including workspaces, transactions, categories, exchange rates, and user settings.
 """
 
-import logging
 import collections
+import logging
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
-
-
-
 
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
@@ -34,12 +31,32 @@ class UserSettings(models.Model):
     and other personalization options.
     """
 
+    # Define choices for currency and date format for consistency
+    CURRENCY_CHOICES = [
+        ("EUR", "Euro"),
+        ("USD", "US Dollar"),
+        ("GBP", "British Pound"),
+        ("CHF", "Swiss Franc"),
+        ("PLN", "Polish Zloty"),
+        ("CZK", "Czech Koruna"),
+    ]
+    DATE_FORMAT_CHOICES = [
+        ("DD.MM.YYYY", "DD.MM.YYYY"),
+        ("MM/DD/YYYY", "MM/DD/YYYY"),
+        ("YYYY-MM-DD", "YYYY-MM-DD"),
+    ]
     LANGUAGE_CHOICES = settings.LANGUAGES
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="settings"
     )
     language = models.CharField(max_length=2, choices=LANGUAGE_CHOICES, default="en")
+    preferred_currency = models.CharField(
+        max_length=3, choices=CURRENCY_CHOICES, default="EUR"
+    )
+    date_format = models.CharField(
+        max_length=10, choices=DATE_FORMAT_CHOICES, default="DD.MM.YYYY"
+    )
 
     class Meta:
         verbose_name_plural = "User settings"
@@ -333,10 +350,8 @@ class Workspace(models.Model):
         try:
             # Use update_or_create to handle both new and existing memberships safely
             membership, created = WorkspaceMembership.objects.update_or_create(
-                workspace=self, 
-                user=self.owner, 
-                defaults={"role": "owner"}
-            )            
+                workspace=self, user=self.owner, defaults={"role": "owner"}
+            )
             logger.debug(
                 "Owner synchronized to membership",
                 extra={
@@ -350,7 +365,7 @@ class Workspace(models.Model):
                     "component": "Workspace",
                 },
             )
-            
+
         except Exception as e:
             logger.error(
                 "Failed to sync owner to membership",
@@ -391,7 +406,7 @@ class Workspace(models.Model):
         """
         # Get all data from membership in one query
         memberships = WorkspaceMembership.objects.filter(workspace=self).select_related(
-            "user" 
+            "user"
         )
 
         users_data = []
@@ -442,11 +457,11 @@ class WorkspaceAdmin(models.Model):
     assigned_at = models.DateTimeField(auto_now_add=True)
     deactivated_at = models.DateTimeField(null=True, blank=True)
     deactivated_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
-        on_delete=models.SET_NULL, 
-        null=True, 
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
         blank=True,
-        related_name='deactivated_workspace_admins'
+        related_name="deactivated_workspace_admins",
     )
     is_active = models.BooleanField(default=True)
 
@@ -712,7 +727,9 @@ class CategoryDescendantsMixin:
 
         # 1. Get all categories from the same version in a single query.
         # This is much more efficient than traversing the tree with individual queries.
-        all_categories = self.__class__.objects.filter(version=self.version).prefetch_related('parents')
+        all_categories = self.__class__.objects.filter(
+            version=self.version
+        ).prefetch_related("parents")
 
         # 2. Build an in-memory map of parent-child relationships.
         # This avoids hitting the database inside the loop.
@@ -871,7 +888,9 @@ class ExpenseCategory(CategoryDescendantsMixin, models.Model):
                     "severity": "high",
                 },
             )
-            raise ValidationError("Circular reference detected - cannot create category cycle")
+            raise ValidationError(
+                "Circular reference detected - cannot create category cycle"
+            )
 
         # 4. Validate level hierarchy
         if child.level <= self.level:
@@ -909,10 +928,10 @@ class ExpenseCategory(CategoryDescendantsMixin, models.Model):
     def _is_ancestor_of(self, potential_child):
         """
         Production-grade cycle detection using optimized BFS.
-        
+
         Args:
             potential_child: Category to check for ancestry relationship
-            
+
         Returns:
             bool: True if this category is an ancestor of potential_child
         """
@@ -921,7 +940,7 @@ class ExpenseCategory(CategoryDescendantsMixin, models.Model):
 
         visited = set()
         queue = collections.deque([self])
-        
+
         logger.debug(
             "Initiating ancestry check",
             extra={
@@ -934,14 +953,14 @@ class ExpenseCategory(CategoryDescendantsMixin, models.Model):
 
         nodes_checked = 0
         max_depth = 100  # Safety limit for very deep trees
-        
+
         while queue and nodes_checked < max_depth:
             current = queue.popleft()
-            
+
             # Skip already visited nodes
             if current.id in visited:
                 continue
-                
+
             visited.add(current.id)
             nodes_checked += 1
 
@@ -961,7 +980,7 @@ class ExpenseCategory(CategoryDescendantsMixin, models.Model):
 
             # Efficiently fetch and process children
             try:
-                children = current.children.all().only('id')
+                children = current.children.all().only("id")
                 for child in children:
                     if child.id not in visited:
                         queue.append(child)
@@ -1004,7 +1023,7 @@ class ExpenseCategory(CategoryDescendantsMixin, models.Model):
                 "component": "ExpenseCategory",
             },
         )
-        
+
         return False
 
     def clean(self):
@@ -1032,9 +1051,13 @@ class ExpenseCategory(CategoryDescendantsMixin, models.Model):
 
         # Child constraints: leaves (level 5) must have no children; non-leaves (level < 5) must have at least one child
         if self.level == 5 and self.children.exists():
-            raise ValidationError(f"Leaf category '{self.name}' (level 5) should not have children")
+            raise ValidationError(
+                f"Leaf category '{self.name}' (level 5) should not have children"
+            )
         if self.level < 5 and not self.children.exists():
-            raise ValidationError(f"Non-leaf category '{self.name}' (level {self.level}) must have at least one child")
+            raise ValidationError(
+                f"Non-leaf category '{self.name}' (level {self.level}) must have at least one child"
+            )
 
         # Validate child relationships with enhanced checks
         for child in self.children.all():
@@ -1047,13 +1070,17 @@ class ExpenseCategory(CategoryDescendantsMixin, models.Model):
                         "category_name": self.name,
                         "child_id": child.id,
                         "child_name": child.name,
-                        "conflicting_parents_count": child.parents.exclude(pk=self.pk).count(),
+                        "conflicting_parents_count": child.parents.exclude(
+                            pk=self.pk
+                        ).count(),
                         "action": "category_validation_failed_multiple_parents",
                         "component": "ExpenseCategory",
                         "severity": "high",  # Increased severity as this indicates data inconsistency
                     },
                 )
-                raise ValidationError(f"Child '{child.name}' already has another parent")
+                raise ValidationError(
+                    f"Child '{child.name}' already has another parent"
+                )
 
             # Check level hierarchy in existing relationships
             if child.level <= self.level:
@@ -1069,7 +1096,9 @@ class ExpenseCategory(CategoryDescendantsMixin, models.Model):
                         "severity": "high",
                     },
                 )
-                raise ValidationError("Child category must have higher level than parent")
+                raise ValidationError(
+                    "Child category must have higher level than parent"
+                )
 
             # Check for circular references in existing relationships
             if self._is_ancestor_of(child):
@@ -1083,7 +1112,9 @@ class ExpenseCategory(CategoryDescendantsMixin, models.Model):
                         "severity": "critical",  # Critical as this indicates corrupted data
                     },
                 )
-                raise ValidationError("Circular reference detected in category hierarchy")
+                raise ValidationError(
+                    "Circular reference detected in category hierarchy"
+                )
 
         logger.debug(
             "ExpenseCategory validation completed successfully",
@@ -1244,7 +1275,9 @@ class IncomeCategory(CategoryDescendantsMixin, models.Model):
                     "severity": "high",
                 },
             )
-            raise ValidationError("Circular reference detected - cannot create category cycle")
+            raise ValidationError(
+                "Circular reference detected - cannot create category cycle"
+            )
 
         # 4. Validate level hierarchy
         if child.level <= self.level:
@@ -1282,10 +1315,10 @@ class IncomeCategory(CategoryDescendantsMixin, models.Model):
     def _is_ancestor_of(self, potential_child):
         """
         Production-grade cycle detection using optimized BFS.
-        
+
         Args:
             potential_child: Category to check for ancestry relationship
-            
+
         Returns:
             bool: True if this category is an ancestor of potential_child
         """
@@ -1294,7 +1327,7 @@ class IncomeCategory(CategoryDescendantsMixin, models.Model):
 
         visited = set()
         queue = collections.deque([self])
-        
+
         logger.debug(
             "Initiating ancestry check",
             extra={
@@ -1307,14 +1340,14 @@ class IncomeCategory(CategoryDescendantsMixin, models.Model):
 
         nodes_checked = 0
         max_depth = 100  # Safety limit for very deep trees
-        
+
         while queue and nodes_checked < max_depth:
             current = queue.popleft()
-            
+
             # Skip already visited nodes
             if current.id in visited:
                 continue
-                
+
             visited.add(current.id)
             nodes_checked += 1
 
@@ -1334,7 +1367,7 @@ class IncomeCategory(CategoryDescendantsMixin, models.Model):
 
             # Efficiently fetch and process children
             try:
-                children = current.children.all().only('id')
+                children = current.children.all().only("id")
                 for child in children:
                     if child.id not in visited:
                         queue.append(child)
@@ -1377,7 +1410,7 @@ class IncomeCategory(CategoryDescendantsMixin, models.Model):
                 "component": "IncomeCategory",
             },
         )
-        
+
         return False
 
     def clean(self):
@@ -1405,9 +1438,13 @@ class IncomeCategory(CategoryDescendantsMixin, models.Model):
 
         # Child constraints: leaves (level 5) must have no children; non-leaves (level < 5) must have at least one child
         if self.level == 5 and self.children.exists():
-            raise ValidationError(f"Leaf category '{self.name}' (level 5) should not have children")
+            raise ValidationError(
+                f"Leaf category '{self.name}' (level 5) should not have children"
+            )
         if self.level < 5 and not self.children.exists():
-            raise ValidationError(f"Non-leaf category '{self.name}' (level {self.level}) must have at least one child")
+            raise ValidationError(
+                f"Non-leaf category '{self.name}' (level {self.level}) must have at least one child"
+            )
 
         # Validate child relationships with enhanced checks
         for child in self.children.all():
@@ -1420,13 +1457,17 @@ class IncomeCategory(CategoryDescendantsMixin, models.Model):
                         "category_name": self.name,
                         "child_id": child.id,
                         "child_name": child.name,
-                        "conflicting_parents_count": child.parents.exclude(pk=self.pk).count(),
+                        "conflicting_parents_count": child.parents.exclude(
+                            pk=self.pk
+                        ).count(),
                         "action": "category_validation_failed_multiple_parents",
                         "component": "IncomeCategory",
                         "severity": "high",
                     },
                 )
-                raise ValidationError(f"Child '{child.name}' already has another parent")
+                raise ValidationError(
+                    f"Child '{child.name}' already has another parent"
+                )
 
             # Check level hierarchy in existing relationships
             if child.level <= self.level:
@@ -1442,7 +1483,9 @@ class IncomeCategory(CategoryDescendantsMixin, models.Model):
                         "severity": "high",
                     },
                 )
-                raise ValidationError("Child category must have higher level than parent")
+                raise ValidationError(
+                    "Child category must have higher level than parent"
+                )
 
             # Check for circular references in existing relationships
             if self._is_ancestor_of(child):
@@ -1456,7 +1499,9 @@ class IncomeCategory(CategoryDescendantsMixin, models.Model):
                         "severity": "critical",
                     },
                 )
-                raise ValidationError("Circular reference detected in category hierarchy")
+                raise ValidationError(
+                    "Circular reference detected in category hierarchy"
+                )
 
         logger.debug(
             "IncomeCategory validation completed successfully",
@@ -1621,6 +1666,7 @@ class ExchangeRate(models.Model):
             },
         )
 
+
 # -------------------------------------------------------------------
 # TAGS
 # -------------------------------------------------------------------
@@ -1632,6 +1678,7 @@ class Tags(models.Model):
     Reusable tag inside a workspace.
     Each workspace has its own isolated tag namespace.
     """
+
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
     name = models.CharField(max_length=50)
 
@@ -1646,6 +1693,7 @@ class Tags(models.Model):
 
     def __str__(self):
         return self.name
+
 
 # -------------------------------------------------------------------
 # TRANSACTIONS
@@ -1690,11 +1738,7 @@ class Transaction(models.Model):
     )  # Stored in domestic currency
     date = models.DateField()
     month = models.DateField()
-    tags = models.ManyToManyField(
-        "Tags",
-        blank=True,
-        related_name="transactions"
-    )
+    tags = models.ManyToManyField("Tags", blank=True, related_name="transactions")
     note_manual = models.TextField(blank=True)
     note_auto = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1758,8 +1802,7 @@ class Transaction(models.Model):
         )
 
         try:
-            from .utils.currency_utils import \
-                recalculate_transactions_domestic_amount
+            from .utils.currency_utils import recalculate_transactions_domestic_amount
 
             transactions = recalculate_transactions_domestic_amount(
                 [self], self.workspace

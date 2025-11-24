@@ -6,9 +6,39 @@ from unittest.mock import patch
 import pytest
 from django.utils import timezone
 
+from finance.models import ExchangeRate
 from finance.utils.currency_utils import (
-    CurrencyConversionError, convert_amount_to_domestic, find_closest_rate,
-    get_exchange_rates_for_range, recalculate_transactions_domestic_amount)
+    CurrencyConversionError,
+    convert_amount_to_domestic,
+    find_closest_rate,
+    get_exchange_rates_for_range,
+    recalculate_transactions_domestic_amount,
+)
+
+
+@pytest.fixture
+def exchange_rate_usd_nov_range(db):
+    """Vytvorí exchange rates pre USD pre november 2025."""
+    rates = []
+    for day in range(1, 9):  # 1. až 8. november
+        rate = ExchangeRate.objects.create(
+            currency="USD",
+            rate_to_eur=Decimal("0.85")
+            + (Decimal(day) / Decimal("100.0")),  # Simuluj zmenu kurzu
+            date=date(2025, 11, day),
+        )
+        rates.append(rate)
+    return rates
+
+
+@pytest.fixture
+def exchange_rate_gbp(db):
+    """Vytvorí exchange rate pre GBP."""
+    return ExchangeRate.objects.create(
+        currency="GBP",
+        rate_to_eur=Decimal("0.75"),
+        date=timezone.now().date(),
+    )
 
 
 class TestCurrencyConversionError:
@@ -418,6 +448,31 @@ class TestRecalculateTransactionsDomesticAmount:
 
         assert result[0].amount_domestic > Decimal("0.00")
         assert result[0].amount_domestic != transaction.original_amount
+
+    def test_recalculate_transactions_with_none_date(
+        self,
+        test_workspace,
+        workspace_settings,
+    ):
+        """Test prepočtu transakcií s None dátumom pomocou mockovania"""
+        # Použijeme mock na simuláciu transakcie s date=None, aby sme sa vyhli IntegrityError
+        mock_transaction = patch(
+            "finance.models.Transaction",
+            original_amount=Decimal("100.00"),
+            original_currency="USD",
+            date=None,  # Dátum je None
+        ).start()
+
+        transactions = [mock_transaction]
+
+        # Očakávaj chybu, pretože chýba dátum pre konverziu
+        with pytest.raises(CurrencyConversionError) as exc_info:
+            recalculate_transactions_domestic_amount(transactions, test_workspace)
+
+        assert "no valid dates found in transactions" in str(exc_info.value)
+
+        # Upratanie mocku
+        patch.stopall()
 
 
 class TestIntegrationScenarios:

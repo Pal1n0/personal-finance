@@ -8,8 +8,13 @@ registration, social login, and account management.
 from django.urls import include, path, re_path
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from .views import (CustomConfirmEmailView, GoogleLoginView,
-                    InactiveAccountView, LogoutView, SocialCompleteProfileView)
+from .views import (
+    CustomConfirmEmailView,
+    GoogleLoginView,
+    InactiveAccountView,
+    LogoutView,
+    SocialCompleteProfileView,
+)
 
 # URL patterns for user authentication and management
 urlpatterns = [

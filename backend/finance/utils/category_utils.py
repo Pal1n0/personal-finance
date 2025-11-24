@@ -53,9 +53,9 @@ def _get_children_count(category):
     """
     if hasattr(category, "_simulated_children"):
         return len(category._simulated_children)
-    if hasattr(category, "is_temp"): # It's a mock object
+    if hasattr(category, "is_temp"):  # It's a mock object
         return len(category.children)
-    if hasattr(category.children, "count"): # It's a real Django object
+    if hasattr(category.children, "count"):  # It's a real Django object
         return category.children.count()
     return 0
 
@@ -67,9 +67,9 @@ def _get_children_list(category):
     """
     if hasattr(category, "_simulated_children"):
         return list(category._simulated_children)
-    if hasattr(category, "is_temp"): # It's a mock object
+    if hasattr(category, "is_temp"):  # It's a mock object
         return list(category.children)
-    if hasattr(category.children, "all"): # It's a real Django object
+    if hasattr(category.children, "all"):  # It's a real Django object
         return list(category.children.all())
     return []
 
@@ -78,9 +78,9 @@ def _get_parents_list(category):
     """
     Universal method to get parents list for both Django models and mock objects.
     """
-    if hasattr(category, "is_temp"): # It's a mock object
+    if hasattr(category, "is_temp"):  # It's a mock object
         return list(category.parents)
-    if hasattr(category.parents, "all"): # It's a real Django object
+    if hasattr(category.parents, "all"):  # It's a real Django object
         return list(category.parents.all())
     return []
 
@@ -100,11 +100,19 @@ def _validate_single_category(category):
     levels_count = int(getattr(getattr(category, "version", None), "levels_count", 5))
     min_level = 6 - levels_count
 
-    # Root categories (min_level) must have no parents
+    # Root categories (those with no parents) can be any level, as long as they are not explicitly forced to min_level
     parents = _get_parents_list(category)
-    if category.level == min_level and len(parents) > 0:
+
+    # Check for root-level categories
+    if len(parents) == 0:
+        # A category with no parents is considered a root.
+        # If it's at min_level, it's a true root. If it's higher, it's a root of a sub-hierarchy.
+        # No specific parent count validation needed here for roots.
+        pass  # This is valid, no error
+    elif len(parents) != 1:
+        # Non-root categories must have exactly one parent
         raise ValidationError(
-            f"Level {min_level} category '{category.name}' cannot have a parent"
+            f"Non-root category '{category.name}' (level {category.level}) must have exactly one parent"
         )
 
     # Leaf categories (level 5) must have no children
@@ -114,12 +122,6 @@ def _validate_single_category(category):
             raise ValidationError(
                 f"Leaf category '{category.name}' (level 5) should not have children"
             )
-
-    # Non-root categories must have exactly one parent
-    if category.level > min_level and len(parents) != 1:
-        raise ValidationError(
-            f"Non-root category '{category.name}' (level {category.level}) must have exactly one parent"
-        )
 
     # Validate parent-child level relationships if parents exist
     for parent in parents:
@@ -187,8 +189,9 @@ def _check_circular_reference(category, visited, path=None):
         path = []
 
     # Use a consistent ID for both mock and real objects
-    category_id = getattr(category, 'id', None)
-    if not category_id: return
+    category_id = getattr(category, "id", None)
+    if not category_id:
+        return
 
     if category_id in visited:
         if category_id in path:
@@ -318,10 +321,23 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
             id__in=categories_data["delete"]
         )
 
-    # Build ID to category mapping
+    # Build a map of mock objects representing the final state.
+    # This completely decouples the validation logic from live Django instances.
     category_map = {
-        cat.id: cat
-        for cat in current_categories.prefetch_related("children", "parents")
+        cat.id: type(
+            "MockCategory",
+            (),
+            {
+                "id": cat.id,
+                "name": cat.name,
+                "level": cat.level,
+                "children": set(),
+                "parents": set(),
+                "is_temp": False,  # Mark as representing a real object
+                "original_obj": cat,
+            },
+        )()
+        for cat in current_categories.prefetch_related("parents")
     }
 
     # Add/update categories from the sync data
@@ -340,10 +356,31 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
                 "children": set(),
                 "parents": set(),
                 "is_temp": True,
+                "original_obj": None,
             },
         )()
         temp_id_map[item["temp_id"]] = mock_category
         category_map[mock_category.id] = mock_category
+
+    # Apply attribute updates to existing categories before relationship changes
+    for item in categories_data.get("update", []):
+        cat_id = item.get("id")
+        if cat_id in category_map:
+            category_instance = category_map[cat_id]
+            if "level" in item:
+                category_instance.level = item["level"]
+            if "name" in item:
+                category_instance.name = item["name"]
+
+    # Build initial parent-child relationships for existing categories in our mock map
+    for cat_id, mock_cat in category_map.items():
+        if not mock_cat.is_temp:
+            original_parents = mock_cat.original_obj.parents.all()
+            for parent in original_parents:
+                if parent.id in category_map:  # Ensure parent is not being deleted
+                    mock_parent = category_map[parent.id]
+                    mock_cat.parents.add(mock_parent)
+                    mock_parent.children.add(mock_cat)
 
     # 3. BUILD RELATIONSHIPS IN SIMULATED STRUCTURE
     logger.debug(
@@ -353,28 +390,31 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
             "component": "validate_category_hierarchy",
         },
     )
-    
+
     # First, detach all categories that are being moved from their old parents
     for item in categories_data.get("update", []):
-        if "parent_id" in item: # This covers moving to a new parent or becoming a root (parent_id: null)
+        # This covers moving to a new parent or becoming a root (parent_id: null)
+        if "parent_id" in item or "parent_temp_id" in item:
             child = category_map.get(item["id"])
             if child:
-                # For real Django objects, we can't easily modify the reverse relation in memory.
-                # So we clear the forward relation (child.parents) which is sufficient for validation.
-                if hasattr(child.parents, "clear"):
-                    child.parents.clear()
+                # Detach from all current parents in the simulation
+                for parent in list(child.parents):
+                    parent.children.remove(child)
+                child.parents.clear()
 
     # Now, build all new relationships for both created and updated items
-    all_items_with_parents = categories_data.get("create", []) + categories_data.get("update", [])
+    all_items_with_parents = categories_data.get("create", []) + categories_data.get(
+        "update", []
+    )
 
     for item in all_items_with_parents:
         child = None
         parent = None
 
         # Identify the child object
-        if "temp_id" in item: # It's a new category
+        if "temp_id" in item:  # It's a new category
             child = temp_id_map.get(item["temp_id"])
-        elif "id" in item: # It's an existing category
+        elif "id" in item:  # It's an existing category
             child = category_map.get(item["id"])
 
         if not child:
@@ -391,18 +431,11 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
 
         # If a parent is found, establish the relationship in our simulated map
         if parent:
-            # If the parent is a real Django object, we add the child to a temporary
-            # `_simulated_children` attribute to avoid database-related TypeErrors.
-            if not hasattr(parent, 'is_temp'):
-                if not hasattr(parent, '_simulated_children'):
-                    parent._simulated_children = set(parent.children.all())
-                parent._simulated_children.add(child)
-            else: # It's a mock object, safe to add to its `children` set
-                parent.children.add(child)
-            
+            # All objects in our map are mocks, so this is safe.
+            parent.children.add(child)
             # Always add the parent to the child's parents set
             child.parents.add(parent)
-        
+
     # 4. VALIDATE CATEGORY CONSTRAINTS
     logger.debug(
         "Validating category constraints",
@@ -449,10 +482,14 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
 
     # Rule 4: Check for orphaned non-leaf categories
     non_leaf_categories = [cat for cat in category_map.values() if cat.level != 5]
-    orphaned_non_leaf = [cat for cat in non_leaf_categories if cat not in connected_categories]
+    orphaned_non_leaf = [
+        cat for cat in non_leaf_categories if cat not in connected_categories
+    ]
     if orphaned_non_leaf:
         orphaned_names = [f"'{cat.name}' (L{cat.level})" for cat in orphaned_non_leaf]
-        validation_errors.append(f"Non-leaf categories without proper connections: {', '.join(orphaned_names)}")
+        validation_errors.append(
+            f"Non-leaf categories without proper connections: {', '.join(orphaned_names)}"
+        )
 
     if validation_errors:
         raise ValidationError("; ".join(validation_errors))
@@ -512,7 +549,13 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
         ValidationError: If data validation fails
     """
 
-    results = {"created": [], "updated": [], "deleted": [], "deactivated": [], "errors": []}
+    results = {
+        "created": [],
+        "updated": [],
+        "deleted": [],
+        "deactivated": [],
+        "errors": [],
+    }
 
     logger.info(
         "Category tree synchronization started",
@@ -572,11 +615,18 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                 # Separate categories into hard-delete and soft-delete (deactivate) lists
                 to_hard_delete_ids = []
                 to_soft_delete_ids = []
+                used_categories_errors = []
                 for category in existing_categories:
                     if check_category_usage(category.id, category_model):
-                        to_soft_delete_ids.append(category.id)
+                        # Business Rule: Do not allow deletion (soft or hard) of used categories.
+                        # Instead of soft-deleting, raise a validation error.
+                        error_msg = f"Category '{category.name}' cannot be deleted because it is used in transactions."
+                        used_categories_errors.append(error_msg)
                     else:
                         to_hard_delete_ids.append(category.id)
+
+                if used_categories_errors:
+                    raise ValidationError(used_categories_errors)
 
                 # Perform soft-deletes (deactivation)
                 if to_soft_delete_ids:
@@ -613,7 +663,7 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
             # 2. CREATE OPERATIONS (Two-phase approach)
             if categories_data.get("create"):
                 # --- PHASE 1: Create all category instances ---
-                created_instances = {} # temp_id -> instance
+                created_instances = {}  # temp_id -> instance
                 for item in categories_data["create"]:
                     category = category_model(
                         name=item["name"].strip(),
@@ -670,7 +720,9 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                             elif parent_temp_id:
                                 real_parent_id = temp_id_map.get(parent_temp_id)
                                 if real_parent_id:
-                                    parent = category_model.objects.get(id=real_parent_id)
+                                    parent = category_model.objects.get(
+                                        id=real_parent_id
+                                    )
 
                             if parent:
                                 parent.children.add(child_instance)
@@ -711,35 +763,57 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                                 id=item["id"], version=version
                             )
 
-                            print(f"\n\n[DEBUG] Checking usage for moving category: '{category.name}' (ID: {category.id}, Level: {category.level})")
+                            print(
+                                f"\n\n[DEBUG] Checking usage for moving category: '{category.name}' (ID: {category.id}, Level: {category.level})"
+                            )
 
                             # Per business rules, only check usage of Level 5 categories in the branch.
                             all_in_branch = category.get_descendants(include_self=True)
-                            print(f"[DEBUG] Descendants found: {[f'{c.name} (L{c.level})' for c in all_in_branch]}")
+                            print(
+                                f"[DEBUG] Descendants found: {[f'{c.name} (L{c.level})' for c in all_in_branch]}"
+                            )
 
                             level_5_categories_in_branch = {
                                 cat for cat in all_in_branch if cat.level == 5
                             }
-                            print(f"[DEBUG] Level 5 categories in branch: {[f'{c.name} (L{c.level})' for c in level_5_categories_in_branch]}")
+                            print(
+                                f"[DEBUG] Level 5 categories in branch: {[f'{c.name} (L{c.level})' for c in level_5_categories_in_branch]}"
+                            )
 
                             if not level_5_categories_in_branch:
-                                print("[DEBUG] No Level 5 categories found in branch. Skipping usage check.")
+                                print(
+                                    "[DEBUG] No Level 5 categories found in branch. Skipping usage check."
+                                )
                                 continue
 
-                            level_5_ids = [cat.id for cat in level_5_categories_in_branch]
-                            print(f"[DEBUG] Checking for transactions with these Level 5 category IDs: {level_5_ids}")
+                            level_5_ids = [
+                                cat.id for cat in level_5_categories_in_branch
+                            ]
+                            print(
+                                f"[DEBUG] Checking for transactions with these Level 5 category IDs: {level_5_ids}"
+                            )
 
                             # Check if any of the L5 categories in the branch are used, and get the first conflict.
                             if category_model.__name__ == "ExpenseCategory":
-                                conflicting_transaction = Transaction.objects.filter(
-                                    expense_category_id__in=level_5_ids
-                                ).select_related('expense_category').first()
+                                conflicting_transaction = (
+                                    Transaction.objects.filter(
+                                        expense_category_id__in=level_5_ids
+                                    )
+                                    .select_related("expense_category")
+                                    .first()
+                                )
                             else:  # IncomeCategory
-                                conflicting_transaction = Transaction.objects.filter(
-                                    income_category_id__in=level_5_ids
-                                ).select_related('income_category').first()
+                                conflicting_transaction = (
+                                    Transaction.objects.filter(
+                                        income_category_id__in=level_5_ids
+                                    )
+                                    .select_related("income_category")
+                                    .first()
+                                )
 
-                            print(f"[DEBUG] Conflicting transaction found: {conflicting_transaction}\n\n")
+                            print(
+                                f"[DEBUG] Conflicting transaction found: {conflicting_transaction}\n\n"
+                            )
 
                             if conflicting_transaction:
                                 conflicting_category = conflicting_transaction.category
@@ -809,12 +883,16 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                 for item in categories_data["update"]:
                     if "parent_id" in item:
                         try:
-                            category = category_model.objects.get(id=item["id"], version=version)
+                            category = category_model.objects.get(
+                                id=item["id"], version=version
+                            )
                             # Clear old relationships
                             category.parents.clear()
                             # Add new parent if specified
                             if item["parent_id"]:
-                                parent = category_model.objects.get(id=item["parent_id"], version=version)
+                                parent = category_model.objects.get(
+                                    id=item["parent_id"], version=version
+                                )
                                 parent.children.add(category)
                         except category_model.DoesNotExist as e:
                             logger.error(
@@ -828,7 +906,8 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                                 },
                             )
                             raise CategorySyncError(
-                                f"Category not found for relationship update: {e}", category_id=item.get("id")
+                                f"Category not found for relationship update: {e}",
+                                category_id=item.get("id"),
                             )
 
                 logger.info(
@@ -867,7 +946,7 @@ def sync_categories_tree(categories_data: dict, version, category_model) -> dict
                 for category in deleted_categories:
                     for parent in category.parents.all():
                         affected_category_ids.add(parent.id)
-            
+
             # 7. FINAL VALIDATION OF AFFECTED CATEGORIES
             if affected_category_ids:
                 logger.debug(

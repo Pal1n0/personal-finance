@@ -8,7 +8,7 @@ import logging
 
 from django.db import DatabaseError
 
-from ..models import Workspace, ExpenseCategory, IncomeCategory
+from ..models import ExpenseCategory, IncomeCategory, Workspace
 from .impersonation_service import ImpersonationService
 from .membership_cache_service import MembershipCacheService
 
@@ -43,16 +43,19 @@ class WorkspaceContextService:
             if not request.user.is_authenticated:
                 return
 
-            user_id_param = self._get_user_id_param(request)
             workspace_id = self._get_validated_workspace_id(request, view_kwargs)
 
             self._set_basic_permissions(request)
 
+            # Impersonation can happen with or without a workspace context
+            user_id_param = self._get_user_id_param(request)
             if user_id_param:
                 self._process_impersonation_context(
                     request, user_id_param, workspace_id
                 )
-            elif workspace_id:
+
+            # Only process workspace context if a valid workspace ID was found
+            if workspace_id and request.workspace:
                 self._process_workspace_context(request, workspace_id)
 
         except DatabaseError as e:
@@ -166,7 +169,7 @@ class WorkspaceContextService:
             workspace_id = getattr(request, "data", {}).get("workspace_id")
         if not workspace_id:
             workspace_id = getattr(request, "data", {}).get("workspace")
-            
+
         logger.debug(
             "Workspace ID extraction - COMPREHENSIVE DEBUG",
             extra={
@@ -244,11 +247,11 @@ class WorkspaceContextService:
         try:
             # 1. Clean and validate ID format
             workspace_id = int(workspace_id)
-            
+
             # 2. OPTIMIZATION: Single database query to fetch the object
             # Using select_related('owner') to preemptively optimize owner access
-            workspace = Workspace.objects.select_related('owner').get(id=workspace_id)
-            
+            workspace = Workspace.objects.select_related("owner").get(id=workspace_id)
+
             # 3. Set successful context
             request.workspace = workspace
             request.user_permissions["workspace_exists"] = True
@@ -263,7 +266,7 @@ class WorkspaceContextService:
                     "component": "WorkspaceContextService",
                 },
             )
-            
+
             return workspace_id
 
         except (ValueError, TypeError):
@@ -279,12 +282,12 @@ class WorkspaceContextService:
                 },
             )
             return None
-            
+
         except Workspace.DoesNotExist:
             # Handles valid integer ID for a non-existent workspace
             # We set current_workspace_id for consistent logging/error tracing
             request.user_permissions["current_workspace_id"] = workspace_id
-            
+
             logger.warning(
                 "Access attempt to non-existent workspace",
                 extra={
@@ -344,15 +347,15 @@ class WorkspaceContextService:
         else:
             self._reset_impersonation(request)
             logger.warning(
-            "Impersonation denied/failed",
-            extra={
-                "admin_id": request.user.id,
-                "target_user_id": user_id_param,
-                "action": "impersonation_denied",
-                "component": "WorkspaceContextService",
-                "severity": "medium",
-            },
-        )
+                "Impersonation denied/failed",
+                extra={
+                    "admin_id": request.user.id,
+                    "target_user_id": user_id_param,
+                    "action": "impersonation_denied",
+                    "component": "WorkspaceContextService",
+                    "severity": "medium",
+                },
+            )
 
     def _process_workspace_context(self, request, workspace_id):
         """Process workspace context with optimized data access."""
@@ -385,8 +388,12 @@ class WorkspaceContextService:
         # If the user is a member or an admin, pre-cache categories for performance.
         if role or is_admin:
             if request.workspace:
-                request._cached_expense_categories = ExpenseCategory.objects.filter(version__workspace=request.workspace, version__is_active=True).select_related("version")
-                request._cached_income_categories = IncomeCategory.objects.filter(version__workspace=request.workspace, version__is_active=True).select_related("version")
+                request._cached_expense_categories = ExpenseCategory.objects.filter(
+                    version__workspace=request.workspace, version__is_active=True
+                ).select_related("version")
+                request._cached_income_categories = IncomeCategory.objects.filter(
+                    version__workspace=request.workspace, version__is_active=True
+                ).select_related("version")
 
             logger.debug(
                 "Workspace access permissions validated and set",
@@ -400,7 +407,7 @@ class WorkspaceContextService:
                 },
             )
 
-        print(f"\n[DEBUG] _process_workspace_context:")
+        print("\n[DEBUG] _process_workspace_context:")
         print(f"  - User ID: {request.user.id}")
         print(f"  - Workspace ID: {workspace_id}")
         print(f"  - Is Admin (is_admin): {is_admin}")
@@ -408,17 +415,16 @@ class WorkspaceContextService:
 
         # This block should be outside the 'if role or is_admin' block
         if not role and not is_admin:
-             logger.warning(
-                 "User is not a member or admin of the requested workspace",
-                 extra={
-                     "user_id": request.user.id,
-                     "workspace_id": workspace_id,
-                     "action": "workspace_access_denied",
-                     "component": "WorkspaceContextService",
-                     "severity": "medium",
-                 },
-             )
-
+            logger.warning(
+                "User is not a member or admin of the requested workspace",
+                extra={
+                    "user_id": request.user.id,
+                    "workspace_id": workspace_id,
+                    "action": "workspace_access_denied",
+                    "component": "WorkspaceContextService",
+                    "severity": "medium",
+                },
+            )
 
     def _reset_impersonation(self, request):
         """Reset impersonation settings to secure defaults."""
