@@ -7,7 +7,7 @@ operations with atomicity guarantees and comprehensive error handling.
 
 import logging
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import transaction as db_transaction
@@ -757,7 +757,6 @@ class TransactionService:
                 date=transaction_data["date"],
                 expense_category=expense_category,
                 income_category=income_category,
-                tags=transaction_data.get("tags", []),
                 month=transaction_data["date"].replace(day=1),
                 note_manual=transaction_data.get("note_manual", ""),
                 note_auto=transaction_data.get("note_auto", ""),
@@ -766,6 +765,14 @@ class TransactionService:
 
             # Save transaction (triggers domestic amount calculation)
             transaction.save()
+
+            # Handle tags after transaction is saved
+            if "tags" in transaction_data:
+                from .tag_service import TagService
+
+                tag_service = TagService()
+                tag_objects = tag_service.get_or_create_tags(workspace, transaction_data["tags"])
+                transaction.tags.set(tag_objects)
 
             # Cleanup draft if exists
             draft_type = transaction.type
@@ -912,7 +919,12 @@ class TransactionService:
 
             # Update categories with workspace validation
             if "expense_category" in update_data:
-                expense_category = update_data["expense_category"]
+                expense_category_id = update_data["expense_category"]
+                expense_category = None
+                if expense_category_id:
+                    expense_category = ExpenseCategory.objects.get(
+                        id=expense_category_id
+                    )
                 if (
                     expense_category
                     and expense_category.version.workspace != transaction.workspace
@@ -924,7 +936,12 @@ class TransactionService:
                 update_fields.append("expense_category")
 
             if "income_category" in update_data:
-                income_category = update_data["income_category"]
+                income_category_id = update_data["income_category"]
+                income_category = None
+                if income_category_id:
+                    income_category = IncomeCategory.objects.get(
+                        id=income_category_id
+                    )
                 if (
                     income_category
                     and income_category.version.workspace != transaction.workspace
@@ -1199,7 +1216,7 @@ class TransactionService:
                 amount = Decimal(str(data["original_amount"]))
                 if amount <= 0:
                     raise ValidationError("Amount must be positive")
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, InvalidOperation):
                 raise ValidationError("Amount must be a valid number")
 
         # Currency validation
