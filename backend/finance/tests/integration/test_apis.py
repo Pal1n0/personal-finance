@@ -237,7 +237,7 @@ class BaseAPITestCase(APITestCase):
             is_active=True,
         )
 
-        self.workspace_settings = WorkspaceSettingsFactory(workspace=self.workspace)
+        self.workspace_settings = self.workspace.settings
 
     def _create_categories(self):  # Now an instance method
         """Create a production-ready, consistent 5-level category hierarchy for tests."""

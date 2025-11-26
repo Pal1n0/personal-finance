@@ -40,7 +40,7 @@ class TestUserSettings:
 
     def test_user_settings_default_language(self, test_user):
         """Test predvoleného jazyka"""
-        settings = UserSettings.objects.create(user=test_user)
+        settings = test_user.settings
         assert settings.language == "en"
 
     def test_user_settings_language_choices(self, user_settings):
@@ -252,7 +252,7 @@ class TestWorkspaceSettings:
 
     def test_workspace_settings_default_values(self, test_workspace):
         """Test predvolených hodnôt"""
-        settings = WorkspaceSettings.objects.create(workspace=test_workspace)
+        settings = test_workspace.settings
         assert settings.domestic_currency == "EUR"
         assert settings.fiscal_year_start == 1
         assert settings.display_mode == "month"

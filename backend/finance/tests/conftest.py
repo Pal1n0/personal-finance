@@ -58,7 +58,12 @@ def superuser(db):
 @pytest.fixture
 def user_settings(db, test_user):
     """UserSettings pre testovacieho používateľa"""
-    return UserSettings.objects.create(user=test_user, language="sk")
+    # UserSettings sú vytvorené automaticky signálom.
+    # Ak je potrebné zmeniť predvolený jazyk, urob to tu.
+    settings = test_user.settings
+    settings.language = "sk"
+    settings.save()
+    return settings
 
 
 # =============================================================================
@@ -77,13 +82,15 @@ def test_workspace(db, test_user):
 @pytest.fixture
 def workspace_settings(db, test_workspace):
     """Nastavenia pre workspace (Domestic Currency: EUR)"""
-    return WorkspaceSettings.objects.create(
-        workspace=test_workspace,
-        domestic_currency="EUR",
-        fiscal_year_start=1,
-        display_mode="month",
-        accounting_mode=False,
-    )
+    # WorkspaceSettings sú vytvorené automaticky signálom.
+    # Ak je potrebné zmeniť predvolené hodnoty, urob to tu.
+    settings = test_workspace.settings
+    settings.domestic_currency = "EUR"
+    settings.fiscal_year_start = 1
+    settings.display_mode = "month"
+    settings.accounting_mode = False
+    settings.save()
+    return settings
 
 
 @pytest.fixture

@@ -58,14 +58,7 @@ class UserFactory(DjangoModelFactory):
             password=kwargs.get("password", "testpass123"),
         )
 
-    @factory.post_generation
-    def settings(self, create, extracted, **kwargs):
-        if not create:
-            # Simple build, do nothing.
-            return
-        # Create the UserSettings object for the user, mimicking the signal.
-        # This ensures all created users in tests have settings.
-        UserSettings.objects.get_or_create(user=self)
+
 
 
 class UserSettingsFactory(DjangoModelFactory):

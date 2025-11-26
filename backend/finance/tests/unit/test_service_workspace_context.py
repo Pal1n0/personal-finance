@@ -32,26 +32,13 @@ def create_mock_request(user=None, get_params=None, data=None, kwargs=None):
         request.user.is_superuser = False
         request.user.id = getattr(user, "id", 1)
 
-    # 🔧 OPRAVA: Správne nastavenie user_permissions
-    request.user_permissions = MagicMock()
-
-    # Vytvoríme reálny dict pre user_permissions
-    user_permissions_data = {
+    request.user_permissions = {
         "is_superuser": False,
         "is_workspace_admin": None,
         "workspace_role": None,
         "current_workspace_id": None,
         "workspace_exists": False,
     }
-
-    # Nastavíme __getitem__ a __setitem__ pre dict-like správanie
-    request.user_permissions.__getitem__ = lambda self, key: user_permissions_data[key]
-    request.user_permissions.__setitem__ = (
-        lambda self, key, value: user_permissions_data.__setitem__(key, value)
-    )
-    request.user_permissions.get = lambda key, default=None: user_permissions_data.get(
-        key, default
-    )
 
     request.GET = get_params or {}
     request.data = data or {}
@@ -95,12 +82,10 @@ class TestWorkspaceContextService:
             user=test_user, get_params={"workspace_id": str(test_workspace.id)}
         )
 
-        with patch.object(Workspace.objects, "filter") as mock_filter:
-            with patch.object(Workspace.objects, "get") as mock_get:
-                mock_filter.return_value.exists.return_value = True
-                mock_get.return_value = test_workspace
+        with patch.object(Workspace.objects, "get") as mock_get:
+            mock_get.return_value = test_workspace
 
-                service.build_request_context(request)
+            service.build_request_context(request)
 
         assert request.workspace == test_workspace
         assert request.user_permissions["workspace_exists"] is True
@@ -123,8 +108,8 @@ class TestWorkspaceContextService:
         request = self._create_mock_request(user=test_user)
         request.GET = {"workspace_id": "999"}
 
-        with patch.object(Workspace.objects, "filter") as mock_filter:
-            mock_filter.return_value.exists.return_value = False
+        with patch.object(Workspace.objects, "get") as mock_get:
+            mock_get.side_effect = Workspace.DoesNotExist
 
             service.build_request_context(request)
 
@@ -176,8 +161,8 @@ class TestWorkspaceContextService:
 
         request.GET = {"workspace_id": "1"}
 
-        with patch.object(Workspace.objects, "filter") as mock_filter:
-            mock_filter.side_effect = DatabaseError("Connection failed")
+        with patch('finance.services.workspace_context_service.Workspace.objects') as mock_objects:
+            mock_objects.select_related.return_value.get.side_effect = DatabaseError("Connection failed")
 
             with pytest.raises(DatabaseError):
                 service.build_request_context(request)
@@ -224,32 +209,15 @@ class TestWorkspaceContextService:
         request = self._create_mock_request(user=test_user)
         view_kwargs = {"pk": "123"}
 
-        # Mock BOTH filter().exists() AND get()
-        with patch.object(Workspace.objects, "filter") as mock_filter:
-            with patch.object(Workspace.objects, "get") as mock_get:
-                # Setup filter mock
-                mock_filter.return_value.exists.return_value = True
+        with patch('finance.services.workspace_context_service.Workspace.objects') as mock_objects:
+            mock_workspace = MagicMock()
+            mock_workspace.id = 123
+            mock_objects.select_related.return_value.get.return_value = mock_workspace
 
-                # Setup get mock
-                mock_workspace = MagicMock()
-                mock_workspace.id = 123
-                mock_get.return_value = mock_workspace
+            result = service._get_validated_workspace_id(request, view_kwargs)
 
-                # Mock the extraction
-                with patch.object(
-                    service, "_extract_from_view_kwargs", return_value="123"
-                ):
-                    with patch.object(
-                        service, "_extract_from_request_kwargs", return_value=None
-                    ):
-
-                        result = service._get_validated_workspace_id(
-                            request, view_kwargs
-                        )
-
-                        assert result == 123
-                        mock_filter.assert_called_once_with(id=123)
-                        mock_get.assert_called_once_with(id=123)
+            assert result == 123
+            mock_objects.select_related.return_value.get.assert_called_once_with(id=123)
 
     def test_get_validated_workspace_id_from_request_kwargs(self, test_user):
         """Test získania workspace ID z request kwargs"""
@@ -257,29 +225,45 @@ class TestWorkspaceContextService:
         request = self._create_mock_request(user=test_user)
         request.kwargs = {"pk": "456"}
 
-        with patch.object(Workspace.objects, "filter") as mock_filter:
-            with patch.object(Workspace.objects, "get") as mock_get:
-                # Setup filter mock
-                mock_filter.return_value.exists.return_value = True
+        with patch('finance.services.workspace_context_service.Workspace.objects') as mock_objects:
+            mock_workspace = MagicMock()
+            mock_workspace.id = 456
+            mock_objects.select_related.return_value.get.return_value = mock_workspace
 
-                # Setup get mock
-                mock_workspace = MagicMock()
-                mock_workspace.id = 456
-                mock_get.return_value = mock_workspace
+            result = service._get_validated_workspace_id(request, None)
 
-                # Mock the extraction
-                with patch.object(
-                    service, "_extract_from_view_kwargs", return_value=None
-                ):
-                    with patch.object(
-                        service, "_extract_from_request_kwargs", return_value="456"
-                    ):
+            assert result == 456
+            mock_objects.select_related.return_value.get.assert_called_once_with(id=456)
 
-                        result = service._get_validated_workspace_id(request, None)
+    def test_get_validated_workspace_id_from_get_params(self, test_user):
+        """Test získania workspace ID z GET parametrov"""
+        service = WorkspaceContextService()
+        request = self._create_mock_request(user=test_user, get_params={"workspace_id": "789"})
 
-                        assert result == 456
-                        mock_filter.assert_called_once_with(id=456)
-                        mock_get.assert_called_once_with(id=456)
+        with patch('finance.services.workspace_context_service.Workspace.objects') as mock_objects:
+            mock_workspace = MagicMock()
+            mock_workspace.id = 789
+            mock_objects.select_related.return_value.get.return_value = mock_workspace
+
+            result = service._get_validated_workspace_id(request, None)
+
+            assert result == 789
+            mock_objects.select_related.return_value.get.assert_called_once_with(id=789)
+
+    def test_get_validated_workspace_id_from_request_data(self, test_user):
+        """Test získania workspace ID z request data"""
+        service = WorkspaceContextService()
+        request = self._create_mock_request(user=test_user, data={"workspace_id": "101"})
+
+        with patch('finance.services.workspace_context_service.Workspace.objects') as mock_objects:
+            mock_workspace = MagicMock()
+            mock_workspace.id = 101
+            mock_objects.select_related.return_value.get.return_value = mock_workspace
+
+            result = service._get_validated_workspace_id(request, None)
+
+            assert result == 101
+            mock_objects.select_related.return_value.get.assert_called_once_with(id=101)
 
     def test_extract_from_view_kwargs(self):
         """Test extrakcie workspace ID z view kwargs"""
@@ -296,6 +280,10 @@ class TestWorkspaceContextService:
         # Test s workspace_id
         result = service._extract_from_view_kwargs({"workspace_id": "789"})
         assert result == "789"
+        
+        # Test priority: workspace_pk should be prioritized over pk
+        result = service._extract_from_view_kwargs({"pk": "123", "workspace_pk": "456"})
+        assert result == "456"
 
         # Test bez kwargs
         result = service._extract_from_view_kwargs(None)
@@ -308,7 +296,7 @@ class TestWorkspaceContextService:
         request.kwargs = {"pk": "123", "workspace_pk": "456"}
 
         result = service._extract_from_request_kwargs(request)
-        assert result == "123"  # pk má prioritu
+        assert result == "456"  # workspace_pk má prioritu
 
     def test_set_basic_permissions(self, test_user):
         """Test nastavenia základných oprávnení"""
@@ -336,6 +324,64 @@ class TestWorkspaceContextService:
         assert request.is_admin_impersonation is False
         assert request.impersonation_type is None
         assert request.impersonation_workspace_ids == []
+
+
+    def test_process_workspace_context_user_is_member(self, test_user, test_workspace):
+        """Test spracovania kontextu pre člena workspace"""
+        service = WorkspaceContextService()
+        request = self._create_mock_request(user=test_user)
+        request.user_permissions["workspace_exists"] = True
+        request.workspace = test_workspace
+
+        with patch.object(service.membership_service, 'get_user_workspace_role') as mock_get_role, \
+             patch.object(service.membership_service, 'is_workspace_admin') as mock_is_admin:
+            mock_get_role.return_value = 'editor'
+            mock_is_admin.return_value = False
+
+            service._process_workspace_context(request, test_workspace.id)
+
+            assert request.user_permissions['workspace_role'] == 'editor'
+            assert request.user_permissions['is_workspace_admin'] is False
+            mock_get_role.assert_called_once_with(request.user.id, test_workspace.id)
+            mock_is_admin.assert_called_once_with(request.user.id, test_workspace.id)
+
+    def test_process_workspace_context_user_is_admin_not_member(self, test_user, test_workspace):
+        """Test spracovania kontextu pre admina, ktorý nie je členom workspace"""
+        service = WorkspaceContextService()
+        request = self._create_mock_request(user=test_user)
+        request.user_permissions["workspace_exists"] = True
+        request.workspace = test_workspace
+
+        with patch.object(service.membership_service, 'get_user_workspace_role') as mock_get_role, \
+             patch.object(service.membership_service, 'is_workspace_admin') as mock_is_admin:
+            mock_get_role.return_value = None
+            mock_is_admin.return_value = True
+
+            service._process_workspace_context(request, test_workspace.id)
+
+            assert request.user_permissions['workspace_role'] is None
+            assert request.user_permissions['is_workspace_admin'] is True
+            mock_get_role.assert_called_once_with(request.user.id, test_workspace.id)
+            mock_is_admin.assert_called_once_with(request.user.id, test_workspace.id)
+
+    def test_process_workspace_context_user_is_neither_member_nor_admin(self, test_user, test_workspace):
+        """Test spracovania kontextu pre používateľa, ktorý nie je ani člen ani admin"""
+        service = WorkspaceContextService()
+        request = self._create_mock_request(user=test_user)
+        request.user_permissions["workspace_exists"] = True
+        request.workspace = test_workspace
+
+        with patch.object(service.membership_service, 'get_user_workspace_role') as mock_get_role, \
+             patch.object(service.membership_service, 'is_workspace_admin') as mock_is_admin:
+            mock_get_role.return_value = None
+            mock_is_admin.return_value = False
+
+            service._process_workspace_context(request, test_workspace.id)
+
+            assert request.user_permissions['workspace_role'] is None
+            assert request.user_permissions['is_workspace_admin'] is False
+            mock_get_role.assert_called_once_with(request.user.id, test_workspace.id)
+            mock_is_admin.assert_called_once_with(request.user.id, test_workspace.id)
 
 
 class TestImpersonationService:
@@ -647,27 +693,23 @@ class TestMembershipService:
         """Test získania zoznamu členov s rolami"""
         service = MembershipService()
 
-        mock_user_data = {
-            "memberships": {
-                "user_123": {  # USER ID ako kľúč, nie workspace ID!
-                    "workspace_id": test_workspace.id,  # Toto sa kontroluje v implementácii
-                    "role": "editor",
-                    "user__username": "testuser",
-                    "user__email": "test@example.com",
-                    "joined_at": "2024-01-01T00:00:00Z",  # Pridajte required polia
-                }
-            }
-        }
+        # Create a mock user and membership
+        mock_user = MagicMock()
+        mock_user.id = 123
+        mock_user.username = "testuser_editor"
+        mock_user.email = "editor@example.com"
+
+        mock_membership = MagicMock()
+        mock_membership.user = mock_user
+        mock_membership.role = "editor"
+        mock_membership.joined_at = "2024-01-01T00:00:00Z"
+
 
         with patch.object(service, "_can_view_members") as mock_can_view:
-            with patch.object(
-                service.cache_service, "get_comprehensive_user_data"
-            ) as mock_data:
-                with patch.object(
-                    service.cache_service, "is_workspace_admin"
-                ) as mock_is_admin:
+            with patch('finance.services.membership_service.WorkspaceMembership.objects') as mock_wsm_objects:
+                with patch.object(service.cache_service, "is_workspace_admin") as mock_is_admin:
                     mock_can_view.return_value = True
-                    mock_data.return_value = mock_user_data
+                    mock_wsm_objects.filter.return_value.select_related.return_value = [mock_membership]
                     mock_is_admin.return_value = False
 
                     result = service.get_workspace_members_with_roles(
@@ -676,9 +718,9 @@ class TestMembershipService:
 
         assert len(result) == 1
         member = result[0]
-        assert member["username"] == "testuser"
+        assert member["username"] == "testuser_editor"
         assert member["role"] == "editor"
-        assert member["email"] == "test@example.com"
+        assert member["email"] == "editor@example.com"
 
     def test_get_workspace_members_with_roles_permission_denied(
         self, test_user, test_workspace
@@ -1087,19 +1129,17 @@ class TestIntegrationBetweenServices:
             with patch.object(
                 context_service.impersonation_service, "process_impersonation"
             ) as mock_impersonate:
-                with patch.object(Workspace.objects, "filter") as mock_filter:
-                    with patch.object(Workspace.objects, "get") as mock_get:
-                        mock_rate.return_value = True
-                        mock_impersonate.return_value = (
-                            test_user2,
-                            True,
-                            "superuser",
-                            [test_workspace.id],
-                        )
-                        mock_filter.return_value.exists.return_value = True
-                        mock_get.return_value = test_workspace
+                with patch.object(Workspace.objects, "get") as mock_get:
+                    mock_rate.return_value = True
+                    mock_impersonate.return_value = (
+                        test_user2,
+                        True,
+                        "superuser",
+                        [test_workspace.id],
+                    )
+                    mock_get.return_value = test_workspace
 
-                        context_service.build_request_context(request)
+                    context_service.build_request_context(request)
 
         assert request.target_user == test_user2
         assert request.is_admin_impersonation is True

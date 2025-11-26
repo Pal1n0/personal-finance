@@ -71,7 +71,9 @@ class TestUserSettingsSerializer(TestCase):
         self.user = User.objects.create_user(
             email="test@test.com", password="testpass123", username="testuser"
         )
-        self.user_settings = UserSettings.objects.create(user=self.user, language="en")
+        self.user_settings = self.user.settings
+        self.user_settings.language = "en"
+        self.user_settings.save()
 
     def test_valid_serialization(self):
         """Test successful serialization of user settings."""
@@ -416,13 +418,12 @@ class TestWorkspaceSettingsSerializer(TestCase):
         self.workspace = Workspace.objects.create(
             name="Test Workspace", owner=self.owner
         )
-        self.settings = WorkspaceSettings.objects.create(
-            workspace=self.workspace,
-            domestic_currency="EUR",
-            fiscal_year_start=1,
-            display_mode="light",
-            accounting_mode=True,
-        )
+        self.settings = self.workspace.settings
+        self.settings.domestic_currency = "EUR"
+        self.settings.fiscal_year_start = 1
+        self.settings.display_mode = "light"
+        self.settings.accounting_mode = True
+        self.settings.save()
 
     def test_valid_serialization(self):
         """Test serialization of workspace settings with all fields."""

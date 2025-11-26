@@ -44,8 +44,8 @@ INSTALLED_APPS = [
     "allauth.account",
     "allauth.socialaccount",
     # Project apps
-    "users",
-    "finance",
+    "users.apps.UsersConfig",
+    "finance.apps.FinanceConfig",
 ]
 
 # Django REST Framework configuration
