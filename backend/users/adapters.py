@@ -12,6 +12,8 @@ from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.http import HttpResponseRedirect
+from django.urls import reverse
+
 
 # Set up structured logger for this module with contextual logging
 logger = logging.getLogger(__name__)
@@ -25,6 +27,12 @@ class CustomAccountAdapter(DefaultAccountAdapter):
     Overrides default behavior to use redirects instead of template rendering
     for email confirmation responses, making it more suitable for REST API usage.
     """
+
+    def get_email_confirmation_url(self, request, emailconfirmation):
+        """
+        Constructs the email confirmation URL.
+        """
+        return reverse("users:custom_account_confirm_email", args=[emailconfirmation.key])
 
     def respond_email_confirmation_sent(self, request, emailaddress):
         """

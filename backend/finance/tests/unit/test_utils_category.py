@@ -1,6 +1,7 @@
 # finance/tests/unit/test_utils_category.py
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 from django.core.exceptions import ValidationError
@@ -120,6 +121,25 @@ class TestValidateCategoryHierarchy:
         with pytest.raises(ValidationError) as exc_info:
             validate_category_hierarchy(data, expense_category_version, ExpenseCategory)
         assert "All delete IDs must be integers" in str(exc_info.value)
+
+    def test_validate_invalid_level_update(self, expense_category_version, expense_root_category):
+        """Test validácie update operácií s neplatnou úrovňou"""
+        data = {
+            "update": [
+                {"id": expense_root_category.id, "name": "Updated Name", "level": 6} # Neplatná úroveň
+            ]
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            validate_category_hierarchy(data, expense_category_version, ExpenseCategory)
+        assert "Invalid category level" in str(exc_info.value)
+
+    def test_validate_non_dict_data(self, expense_category_version):
+        """Test validácie, keď categories_data nie je dictionary"""
+        with pytest.raises(ValidationError) as exc_info:
+            validate_category_hierarchy("not a dict", expense_category_version, ExpenseCategory)
+        assert "Categories data must be a dictionary" in str(exc_info.value)
+
+
 
 
 class TestSyncCategoriesTree:
@@ -300,8 +320,61 @@ class TestSyncCategoriesTree:
 
         with pytest.raises(ValidationError) as exc_info:
             sync_categories_tree(data, expense_category_version, ExpenseCategory)
-
         assert "Category name must be at least 2 characters long" in str(exc_info.value)
+
+    def test_sync_create_parent_not_found_error(self, expense_category_version):
+        """Test CategorySyncError, keď rodičovská kategória nie je nájdená pri create"""
+        data = {
+            "create": [
+                {"temp_id": 1, "name": "Child Category", "level": 2, "parent_id": 99999} # Neexistujúci rodič
+            ]
+        }
+        with pytest.raises(CategorySyncError) as exc_info:
+            sync_categories_tree(data, expense_category_version, ExpenseCategory)
+        assert "Parent category not found for relationship" in str(exc_info.value)
+        assert exc_info.value.category_id == 99999
+
+    def test_sync_update_parent_not_found_error(self, expense_category_version, expense_root_category):
+        """Test CategorySyncError, keď rodičovská kategória nie je nájdená pri update"""
+        data = {
+            "update": [
+                {
+                    "id": expense_root_category.id,
+                    "name": expense_root_category.name,
+                    "level": 1,
+                    "parent_id": 99999, # Neexistujúci rodič
+                }
+            ]
+        }
+        with pytest.raises(CategorySyncError) as exc_info:
+            sync_categories_tree(data, expense_category_version, ExpenseCategory)
+        assert "Category not found for relationship update" in str(exc_info.value)
+        assert exc_info.value.category_id == expense_root_category.id
+
+    def test_sync_delete_invalid_ids_non_existent(self, expense_category_version):
+        """Test synchronizácie s delete operáciou pre neexistujúce, ale platné ID"""
+        data = {"delete": [99999]} # Neexistujúce ID
+
+        with pytest.raises(ValidationError) as exc_info:
+            sync_categories_tree(data, expense_category_version, ExpenseCategory)
+        assert "Invalid IDs for deletion: {99999}" in str(exc_info.value)
+
+    def test_sync_categories_tree_generic_exception_logging(self, expense_category_version):
+        """Test logovania všeobecnej výnimky pri sync_categories_tree"""
+        data = {
+            "create": [
+                {"temp_id": 1, "name": "Test Category", "level": 1},
+            ]
+        }
+        with patch("finance.utils.category_utils.logger") as mock_logger, \
+             patch.object(ExpenseCategory.objects, "bulk_create", side_effect=Exception("Database error")):
+            result = sync_categories_tree(data, expense_category_version, ExpenseCategory)
+            assert "Unexpected error: Database error" in result["errors"][0]
+            mock_logger.error.assert_called_once()
+
+
+
+
 
 
 class TestCategoryHierarchyScenarios:
@@ -584,9 +657,18 @@ class TestCategoryHierarchyScenarios:
             in str(exc_info.value)
         )
 
+    def test_check_circular_reference_with_no_id_category(self):
+        """Test _check_circular_reference s kategóriou bez ID (mock)"""
+        mock_category_no_id = type("MockCategoryNoId", (), {"id": None, "children": []})()
+        # Should not raise an error, just return due to missing ID
+        # No assert needed, just ensure it doesn't fail
+        from finance.utils.category_utils import _check_circular_reference
+        _check_circular_reference(mock_category_no_id, set())
+
     @pytest.mark.xfail(
         reason="Hierarchy validation for childless non-leaf categories after delete is not yet implemented."
     )
+
     @pytest.mark.django_db
     def test_sync_non_leaf_category_becomes_childless_after_delete(
         self, expense_category_version, test_user, test_workspace, workspace_settings

@@ -10,6 +10,7 @@ from rest_framework.exceptions import PermissionDenied
 from finance.models import (ExpenseCategory, IncomeCategory, Transaction,
                             TransactionDraft)
 from finance.services.transaction_service import TransactionService
+from finance.utils.currency_utils import CurrencyConversionError
 
 
 class TestTransactionServiceValidation:
@@ -118,6 +119,33 @@ class TestTransactionServiceValidation:
             TransactionService._validate_transaction_data(invalid_data, test_workspace)
 
         assert "Expense transaction cannot have income category" in str(exc_info.value)
+
+        # Income transaction s expense category
+        invalid_data = {
+            "type": "income",
+            "original_amount": Decimal("100.00"),
+            "original_currency": "EUR",
+            "date": date(2024, 1, 15),
+            "expense_category": expense_root_category.id,
+        }
+
+        with pytest.raises(ValidationError) as exc_info:
+            TransactionService._validate_transaction_data(invalid_data, test_workspace)
+
+        assert "Income transaction cannot have expense category" in str(exc_info.value)
+
+    def test_validate_transaction_data_no_category(self, test_workspace):
+        """Test validácie, keď chýba akákoľvek kategória (príjem alebo výdaj)"""
+        invalid_data = {
+            "type": "expense",
+            "original_amount": Decimal("100.00"),
+            "original_currency": "EUR",
+            "date": date(2024, 1, 15),
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            TransactionService._validate_transaction_data(invalid_data, test_workspace)
+        assert "Transaction must have either an expense_category or an income_category" in str(exc_info.value)
+
 
 
 class TestTransactionServiceBulkCreate:
@@ -681,12 +709,15 @@ class TestTransactionServiceSingleOperations:
             mock_manager.values_list.return_value = mock_distinct
             mock_manager.delete.return_value = (0, {})
 
-            result = TransactionService.bulk_delete_transactions(
-                transaction_ids, test_user
-            )
+            # Patch the logger here
+            with patch("finance.services.transaction_service.logger") as mock_logger:
+                result = TransactionService.bulk_delete_transactions(
+                    transaction_ids, test_user
+                )
 
-        assert result["deleted"] == 0
-        assert len(result["details"]["invalid_ids"]) == 2
+                assert result["deleted"] == 0
+                assert len(result["details"]["invalid_ids"]) == 2
+                mock_logger.warning.assert_called_once()
 
 
 class TestTransactionServiceRecalculation:
@@ -809,6 +840,246 @@ class TestTransactionServiceEdgeCases:
 
                 # Over error logging
                 mock_logger.error.assert_called_once()
+
+    @patch("finance.services.transaction_service.recalculate_transactions_domestic_amount")
+    def test_bulk_sync_create_currency_conversion_failure(
+        self, mock_recalculate, test_user, test_workspace
+    ):
+        """Test, že CurrencyConversionError pri create operácii v sync je zachytená"""
+        from finance.utils.currency_utils import CurrencyConversionError
+
+        mock_recalculate.side_effect = CurrencyConversionError("Conversion failed during create")
+
+        with patch("finance.services.transaction_service.logger") as mock_logger:
+            with patch(
+                "finance.services.transaction_service.TransactionService.bulk_create_transactions",
+                wraps=TransactionService.bulk_create_transactions, # Call original but allow mock in recalculate
+            ):
+                result = TransactionService.bulk_sync_transactions(
+                    {
+                        "create": [
+                            {
+                                "type": "expense",
+                                "original_amount": Decimal("100.00"),
+                                "original_currency": "EUR",
+                                "date": date(2024, 1, 15),
+                                "expense_category": 1, # Placeholder ID
+                            }
+                        ]
+                    },
+                    test_workspace,
+                    test_user,
+                )
+
+                assert len(result["errors"]) > 0
+                assert "Conversion failed during create" in result["errors"][0]
+                assert mock_logger.error.call_count >= 1
+
+    def test_bulk_sync_update_missing_id(self, test_user, test_workspace):
+        """Test bulk sync update s chýbajúcim ID transakcie"""
+        sync_data = {
+            "update": [
+                {
+                    "original_amount": Decimal("10.00"),
+                    "original_currency": "EUR",
+                    "date": date(2024, 1, 1),
+                }  # Chýba "id"
+            ]
+        }
+        result = TransactionService.bulk_sync_transactions(
+            sync_data, test_workspace, test_user
+        )
+        assert len(result["errors"]) == 1
+        assert "Missing transaction ID in update data" in result["errors"][0]
+
+    def test_bulk_sync_update_transaction_not_found(self, test_user, test_workspace):
+        """Test bulk sync update s neexistujúcou transakciou"""
+        sync_data = {
+            "update": [
+                {
+                    "id": 999,  # Neexistujúce ID
+                    "original_amount": Decimal("10.00"),
+                    "original_currency": "EUR",
+                    "date": date(2024, 1, 1),
+                }
+            ]
+        }
+        with patch.object(
+            Transaction.objects, "filter"
+        ) as mock_filter, patch("finance.services.transaction_service.logger") as mock_logger:
+            mock_filter.return_value.select_related.return_value = [] # Žiadna transakcia
+            result = TransactionService.bulk_sync_transactions(
+                sync_data, test_workspace, test_user
+            )
+            assert len(result["errors"]) == 1
+            assert "Transaction 999 not found" in result["errors"][0]
+            mock_logger.warning.assert_called_once()
+
+
+    def test_bulk_sync_update_nonexistent_expense_category(self, test_user, test_workspace, expense_transaction):
+        """Test bulk sync update s neexistujúcou kategóriou výdavkov"""
+        sync_data = {
+            "update": [
+                {
+                    "id": expense_transaction.id,
+                    "expense_category": 9999,  # Neexistujúce ID
+                }
+            ]
+        }
+        with patch.object(Transaction.objects, "filter") as mock_filter, \
+             patch.object(ExpenseCategory.objects, "filter") as mock_expense_cat_filter, \
+             patch("finance.services.transaction_service.logger") as mock_logger:
+
+            mock_transaction = Mock(id=expense_transaction.id, spec=Transaction)
+            mock_transaction.workspace = test_workspace
+            mock_transaction.user = test_user
+            mock_transaction.original_amount = expense_transaction.original_amount
+            mock_transaction.original_currency = expense_transaction.original_currency
+            mock_transaction.date = expense_transaction.date
+            mock_filter.return_value.select_related.return_value = [mock_transaction]
+            mock_expense_cat_filter.return_value = [] # Kategória nenájdená
+
+            result = TransactionService.bulk_sync_transactions(
+                sync_data, test_workspace, test_user
+            )
+            assert len(result["errors"]) == 1
+            assert f"Transaction {expense_transaction.id}: Expense category 9999 not found" in result["errors"][0]
+            mock_logger.warning.assert_called_once()
+
+    def test_bulk_sync_update_nonexistent_income_category(self, test_user, test_workspace, income_transaction):
+        """Test bulk sync update s neexistujúcou kategóriou príjmov"""
+        sync_data = {
+            "update": [
+                {
+                    "id": income_transaction.id,
+                    "income_category": 9999,  # Neexistujúce ID
+                }
+            ]
+        }
+        with patch.object(Transaction.objects, "filter") as mock_filter, \
+             patch.object(IncomeCategory.objects, "filter") as mock_income_cat_filter, \
+             patch("finance.services.transaction_service.logger") as mock_logger:
+
+            mock_transaction = Mock(id=income_transaction.id, spec=Transaction)
+            mock_transaction.workspace = test_workspace
+            mock_transaction.user = test_user
+            mock_transaction.original_amount = income_transaction.original_amount
+            mock_transaction.original_currency = income_transaction.original_currency
+            mock_transaction.date = income_transaction.date
+            mock_filter.return_value.select_related.return_value = [mock_transaction]
+            mock_income_cat_filter.return_value = [] # Kategória nenájdená
+
+            result = TransactionService.bulk_sync_transactions(
+                sync_data, test_workspace, test_user
+            )
+            assert len(result["errors"]) == 1
+            assert f"Transaction {income_transaction.id}: Income category 9999 not found" in result["errors"][0]
+            mock_logger.warning.assert_called_once()
+
+    def test_bulk_sync_update_validation_error(self, test_user, test_workspace, expense_transaction):
+        """Test bulk sync update s validačnou chybou"""
+        sync_data = {
+            "update": [
+                {
+                    "id": expense_transaction.id,
+                    "original_amount": Decimal("-10.00"),  # Neplatná suma
+                }
+            ]
+        }
+        with patch.object(Transaction.objects, "filter") as mock_filter:
+            mock_transaction = Mock(id=expense_transaction.id, spec=Transaction)
+            mock_transaction.workspace = test_workspace
+            mock_transaction.user = test_user
+            mock_filter.return_value.select_related.return_value = [mock_transaction]
+
+            result = TransactionService.bulk_sync_transactions(
+                sync_data, test_workspace, test_user
+            )
+            assert len(result["errors"]) == 1
+            assert "Amount must be positive" in result["errors"][0]
+
+    @patch("finance.services.transaction_service.recalculate_transactions_domestic_amount")
+    def test_bulk_sync_update_currency_conversion_failure(self, mock_recalculate, test_user, test_workspace, expense_transaction):
+        """Test bulk sync update s chybou konverzie meny"""
+        from finance.utils.currency_utils import CurrencyConversionError
+
+        mock_recalculate.side_effect = CurrencyConversionError("Conversion failed during update")
+
+        sync_data = {
+            "update": [
+                {
+                    "id": expense_transaction.id,
+                    "original_amount": Decimal("100.00"),
+                    "original_currency": "USD", # Meniaca sa mena
+                }
+            ]
+        }
+        with patch.object(Transaction.objects, "filter") as mock_filter, \
+             patch("finance.services.transaction_service.logger") as mock_logger:
+
+            mock_transaction = Mock(id=expense_transaction.id, spec=Transaction)
+            mock_transaction.workspace = test_workspace
+            mock_transaction.user = test_user
+            mock_transaction.original_amount = expense_transaction.original_amount
+            mock_transaction.original_currency = expense_transaction.original_currency
+            mock_transaction.date = expense_transaction.date
+            mock_transaction.expense_category = expense_transaction.expense_category
+            mock_filter.return_value.select_related.return_value = [mock_transaction]
+
+
+            result = TransactionService.bulk_sync_transactions(
+                sync_data, test_workspace, test_user
+            )
+            assert len(result["errors"]) == 1
+            assert "Conversion failed during update" in result["errors"][0]
+            mock_logger.error.assert_called_once()
+
+    def test_create_transaction_generic_exception_logging(self, test_user, test_workspace, expense_root_category):
+        """Test logovania všeobecnej výnimky pri create_transaction"""
+        transaction_data = {
+            "type": "expense",
+            "original_amount": Decimal("100.00"),
+            "original_currency": "EUR",
+            "date": date(2024, 1, 15),
+            "expense_category": expense_root_category,
+        }
+        with patch("finance.services.transaction_service.logger") as mock_logger, \
+             patch.object(Transaction, "save", side_effect=Exception("Database error")):
+            with pytest.raises(Exception, match="Database error"):
+                TransactionService.create_transaction(transaction_data, test_user, test_workspace)
+            mock_logger.error.assert_called_once()
+
+    def test_update_transaction_generic_exception_logging(self, expense_transaction, test_user):
+        """Test logovania všeobecnej výnimky pri update_transaction"""
+        update_data = {"note_manual": "New note"}
+        with patch("finance.services.transaction_service.logger") as mock_logger, \
+             patch.object(expense_transaction, "save", side_effect=Exception("Save error")):
+            with pytest.raises(Exception, match="Save error"):
+                TransactionService.update_transaction(expense_transaction, update_data, test_user)
+            mock_logger.error.assert_called_once()
+
+    def test_delete_transaction_generic_exception_logging(self, expense_transaction, test_user):
+        """Test logovania všeobecnej výnimky pri delete_transaction"""
+        with patch("finance.services.transaction_service.logger") as mock_logger, \
+             patch.object(expense_transaction, "delete", side_effect=Exception("Delete error")):
+            with pytest.raises(Exception, match="Delete error"):
+                TransactionService.delete_transaction(expense_transaction, test_user)
+            mock_logger.error.assert_called_once()
+
+    def test_bulk_delete_transactions_generic_exception_logging(self, test_user):
+        """Test logovania všeobecnej výnimky pri bulk_delete_transactions"""
+        transaction_ids = [1, 2] # Dummy IDs
+        with patch("finance.services.transaction_service.logger") as mock_logger, \
+             patch.object(Transaction.objects, "filter", side_effect=Exception("Bulk delete error")):
+            with pytest.raises(Exception, match="Bulk delete error"):
+                TransactionService.bulk_delete_transactions(transaction_ids, test_user)
+            mock_logger.error.assert_called_once()
+
+
+
+
+
+
 
     def test_update_transaction_nonexistent_category(
         self, expense_transaction, test_user
@@ -952,3 +1223,240 @@ class TestTransactionServiceIntegration:
             )
 
         assert updated_count == 2
+
+@pytest.mark.django_db
+class TestTransactionServiceCoverage:
+    """
+    Cielené testy na pokrytie chýbajúcich vetiev v TransactionService.
+    Zamerané na error handling, edge cases a validácie.
+    """
+
+    def test_bulk_sync_delete_invalid_ids(self, test_user, test_workspace):
+        """
+        Pokrýva vetvu: if invalid_ids: v bulk_sync_transactions (DELETE sekcia).
+        """
+        # Vytvoríme jednu platnú transakciu
+        t1 = Transaction.objects.create(
+            user=test_user, workspace=test_workspace, 
+            original_amount=100, original_currency="EUR", 
+            date=date.today(), type="expense"
+        )
+        
+        # Pošleme ID, ktoré existuje, a ID, ktoré neexistuje (99999)
+        data = {
+            "delete": [t1.id, 99999]
+        }
+
+        result = TransactionService.bulk_sync_transactions(data, test_workspace, test_user)
+
+        # Overíme, že validné sa zmazalo a nevalidné bolo zalogované/reportované
+        assert not Transaction.objects.filter(id=t1.id).exists()
+        assert len(result["errors"]) > 0
+        assert "Invalid delete ID: 99999" in result["errors"][0]
+
+    def test_bulk_sync_update_missing_id(self, test_user, test_workspace):
+        """
+        Pokrýva vetvu: if not transaction_id: v bulk_sync_transactions (UPDATE sekcia).
+        """
+        data = {
+            "update": [
+                {"original_amount": 200} # Chýba ID
+            ]
+        }
+        result = TransactionService.bulk_sync_transactions(data, test_workspace, test_user)
+        assert "errors" in result
+        # Service loguje warning, ale do results['errors'] v tomto prípade nič nepridáva (podľa kódu),
+        # len preskočí iteráciu (continue). Overíme, že nič nepadlo.
+        assert len(result["updated"]) == 0
+
+    def test_bulk_sync_update_transaction_not_found(self, test_user, test_workspace):
+        """
+        Pokrýva vetvu: if not transaction: v bulk_sync_transactions (UPDATE sekcia).
+        """
+        data = {
+            "update": [
+                {"id": 99999, "original_amount": 200} # ID neexistuje
+            ]
+        }
+        result = TransactionService.bulk_sync_transactions(data, test_workspace, test_user)
+        assert len(result["errors"]) > 0
+        assert "Transaction 99999 not found" in result["errors"][0]
+
+    def test_bulk_sync_update_category_not_found(self, test_user, test_workspace):
+        """
+        Pokrýva vetvu: except (ExpenseCategory.DoesNotExist...) v bulk_sync_transactions.
+        """
+        t1 = Transaction.objects.create(
+            user=test_user, workspace=test_workspace, 
+            original_amount=100, original_currency="EUR", 
+            date=date.today(), type="expense"
+        )
+        
+        data = {
+            "update": [
+                {
+                    "id": t1.id, 
+                    "expense_category": 99999 # Neexistujúca kategória
+                }
+            ]
+        }
+        
+        # Mockujeme TransactionService._validate_transaction_data aby prešiel, 
+        # ale následný fetch kategórie zlyhá, lebo sme ju neprednačítali v select_related logike
+        # Poznámka: V reálnom kóde sa kategórie pre-fetchujú. Ak ID nie je v pre-fetch, 
+        # Dictionary get vráti None a kód vyhodí DoesNotExist.
+        
+        result = TransactionService.bulk_sync_transactions(data, test_workspace, test_user)
+        
+        # Kód v service robí: category = expense_categories.get(str(id))... if not category: raise DoesNotExist
+        # Takže toto by malo skončiť v error liste.
+        assert len(result["errors"]) > 0
+        assert "not found" in result["errors"][0]
+
+    def test_bulk_sync_create_error_handling(self, test_user, test_workspace):
+        """
+        Pokrýva vetvu: except (ValidationError, CurrencyConversionError) v bulk_sync_transactions (CREATE sekcia).
+        """
+        data = {
+            "create": [{"some_bad_data": "test"}]
+        }
+        
+        # Mockneme bulk_create_transactions aby vyhodil chybu
+        with patch.object(TransactionService, 'bulk_create_transactions', side_effect=ValidationError("Simulated Error")):
+            result = TransactionService.bulk_sync_transactions(data, test_workspace, test_user)
+            
+        assert len(result["errors"]) > 0
+        
+        # FIXED ASSERTION: 
+        # Django ValidationErrors stringify to "['Error message']"
+        # We just check if "Simulated Error" is present inside the error string.
+        assert "Simulated Error" in result["errors"][0]
+    def test_recalculate_empty_workspace(self, test_workspace):
+        """
+        Pokrýva vetvu: if not transactions_list: v recalculate_all_transactions_for_workspace.
+        """
+        # Uistíme sa, že workspace nemá transakcie
+        Transaction.objects.filter(workspace=test_workspace).delete()
+        
+        count = TransactionService.recalculate_all_transactions_for_workspace(test_workspace)
+        assert count == 0
+
+    @patch("finance.services.transaction_service.recalculate_transactions_domestic_amount")
+    def test_recalculate_conversion_error(self, mock_recalc, test_workspace, test_user):
+        """
+        Pokrýva vetvu: except CurrencyConversionError v recalculate_all_transactions_for_workspace.
+        """
+        Transaction.objects.create(
+            user=test_user, workspace=test_workspace, 
+            original_amount=100, original_currency="EUR", 
+            date=date.today(), type="expense"
+        )
+        
+        mock_recalc.side_effect = CurrencyConversionError("API Down")
+        
+        with pytest.raises(CurrencyConversionError):
+            TransactionService.recalculate_all_transactions_for_workspace(test_workspace)
+
+    def test_create_transaction_cross_workspace_category(self, test_user, test_workspace):
+        """
+        Pokrýva vetvu: if expense_category.version.workspace != workspace v create_transaction.
+        """
+        from finance.tests.factories import WorkspaceFactory, ExpenseCategoryFactory, ExpenseCategoryVersionFactory
+        
+        # Iný workspace a kategória
+        other_workspace = WorkspaceFactory()
+        other_version = ExpenseCategoryVersionFactory(workspace=other_workspace)
+        other_cat = ExpenseCategoryFactory(version=other_version)
+        
+        data = {
+            "type": "expense",
+            "original_amount": Decimal("10.00"),
+            "original_currency": "EUR",
+            "date": date.today(),
+            "expense_category": other_cat # Kategória z iného workspace
+        }
+        
+        # Musíme pridať usera do workspace, aby sme prešli prvou kontrolou
+        test_workspace.members.add(test_user)
+        
+        with pytest.raises(ValidationError) as exc:
+            TransactionService.create_transaction(data, test_user, test_workspace)
+        
+        assert "Expense category does not belong to this workspace" in str(exc.value)
+
+    def test_update_transaction_cross_workspace_category(self, test_user, test_workspace):
+        """
+        Pokrýva vetvu: if expense_category... workspace != transaction.workspace v update_transaction.
+        """
+        from finance.tests.factories import WorkspaceFactory, ExpenseCategoryFactory, ExpenseCategoryVersionFactory
+        
+        tx = Transaction.objects.create(
+            user=test_user, workspace=test_workspace,
+            original_amount=100, original_currency="EUR",
+            date=date.today(), type="expense"
+        )
+        
+        other_workspace = WorkspaceFactory()
+        other_version = ExpenseCategoryVersionFactory(workspace=other_workspace)
+        other_cat = ExpenseCategoryFactory(version=other_version)
+        
+        update_data = {
+            "expense_category": other_cat.id
+        }
+        
+        with pytest.raises(ValidationError) as exc:
+            TransactionService.update_transaction(tx, update_data, test_user)
+            
+        assert "Expense category does not belong to this workspace" in str(exc.value)
+
+    def test_delete_transaction_permission_denied(self, test_user, test_workspace):
+        """
+        Pokrýva vetvu: if transaction.user != user: v delete_transaction.
+        """
+        from finance.tests.factories import UserFactory
+        other_user = UserFactory()
+        
+        # Transakcia patrí "other_user"
+        tx = Transaction.objects.create(
+            user=other_user, workspace=test_workspace,
+            original_amount=100, original_currency="EUR",
+            date=date.today(), type="expense"
+        )
+        
+        # "test_user" sa ju snaží zmazať
+        with pytest.raises(PermissionDenied):
+            TransactionService.delete_transaction(tx, test_user)
+
+    def test_update_transaction_permission_denied(self, test_user, test_workspace):
+        """
+        Pokrýva vetvu: if transaction.user != user: v update_transaction.
+        """
+        from finance.tests.factories import UserFactory
+        other_user = UserFactory()
+        
+        tx = Transaction.objects.create(
+            user=other_user, workspace=test_workspace,
+            original_amount=100, original_currency="EUR",
+            date=date.today(), type="expense"
+        )
+        
+        with pytest.raises(PermissionDenied):
+            TransactionService.update_transaction(tx, {"original_amount": 50}, test_user)
+
+    def test_create_transaction_not_member(self, test_user):
+        """
+        Pokrýva vetvu: if not workspace.members.filter(id=user.id).exists() v create_transaction.
+        """
+        from finance.tests.factories import WorkspaceFactory
+        # Workspace kde user NIE JE členom
+        foreign_workspace = WorkspaceFactory()
+        
+        data = {
+            "type": "expense",
+            "original_amount": 10,
+            "original_currency": "EUR",
+            "date": date.today()
+        }
+        
+        with pytest.raises(PermissionDenied):
+            TransactionService.create_transaction(data, test_user, foreign_workspace)

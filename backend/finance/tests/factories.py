@@ -253,22 +253,22 @@ class TransactionFactory(DjangoModelFactory):
             return
 
         if extracted:
-            # extracted == list of tag names OR Tag objects
-            for tag in extracted:
-                if isinstance(tag, str):
+            for tag_name in extracted:
+                if tag_name:
                     tag_obj, _ = Tags.objects.get_or_create(
-                        workspace=self.workspace, name=tag
+                        name__iexact=tag_name,
+                        workspace=self.workspace,
+                        defaults={"name": tag_name},
                     )
                     self.tags.add(tag_obj)
-                else:
-                    # already Tag instance
-                    self.tags.add(tag)
         else:
             # auto-generate random tag names
             for _ in range(2):
                 name = fake.word()
                 tag_obj, _ = Tags.objects.get_or_create(
-                    workspace=self.workspace, name=name
+                    workspace=self.workspace,
+                    name__iexact=name,
+                    defaults={"name": name},
                 )
                 self.tags.add(tag_obj)
 

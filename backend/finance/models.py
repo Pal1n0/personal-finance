@@ -141,6 +141,7 @@ class Workspace(models.Model):
                 "component": "Workspace",
             },
         )
+        self._validate_owner_consistency()
 
     def _validate_owner_consistency(self):
         """Validate that owner has correct role in membership."""
@@ -1101,7 +1102,7 @@ class ExpenseCategory(CategoryDescendantsMixin, models.Model):
                 )
 
             # Check for circular references in existing relationships
-            if self._is_ancestor_of(child):
+            if child._is_ancestor_of(self): # Check if child is an ancestor of self
                 logger.error(
                     "Circular reference detected in existing data",
                     extra={
@@ -1488,7 +1489,7 @@ class IncomeCategory(CategoryDescendantsMixin, models.Model):
                 )
 
             # Check for circular references in existing relationships
-            if self._is_ancestor_of(child):
+            if child._is_ancestor_of(self): # Check if child is an ancestor of self
                 logger.error(
                     "Circular reference detected in existing data",
                     extra={

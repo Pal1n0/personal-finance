@@ -21,6 +21,8 @@ from django.http import HttpResponse
 from django.urls import include, path
 from django.views import View
 
+from users.urls import InactiveAccountView
+
 
 class DummySuccessView(View):
     """
@@ -45,4 +47,8 @@ urlpatterns = [
     path("api/v1/finance/", include("finance.urls")),
     # Email verification success endpoint
     path("email-verified/", DummySuccessView.as_view(), name="email-verified-success"),
+    # Allauth views for account management
+    path("inactive/", InactiveAccountView.as_view(), name="account_inactive"),
+    # Allauth URLs for account management
+    path('accounts/', include('allauth.urls')),
 ]

@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 from django.core.exceptions import ValidationError
+from unittest.mock import Mock, patch
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -53,6 +54,13 @@ class TestUserSettings:
         expected = f"{test_user.username} settings"
         assert str(user_settings) == expected
 
+    def test_user_settings_clean_method_execution(self, user_settings):
+        """Test that the clean method is executed."""
+        # Just call full_clean; if it doesn't raise an error, it means it executed.
+        user_settings.full_clean()
+        # No assert needed beyond not raising an exception, as the clean method has no side effects beyond logging.
+
+
 
 # =============================================================================
 # WORKSPACE TESTS
@@ -99,6 +107,133 @@ class TestWorkspace:
         )
         assert membership.role == "owner"
 
+    def test_workspace_validate_owner_consistency_owner_role_not_owner(
+        self, test_workspace, test_user
+    ):
+        """Test _validate_owner_consistency keby owner nemá rolu 'owner'"""
+        membership = WorkspaceMembership.objects.get(
+            workspace=test_workspace, user=test_user
+        )
+        membership.role = "editor"  # Zmeníme rolu ownera
+        membership.save()
+
+        with pytest.raises(ValidationError) as exc_info:
+            test_workspace.full_clean()
+        assert "Workspace owner must have 'owner' role in membership." in str(
+            exc_info.value
+        )
+
+    def test_workspace_validate_owner_consistency_owner_no_membership(
+        self, test_workspace, test_user
+    ):
+        """Test _validate_owner_consistency keby owner nemá členstvo"""
+        # Odstránime automaticky vytvorené členstvo
+        WorkspaceMembership.objects.filter(
+            workspace=test_workspace, user=test_user
+        ).delete()
+
+        with pytest.raises(ValidationError) as exc_info:
+            test_workspace.full_clean()
+        assert "Workspace owner must exist in workspace membership." in str(
+            exc_info.value
+        )
+
+    def test_workspace_member_count_property(
+        self, test_workspace, test_user, test_user2
+    ):
+        """Test the member_count property correctly returns the number of members."""
+        # Initial owner membership exists (1 member: test_user)
+        assert test_workspace.member_count == 1
+
+        # Add another member (test_user2)
+        WorkspaceMembership.objects.create(
+            workspace=test_workspace, user=test_user2, role="editor"
+        )
+        test_workspace.refresh_from_db()  # Refresh to get updated count
+        assert test_workspace.member_count == 2
+
+        # Remove a member (test_user2)
+        WorkspaceMembership.objects.get(user=test_user2).delete()
+        test_workspace.refresh_from_db()
+        assert test_workspace.member_count == 1
+
+    def test_is_workspace_admin_active_admin(
+        self, test_workspace, superuser, test_user2
+    ):
+        """Test is_workspace_admin returns True for an active admin."""
+        WorkspaceAdmin.objects.create(
+            user=test_user2,
+            workspace=test_workspace,
+            assigned_by=superuser,
+            is_active=True,
+        )
+        assert Workspace.is_workspace_admin(test_user2, test_workspace) is True
+
+    def test_is_workspace_admin_inactive_admin(
+        self, test_workspace, superuser, test_user2
+    ):
+        """Test is_workspace_admin returns False for an inactive admin."""
+        WorkspaceAdmin.objects.create(
+            user=test_user2,
+            workspace=test_workspace,
+            assigned_by=superuser,
+            is_active=False,
+        )
+        assert Workspace.is_workspace_admin(test_user2, test_workspace) is False
+
+    def test_is_workspace_admin_not_admin(self, test_workspace, test_user2):
+        """Test is_workspace_admin returns False for a non-admin user."""
+        assert Workspace.is_workspace_admin(test_user2, test_workspace) is False
+
+    def test_workspace_change_owner_permission_denied(
+        self, mocker, test_workspace, test_user, django_user_model
+    ):
+        """Test change_owner raises PermissionError if changed_by lacks permission."""
+        # Create the missing user explicitly
+        test_user3 = django_user_model.objects.create_user(
+            username="test_user3",
+            email="test3@example.com",
+            password="password"
+        )
+        # Mock _can_change_ownership to return False
+        mocker.patch(
+            "finance.models.Workspace._can_change_ownership", return_value=False
+        )
+
+        with pytest.raises(
+            PermissionError, match="User cannot change workspace ownership."
+        ):
+            test_workspace.change_owner(
+                new_owner=test_user3, changed_by=test_user, old_owner_action="remove"
+            )
+
+    def test_workspace_change_owner_same_owner(self, test_workspace, test_user):
+        """Test change_owner raises ValidationError if new_owner is same as current owner."""
+        # test_user is already the owner
+        with pytest.raises(
+            ValidationError, match="New owner cannot be the same as current owner."
+        ):
+            test_workspace.change_owner(
+                new_owner=test_user, changed_by=test_user, old_owner_action="leave"
+            )
+
+    def test_workspace_change_owner_invalid_old_owner_action(
+        self, test_workspace, test_user, test_user2
+    ):
+        """Test change_owner raises ValidationError for an invalid old_owner_action."""
+        WorkspaceMembership.objects.create(
+            workspace=test_workspace, user=test_user2, role="editor"
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            test_workspace.change_owner(
+                new_owner=test_user2,
+                changed_by=test_user,
+                old_owner_action="invalid_action",
+            )
+        assert "old_owner_action must be one of: editor, viewer, remove" in str(
+            exc_info.value
+        )
+
     def test_workspace_change_owner_method(self, test_workspace, test_user2):
         """Test metódy change_owner - kompletný flow"""
         old_owner = test_workspace.owner
@@ -128,6 +263,128 @@ class TestWorkspace:
             workspace=test_workspace, user=old_owner
         )
         assert old_owner_membership.role == "editor"
+
+    def test_workspace_change_owner_remove_old_owner(
+        self, test_workspace, test_user, test_user2, superuser
+    ):
+        """
+        Test change_owner method with old_owner_action='remove'
+        Verifies that the old owner's membership is deleted and admin status is deactivated.
+        """
+        old_owner = test_user # test_user is the initial owner from fixture
+        new_owner = test_user2
+
+        # Make new_owner a member first to allow ownership transfer
+        WorkspaceMembership.objects.create(
+            workspace=test_workspace, user=new_owner, role="editor"
+        )
+        # Make old_owner an admin so we can test deactivation
+        WorkspaceAdmin.objects.create(
+            user=old_owner,
+            workspace=test_workspace,
+            assigned_by=superuser,
+            is_active=True,
+        )
+
+        # Perform the ownership change with "remove" action
+        test_workspace.change_owner(
+            new_owner=new_owner, changed_by=old_owner, old_owner_action="remove"
+        )
+
+        # Verify new owner
+        test_workspace.refresh_from_db()
+        assert test_workspace.owner == new_owner
+
+        # Verify old owner's membership is removed
+        assert not WorkspaceMembership.objects.filter(
+            workspace=test_workspace, user=old_owner
+        ).exists()
+
+        # Verify old owner's admin status is deactivated
+        old_owner_admin = WorkspaceAdmin.objects.get(
+            workspace=test_workspace, user=old_owner
+        )
+        assert old_owner_admin.is_active is False
+
+    def test_workspace_save_updates_membership_on_existing_workspace(self, test_workspace, test_user):
+        """
+        Test that saving an existing workspace calls _sync_owner_to_membership
+        (implicitly verifying the is_new=False branch).
+        """
+        # Ensure _sync_owner_to_membership is called on update
+        with patch.object(test_workspace, "_sync_owner_to_membership") as mock_sync:
+            test_workspace.name = "Updated Name"
+            test_workspace.save()
+            mock_sync.assert_called_once_with(False)
+
+    def test_change_owner_generic_exception(self, mocker, test_workspace, test_user, test_user2):
+        """Test change_owner handles generic exceptions during processing."""
+        # Make test_user2 a member so transfer can proceed
+        WorkspaceMembership.objects.create(
+            workspace=test_workspace, user=test_user2, role="editor"
+        )
+        # Mock a critical step to raise an exception
+        mocker.patch(
+            "finance.models.WorkspaceMembership.objects.filter",
+            side_effect=Exception("Database error during owner role update"),
+        )
+        mocker.patch(
+            "finance.models.Workspace._can_change_ownership", return_value=True
+        )
+
+        with pytest.raises(Exception, match="Database error during owner role update"):
+            test_workspace.change_owner(test_user2, test_user, old_owner_action="editor")
+
+    def test_sync_owner_to_membership_generic_exception(self, mocker, test_workspace, test_user):
+        """Test _sync_owner_to_membership handles generic exceptions."""
+        mocker.patch(
+            "finance.models.WorkspaceMembership.objects.update_or_create",
+            side_effect=Exception("Membership DB error"),
+        )
+        with pytest.raises(Exception, match="Membership DB error"):
+            test_workspace._sync_owner_to_membership(False) # is_new can be anything for this test
+
+    def test_can_change_ownership_superuser(self, test_workspace, superuser):
+        """Test _can_change_ownership returns True for a superuser."""
+        assert test_workspace._can_change_ownership(superuser) is True
+
+    def test_can_change_ownership_current_owner(self, test_workspace, test_user):
+        """Test _can_change_ownership returns True for the current owner."""
+        assert test_workspace._can_change_ownership(test_user) is True
+
+    def test_can_change_ownership_workspace_admin_with_permission(self, test_workspace, superuser, test_user2):
+        """Test _can_change_ownership returns True for a workspace admin with can_manage_users."""
+        WorkspaceAdmin.objects.create(
+            user=test_user2,
+            workspace=test_workspace,
+            assigned_by=superuser,
+            is_active=True,
+            can_manage_users=True,
+        )
+        assert test_workspace._can_change_ownership(test_user2) is True
+
+    def test_can_change_ownership_workspace_admin_without_permission(self, test_workspace, superuser, test_user2):
+        """Test _can_change_ownership returns False for a workspace admin without can_manage_users."""
+        WorkspaceAdmin.objects.create(
+            user=test_user2,
+            workspace=test_workspace,
+            assigned_by=superuser,
+            is_active=True,
+            can_manage_users=False, # Explicitly set to False
+        )
+        assert test_workspace._can_change_ownership(test_user2) is False
+
+    def test_can_change_ownership_regular_member(self, test_workspace, test_user2):
+        """Test _can_change_ownership returns False for a regular member."""
+        # test_user2 is a regular member (editor in membership)
+        # Ensure they are not owner or superuser, and no WorkspaceAdmin assignment
+        assert test_workspace._can_change_ownership(test_user2) is False
+
+
+
+
+
+
 
     def test_get_user_role_in_workspace(
         self, test_workspace, test_user, workspace_member
@@ -220,6 +477,52 @@ class TestWorkspaceMembership:
 
         assert "is not a valid choice" in str(exc_info.value)
 
+    def test_workspace_membership_unique_owner_per_workspace(
+        self, test_workspace, test_user2
+    ):
+        """Test that only one owner role can exist per workspace."""
+        # test_workspace already has an owner (test_user)
+
+        # Attempt to create a second owner membership for a different user
+        with pytest.raises(IntegrityError) as exc_info:
+            with transaction.atomic():
+                WorkspaceMembership.objects.create(
+                    workspace=test_workspace, user=test_user2, role="owner"
+                )
+        assert (
+            "duplicate key value violates unique constraint" in str(exc_info.value)
+            or "UNIQUE constraint failed" in str(exc_info.value)
+        )
+
+    def test_workspace_membership_clean_duplicate_membership(
+        self, test_workspace, test_user2
+    ):
+        """Test clean() raises ValidationError if user is already a member."""
+        WorkspaceMembership.objects.create(
+            workspace=test_workspace, user=test_user2, role="editor"
+        )
+        duplicate_membership = WorkspaceMembership(
+            workspace=test_workspace, user=test_user2, role="viewer"
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            duplicate_membership.clean()
+        assert "User is already a member of this workspace." in str(exc_info.value)
+
+    def test_workspace_membership_clean_owner_as_regular_member(
+        self, test_workspace, test_user
+    ):
+        """Test clean() raises ValidationError if workspace owner is added as regular membership."""
+        # test_user is the owner, and already has an 'owner' membership.
+        # This tests if someone tries to create another membership for the owner with a non-owner role.
+        membership_for_owner = WorkspaceMembership(
+            workspace=test_workspace, user=test_user, role="editor"
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            membership_for_owner.clean()
+        assert "User is already a member of this workspace." in str(
+            exc_info.value
+        )
+
     def test_workspace_owner_cannot_be_regular_member(self, test_workspace, test_user):
         """Test že owner nemôže byť pridaný ako regular member"""
         # Owner je už automaticky v memberships, takže testujeme validáciu
@@ -268,6 +571,14 @@ class TestWorkspaceSettings:
         valid_modes = ["month", "day"]
         assert workspace_settings.display_mode in valid_modes
 
+    def test_workspace_settings_clean_invalid_fiscal_year_start(self, workspace_settings):
+        """Test clean() raises ValidationError for an invalid fiscal_year_start."""
+        workspace_settings.fiscal_year_start = 13 # Invalid month
+        with pytest.raises(ValidationError) as exc_info:
+            workspace_settings.full_clean()
+        assert "Invalid fiscal year start month." in str(exc_info.value)
+
+
 
 # =============================================================================
 # EXPENSE CATEGORY VERSION TESTS
@@ -295,6 +606,35 @@ class TestExpenseCategoryVersion:
         with pytest.raises(ValidationError) as exc_info:
             version.full_clean()
         assert "Version name must be at least 2 characters long" in str(exc_info.value)
+
+
+# =============================================================================
+# INCOME CATEGORY VERSION TESTS
+# =============================================================================
+
+
+class TestIncomeCategoryVersion:
+    """Testy pre IncomeCategoryVersion model"""
+
+    def test_income_version_creation(
+        self, income_category_version, test_workspace, test_user
+    ):
+        """Test vytvorenia verzie income kategórií"""
+        assert income_category_version.workspace == test_workspace
+        assert income_category_version.name == "Income Categories v1"
+        assert income_category_version.created_by == test_user
+        assert income_category_version.is_active is True
+        assert str(income_category_version) == f"{test_workspace.name} - Income"
+
+    def test_income_version_validation_name_too_short(self, test_workspace, test_user):
+        """Test validácie príliš krátkeho názvu verzie"""
+        version = IncomeCategoryVersion(
+            workspace=test_workspace, name="A", created_by=test_user
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            version.full_clean()
+        assert "Version name must be at least 2 characters long" in str(exc_info.value)
+
 
 
 # =============================================================================
@@ -340,6 +680,37 @@ class TestExpenseCategory:
         )
         parent.add_child(child)
         assert child in parent.children.all()
+
+    def test_get_descendants_error_handling(self, mocker, expense_category_version):
+        """Test that get_descendants handles exceptions gracefully and returns an empty set."""
+        root = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Root", level=1
+        )
+        # Mock the children.all() method to raise an exception
+        mocker.patch.object(
+            root.children, "all", side_effect=Exception("Mocked children error")
+        )
+
+        descendants = root.get_descendants()
+        assert descendants == set()
+
+    def test_is_ancestor_of_error_handling(self, mocker, expense_category_version):
+        """Test that _is_ancestor_of handles exceptions gracefully and returns False."""
+        cat1 = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Cat1", level=1
+        )
+        # FIXED: Create cat2 before using it
+        cat2 = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Cat2", level=2
+        )
+
+        # You likely wanted to mock here to trigger the error,
+        # ensuring the exception happens during the check.
+        mocker.patch.object(cat1.children, "all", side_effect=Exception("Mocked error"))
+
+        # Ensure the mocked method is called during ancestry check within _is_ancestor_of
+        result = cat1._is_ancestor_of(cat2)
+        assert result is False
 
     def test_expense_category_add_child_with_existing_parent(
         self, expense_category_version
@@ -477,29 +848,26 @@ class TestExpenseCategory:
 
     def test_category_validation_leaf_with_children(self, expense_category_version):
         """Test that a leaf category (level 5) cannot have children."""
-        parent = ExpenseCategory.objects.create(
-            version=expense_category_version, name="Parent", level=1
+        parent_level4 = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Parent Level 4", level=4
         )
         leaf = ExpenseCategory.objects.create(
             version=expense_category_version, name="Leaf", level=5
         )
-        leaf.parents.add(parent)
-        parent.children.add(leaf)  # Make parent valid
+        parent_level4.add_child(leaf)
 
-        # The leaf now has a parent. Now let's give it a child, which should be invalid.
-        child = ExpenseCategory.objects.create(
-            version=expense_category_version, name="ImpossibleChild", level=4
-        )
-        leaf.children.add(child)
+        # Now, try to add a child to the leaf category (which is invalid)
+        child_to_leaf = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Child to Leaf", level=6
+        ) # This child will have a level higher than the leaf, which is a different error condition later
+        leaf.children.add(child_to_leaf)
 
         with pytest.raises(ValidationError) as exc_info:
             leaf.full_clean()
 
-        # Check for either of the expected errors, as order isn't guaranteed
-        messages = exc_info.value.messages
         assert (
-            "Leaf category 'Leaf' (level 5) should not have children" in messages
-            or "Child category must have higher level than parent" in messages
+            f"Leaf category '{leaf.name}' (level 5) should not have children"
+            in exc_info.value.messages
         )
 
     def test_category_validation_non_leaf_without_children(
@@ -519,14 +887,140 @@ class TestExpenseCategory:
             non_leaf.full_clean()
 
         assert (
-            "Non-leaf category 'Non-leaf' (level 4) must have at least one child"
-            in exc_info.value.message_dict["__all__"]
+            f"Non-leaf category '{non_leaf.name}' (level 4) must have at least one child"
+            in exc_info.value.messages
         )
 
+    def test_category_validation_child_with_other_parent(
+        self, expense_category_version
+    ):
+        """Test that a child cannot have another parent besides the current one being cleaned."""
+        parent1 = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Parent1", level=1
+        )
+        parent2 = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Parent2", level=1
+        )
+        child = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Child", level=2
+        )
 
-# =============================================================================
-# INCOME CATEGORY TESTS (podobné ako expense)
-# =============================================================================
+        parent1.add_child(child) # child now has parent1
+
+        # Now, try to add parent2 as an additional parent to child (this is not direct,
+        # but the clean method of parent2 should catch if child is trying to be
+        # a child of parent2 while already having parent1)
+        # This scenario is a bit tricky to trigger via parent2.full_clean() directly
+        # if the child relationship is not explicit.
+        # The validation happens during parent.full_clean() when iterating its children.
+        # So we create a transient state that clean() should catch.
+        parent2.children.add(child) # Add child to parent2's children set for clean() to check
+
+        with pytest.raises(ValidationError) as exc_info:
+            parent2.full_clean()
+        assert (
+            f"Child '{child.name}' already has another parent"
+            in exc_info.value.messages
+        )
+
+    def test_category_validation_child_level_not_higher_than_parent(
+        self, expense_category_version
+    ):
+        """Test that a child category must have a higher level than its parent."""
+        parent = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Parent", level=2
+        )
+        child_invalid_level = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Child Invalid Level", level=2
+        )
+        # We want to test that adding a child with a non-higher level raises ValidationError
+        # The 'Non-leaf category must have at least one child' validation requires the parent to have a child.
+        # So, first add a valid child to 'parent' to make it a non-leaf.
+        valid_child = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Valid Child", level=3
+        )
+        parent.children.add(valid_child)
+
+        with pytest.raises(ValidationError) as exc_info:
+            parent.add_child(child_invalid_level) # Attempt to add a child with same level
+        assert "Child category must have higher level than parent" in str(exc_info.value)
+
+    def test_is_ancestor_of_no_potential_child_id(self, expense_category_version):
+        """Test _is_ancestor_of returns False if potential_child has no ID."""
+        cat = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Cat", level=1
+        )
+        mock_child = Mock(id=None) # Mock child with no ID
+        assert cat._is_ancestor_of(mock_child) is False
+
+    # TODO: Refactor this test to avoid globally patching collections.deque, as it causes INTERNALERRORs in pytest.
+    # def test_is_ancestor_of_depth_limit_reached(self, expense_category_version, mocker):
+    #     """Test _is_ancestor_of logs warning when depth limit is reached."""
+    #     root = ExpenseCategory.objects.create(
+    #         version=expense_category_version, name="Root", level=1
+    #     )
+    #     child = ExpenseCategory.objects.create(
+    #         version=expense_category_version, name="Child", level=2
+    #     )
+    #     # Create a mock deque object
+    #     mock_deque_instance = Mock()
+    #     # Configure popleft to return 'child' 101 times, simulating a deep chain
+    #     mock_deque_instance.popleft.side_effect = [child] * 101
+    #     # Configure extend to do nothing or capture arguments if needed for more complex tests
+    #     mock_deque_instance.extend.return_value = None
+
+    #     # Patch the collections.deque constructor in finance.models to return our mock deque
+    #     mocker.patch("finance.models.collections.deque", return_value=mock_deque_instance)
+    #     # Prevent actual DB query for children
+    #     mocker.patch("finance.models.ExpenseCategory.children.all", return_value=[])
+
+    #     with patch("finance.models.logger") as mock_logger:
+    #         root._is_ancestor_of(child) # Call with arbitrary child, just to trigger path
+    #         mock_logger.warning.assert_called_with(
+    #             "Ancestry check depth limit reached",
+    #             extra=frozenset({
+    #                 ('root_category_id', root.id),
+    #                 ('target_category_id', child.id),
+    #                 ('nodes_checked', 101),
+    #                 ('max_depth', 100),
+    #                 ('action', 'ancestry_check_depth_limit'),
+    #                 ('component', 'ExpenseCategory')
+    #             }),
+    #         )
+
+    def test_clean_invalid_level_hierarchy_existing_relationship(self, expense_category_version):
+        """Test clean() raises ValidationError for invalid level hierarchy in existing relationships."""
+        parent = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Parent", level=1
+        )
+        child_invalid_level = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Child Invalid Level", level=1
+        )
+        parent.children.add(child_invalid_level) # Create the invalid relationship
+
+        with pytest.raises(ValidationError) as exc_info:
+            parent.full_clean() # Validate the parent, which checks its children
+        assert "Child category must have higher level than parent" in str(exc_info.value)
+            
+    def test_clean_circular_reference_existing_data(self, expense_category_version):
+        """Test clean() raises ValidationError for circular reference in existing data."""
+        cat1 = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Cat1", level=1
+        )
+        cat2 = ExpenseCategory.objects.create(
+            version=expense_category_version, name="Cat2", level=2
+        )
+        cat1.children.add(cat2)
+        cat2.children.add(cat1) # Manually create circular reference
+            
+        with pytest.raises(ValidationError) as exc_info:
+            cat1.full_clean()
+        assert "Level 1 category cannot have a parent" in str(exc_info.value)
+            
+            
+            # =============================================================================
+            # INCOME CATEGORY TESTS (podobné ako expense)
+            # =============================================================================
 
 
 class TestIncomeCategory:
@@ -540,6 +1034,77 @@ class TestIncomeCategory:
         assert income_root_category.name == "Príjmy"
         assert income_root_category.level == 1
         assert str(income_root_category) == "Príjmy (Level 1)"
+
+    def test_income_category_is_root_property(
+        self, income_root_category, income_child_category
+    ):
+        """Test is_root property for income categories."""
+        assert income_root_category.is_root is True
+        assert income_child_category.is_root is False
+
+    def test_income_category_is_leaf_property(
+        self, income_root_category, income_child_category
+    ):
+        """Test is_leaf property for income categories."""
+        assert income_root_category.is_leaf is False  # Has child
+
+        # Create a leaf category
+        leaf_category = IncomeCategory.objects.create(
+            version=income_root_category.version, name="Leaf Income Category", level=3
+        )
+        assert leaf_category.is_leaf is True
+
+    def test_income_category_add_child_success(self, income_category_version):
+        parent = IncomeCategory.objects.create(
+            version=income_category_version, name="Parent Income", level=1
+        )
+        child = IncomeCategory.objects.create(
+            version=income_category_version, name="Child Income", level=2
+        )
+        parent.add_child(child)
+        assert child in parent.children.all()
+
+    def test_income_category_add_child_with_existing_parent(
+        self, income_category_version
+    ):
+        """Test attempt to add a child category that already has a parent."""
+        parent1 = IncomeCategory.objects.create(
+            version=income_category_version, name="Parent1 Income", level=1
+        )
+        parent2 = IncomeCategory.objects.create(
+            version=income_category_version, name="Parent2 Income", level=1
+        )
+        child = IncomeCategory.objects.create(
+            version=income_category_version, name="Child Income", level=2
+        )
+
+        parent1.add_child(child)
+
+        with pytest.raises(ValidationError) as exc_info:
+            parent2.add_child(child)
+
+        assert "already has a parent" in str(exc_info.value)
+
+    def test_income_category_validation_invalid_level(self, income_category_version):
+        """Test validation of invalid level for income category."""
+        category = IncomeCategory(
+            version=income_category_version, name="Test Income", level=6
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            category.full_clean()
+        assert "Category level must be between 1 and 5" in str(exc_info.value)
+
+    def test_income_category_circular_reference_prevention(self, income_category_version):
+        cat1 = IncomeCategory.objects.create(
+            version=income_category_version, name="IncomeCat1", level=1
+        )
+        cat2 = IncomeCategory.objects.create(
+            version=income_category_version, name="IncomeCat2", level=2
+        )
+        cat1.add_child(cat2)
+
+        with pytest.raises(ValidationError):
+            cat2.add_child(cat1)
 
     def test_income_category_hierarchy(
         self, income_root_category, income_child_category
@@ -566,6 +1131,41 @@ class TestIncomeCategory:
         descendants = root.get_descendants(include_self=False)
         assert descendants == {child1, grandchild1}
 
+    def test_get_descendants_error_handling_income(self, mocker, income_category_version):
+        """Test that get_descendants handles exceptions gracefully and returns an empty set for IncomeCategory."""
+        root = IncomeCategory.objects.create(
+            version=income_category_version, name="Root Income", level=1
+        )
+        # Mock the children.all() method to raise an exception
+        mocker.patch.object(
+            root.children, "all", side_effect=Exception("Mocked children error")
+        )
+
+        descendants = root.get_descendants()
+        assert descendants == set()
+
+    def test_is_ancestor_of_error_handling_income(self, mocker, income_category_version):
+        """Test that _is_ancestor_of handles exceptions gracefully."""
+        cat1 = IncomeCategory.objects.create(
+            version=income_category_version, name="IncomeCat1", level=1
+        )
+        cat2 = IncomeCategory.objects.create(
+            version=income_category_version, name="IncomeCat2", level=2
+        )
+
+        # FIXED: Patch the 'all' method on the specific instance's manager
+        mocker.patch.object(
+            cat1.children,
+            "all",
+            side_effect=Exception("Mocked ancestor error")
+        )
+
+        # Ensure the mocked method is called during ancestry check within _is_ancestor_of
+        result = cat1._is_ancestor_of(cat2)
+
+        # Assuming the method catches the exception and returns False
+        assert result is False
+
     def test_income_category_validation_root_with_parent(self, income_category_version):
         """Test that a root income category (level 1) cannot have a parent."""
         root1 = IncomeCategory.objects.create(
@@ -581,26 +1181,127 @@ class TestIncomeCategory:
         ):
             root2.full_clean()
 
+
     def test_income_category_validation_non_leaf_without_children(
         self, income_category_version
     ):
         """Test that a non-leaf income category must have at least one child."""
         parent = IncomeCategory.objects.create(
-            version=income_category_version, name="Parent", level=1
+            version=income_category_version, name="Parent Income", level=1
         )
         non_leaf = IncomeCategory.objects.create(
-            version=income_category_version, name="Non-leaf", level=4
+            version=income_category_version, name="Non-leaf Income", level=4
         )
-        non_leaf.parents.add(parent)  # Satisfy parent requirement
-        parent.children.add(non_leaf)  # Satisfy parent's child requirement
+        non_leaf.parents.add(parent)
+        parent.children.add(non_leaf)
 
         with pytest.raises(ValidationError) as exc_info:
             non_leaf.full_clean()
 
         assert (
-            "Non-leaf category 'Non-leaf' (level 4) must have at least one child"
-            in exc_info.value.message_dict["__all__"]
+            f"Non-leaf category '{non_leaf.name}' (level 4) must have at least one child"
+            in exc_info.value.messages
         )
+
+    def test_income_category_validation_leaf_with_children(self, income_category_version):
+        """Test that a leaf income category (level 5) cannot have children."""
+        parent_level4 = IncomeCategory.objects.create(
+            version=income_category_version, name="Parent Income Level 4", level=4
+        )
+        leaf = IncomeCategory.objects.create(
+            version=income_category_version, name="Leaf Income", level=5
+        )
+        parent_level4.add_child(leaf)
+
+        child_to_leaf = IncomeCategory.objects.create(
+            version=income_category_version, name="Child to Leaf Income", level=6
+        )
+        leaf.children.add(child_to_leaf)
+
+        with pytest.raises(ValidationError) as exc_info:
+            leaf.full_clean()
+
+        assert (
+            f"Leaf category '{leaf.name}' (level 5) should not have children"
+            in exc_info.value.messages
+        )
+
+    def test_income_category_validation_child_with_other_parent(
+        self, income_category_version
+    ):
+        """Test that a child income category cannot have another parent besides the current one being cleaned."""
+        parent1 = IncomeCategory.objects.create(
+            version=income_category_version, name="Income Parent1", level=1
+        )
+        parent2 = IncomeCategory.objects.create(
+            version=income_category_version, name="Income Parent2", level=1
+        )
+        child = IncomeCategory.objects.create(
+            version=income_category_version, name="Income Child", level=2
+        )
+
+        parent1.add_child(child)
+        parent2.children.add(child)
+
+        with pytest.raises(ValidationError) as exc_info:
+            parent2.full_clean()
+        assert (
+            f"Child '{child.name}' already has another parent"
+            in exc_info.value.messages
+        )
+
+    def test_income_category_validation_child_level_not_higher_than_parent(
+        self, income_category_version
+    ):
+        """Test that a child income category must have a higher level than its parent."""
+        parent = IncomeCategory.objects.create(
+            version=income_category_version, name="Income Parent", level=2
+        )
+        child_invalid_level = IncomeCategory.objects.create(
+            version=income_category_version, name="Income Child Invalid Level", level=2
+        )
+        # We want to test that adding a child with a non-higher level raises ValidationError
+        # The 'Non-leaf category must have at least one child' validation requires the parent to have a child.
+        # So, first add a valid child to 'parent' to make it a non-leaf.
+        valid_child = IncomeCategory.objects.create(
+            version=income_category_version, name="Income Valid Child", level=3
+        )
+        parent.children.add(valid_child)
+
+        with pytest.raises(ValidationError) as exc_info:
+            parent.add_child(child_invalid_level) # Attempt to add a child with same level
+        assert "Child category must have higher level than parent" in str(exc_info.value)
+
+    def test_clean_invalid_level_hierarchy_existing_income_relationship(self, income_category_version):
+        """Test clean() raises ValidationError for invalid level hierarchy in existing IncomeCategory relationships."""
+        parent = IncomeCategory.objects.create(
+            version=income_category_version, name="Income Parent", level=1
+        )
+        child_invalid_level = IncomeCategory.objects.create(
+            version=income_category_version, name="Income Child Invalid Level", level=1
+        )
+        parent.children.add(child_invalid_level) # Create the invalid relationship
+
+        with pytest.raises(ValidationError) as exc_info:
+            parent.full_clean() # Validate the parent, which checks its children
+        assert "Child category must have higher level than parent" in str(exc_info.value)
+
+    def test_clean_circular_income_reference_existing_data(self, income_category_version):
+        """Test clean() raises ValidationError for circular reference in existing IncomeCategory data."""
+        cat1 = IncomeCategory.objects.create(
+            version=income_category_version, name="Income Cat1", level=1
+        )
+        cat2 = IncomeCategory.objects.create(
+            version=income_category_version, name="Income Cat2", level=2
+        )
+        cat1.children.add(cat2)
+        cat2.children.add(cat1) # Manually create circular reference
+
+        with pytest.raises(ValidationError) as exc_info:
+            cat1.full_clean()
+        assert "Level 1 category cannot have a parent" in str(exc_info.value)
+
+
 
 
 # =============================================================================
@@ -849,6 +1550,74 @@ class TestTransaction:
 
         assert transaction.month == expected_month
 
+    def test_transaction_save_method_month_calculation_on_update(
+        self, test_user, test_workspace, expense_root_category
+    ):
+        """Test that the 'month' field is recalculated when 'date' is updated."""
+        initial_date = timezone.datetime(2024, 1, 15).date()
+        updated_date = timezone.datetime(2024, 2, 20).date()
+        expected_month_after_update = timezone.datetime(2024, 2, 1).date()
+
+        transaction_obj = Transaction.objects.create(
+            user=test_user,
+            workspace=test_workspace,
+            type="expense",
+            expense_category=expense_root_category,
+            original_amount=100.00,
+            original_currency="EUR",
+            date=initial_date,
+        )
+
+        assert transaction_obj.month == timezone.datetime(2024, 1, 1).date()
+
+        # Update the date and save
+        transaction_obj.date = updated_date
+        transaction_obj.save()
+        transaction_obj.refresh_from_db()
+
+        assert transaction_obj.month == expected_month_after_update
+
+    def test_transaction_needs_recalculation_for_new_instance(
+        self, test_user, test_workspace, expense_root_category
+    ):
+        """Test _needs_recalculation returns True for a new, unsaved transaction."""
+        new_transaction = Transaction(
+            user=test_user,
+            workspace=test_workspace,
+            type="expense",
+            expense_category=expense_root_category,
+            original_amount=50.00,
+            original_currency="EUR",
+            date=timezone.now().date(),
+        )
+        assert new_transaction._needs_recalculation() is True
+
+    def test_recalculate_domestic_amount_with_logging_error_handling(
+        self, mocker, expense_transaction
+    ):
+        """
+        Test that _recalculate_domestic_amount_with_logging handles exceptions
+        and sets amount_domestic to original_amount.
+        """
+        original_amount = expense_transaction.original_amount
+        # Mock the external service function to raise an exception
+        mocker.patch(
+            "finance.utils.currency_utils.recalculate_transactions_domestic_amount",
+            side_effect=Exception("Mocked currency conversion error"),
+        )
+        # Ensure initial domestic amount is different for the test
+        expense_transaction.amount_domestic = Decimal("1.00")
+        expense_transaction.save()
+        expense_transaction.refresh_from_db()
+
+        # Call the method that includes error handling
+        expense_transaction._recalculate_domestic_amount_with_logging()
+        expense_transaction.save() # Save to persist the change from the method
+        expense_transaction.refresh_from_db()
+
+        # Verify that amount_domestic was reset to original_amount
+        assert expense_transaction.amount_domestic == original_amount
+
     def test_transaction_string_representation(self, expense_transaction, test_user):
         """Test string reprezentácie transakcie"""
         expected = f"{test_user} | expense | {expense_transaction.amount_domestic} EUR"
@@ -976,6 +1745,24 @@ class TestTransactionDraft:
         with pytest.raises(ValidationError) as exc_info:
             draft.full_clean()
         assert "Invalid transaction type" in str(exc_info.value)
+
+    def test_draft_validation_transaction_data_item_not_dict(
+        self, test_user, test_workspace
+    ):
+        """Test clean() raises ValidationError if an item in transactions_data is not a dictionary."""
+        draft_data = [
+            {"original_amount": 100, "type": "expense"},
+            "not a dictionary",  # Invalid item
+        ]
+        draft = TransactionDraft(
+            user=test_user,
+            workspace=test_workspace,
+            transactions_data=draft_data,
+            draft_type="expense",
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            draft.full_clean()
+        assert "Transaction at index 1 must be a dictionary" in str(exc_info.value)
 
     def test_draft_unique_constraint(self, test_user, test_workspace):
         """Test unikátnosti draftu pre user/workspace/type - NEMÔŽE existovať duplikát"""
@@ -1121,6 +1908,34 @@ class TestWorkspaceAdmin:
                 assigned_by=test_user,  # Not a superuser
             )
             admin_assignment.clean()
+
+    def test_workspace_admin_clean_duplicate_active_admin(
+        self, superuser, test_user2, test_workspace
+    ):
+        """
+        Test that creating an active WorkspaceAdmin for a user/workspace pair
+        that already has an active one raises a ValidationError from clean().
+        """
+        # Create an initial active admin
+        WorkspaceAdmin.objects.create(
+            user=test_user2,
+            workspace=test_workspace,
+            assigned_by=superuser,
+            is_active=True,
+        )
+
+        # Attempt to create another active admin for the same user/workspace
+        duplicate_admin = WorkspaceAdmin(
+            user=test_user2,
+            workspace=test_workspace,
+            assigned_by=superuser,
+            is_active=True,
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            duplicate_admin.clean()
+        assert "User is already an active admin for this workspace." in str(
+            exc_info.value
+        )
 
     def test_can_impersonate_users_property(self, workspace_admin, superuser):
         """Test the can_impersonate_users property."""

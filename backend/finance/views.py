@@ -146,7 +146,7 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
 
         if not user_id:
             return Response(
-                {"error": "User ID is required for admin assignment"},
+                {"detail": "User ID is required for admin assignment"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -163,7 +163,7 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 },
             )
             return Response(
-                {"error": "Workspace access denied"}, status=status.HTTP_403_FORBIDDEN
+                {"detail": "Workspace access denied"}, status=status.HTTP_403_FORBIDDEN
             )
 
         # Correctly fetch the user to be made an admin from the user_id in the request body.
@@ -175,7 +175,7 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             user_to_assign = User.objects.get(id=user_id)
         except User.DoesNotExist:
             return Response(
-                {"error": "User to be assigned not found."},
+                {"detail": "User to be assigned not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -200,7 +200,7 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 },
             )
             return Response(
-                {"error": "User must be workspace member before admin assignment"},
+                {"detail": "User must be workspace member before admin assignment"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -258,7 +258,7 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 },
             )
             return Response(
-                {"error": "Admin assignment failed"},
+                {"detail": "Admin assignment failed"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -322,18 +322,18 @@ class WorkspaceAdminViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
             else:
                 return Response(
                     {
-                        "error": "Workspace admin assignment not found or already inactive"
+                        "detail": "Workspace admin assignment not found or already inactive"
                     },
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
         except WorkspaceAdmin.DoesNotExist:
             return Response(
-                {"error": "Workspace admin assignment not found"},
+                {"detail": "Workspace admin assignment not found"},
                 status=status.HTTP_404_NOT_FOUND,
             )
         except ValidationError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 # -------------------------------------------------------------------
@@ -700,7 +700,7 @@ class WorkspaceViewSet(
                 return Response(status=status.HTTP_204_NO_CONTENT)
             else:
                 return Response(
-                    {"error": "Member not found."}, status=status.HTTP_404_NOT_FOUND
+                    {"detail": "Member not found."}, status=status.HTTP_404_NOT_FOUND
                 )
 
         # Fallback for unsupported methods
@@ -928,7 +928,7 @@ class UserSettingsViewSet(
             )
             return Response(
                 {
-                    "error": f"Fields not allowed for update: {', '.join(invalid_fields)}"
+                    "detail": f"Fields not allowed for update: {', '.join(invalid_fields)}"
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -1020,23 +1020,13 @@ class ExpenseCategoryViewSet(
         """
         Check category usage with proper permission validation.
         """
-        category = self.get_object()
+        # First, retrieve the category without applying queryset filtering that hides it from non-members.
+        # This allows us to perform an explicit permission check.
+        category = get_object_or_404(ExpenseCategory, pk=pk)
         workspace = category.version.workspace
         target_user = request.target_user
 
-        logger.debug(
-            "Checking category usage",
-            extra={
-                "request_user_id": request.user.id,
-                "target_user_id": target_user.id,
-                "category_id": category.id,
-                "workspace_id": workspace.id,
-                "action": "category_usage_check",
-                "component": "ExpenseCategoryViewSet",
-            },
-        )
-
-        # Check workspace membership
+        # Check workspace membership directly, regardless of whether the category is in the user's filtered queryset.
         if not WorkspaceMembership.objects.filter(
             workspace=workspace, user=target_user
         ).exists():
@@ -1052,26 +1042,19 @@ class ExpenseCategoryViewSet(
                 },
             )
             return Response(
-                {"error": "You are not a member of this workspace."},
+                {"detail": "You are not a member of this workspace."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+
+        # Now that membership is confirmed, proceed with object-level permissions and the rest of the logic.
+        self.check_object_permissions(request, category)
 
         # Check permissions
         user_role = self._get_user_role(workspace, target_user)
         if user_role not in ["editor", "admin", "owner"]:
-            logger.warning(
-                "Insufficient permissions for category usage check",
-                extra={
-                    "request_user_id": request.user.id,
-                    "user_role": user_role,
-                    "action": "category_usage_permission_denied",
-                    "component": "ExpenseCategoryViewSet",
-                    "severity": "medium",
-                },
-            )
             return Response(
                 {
-                    "error": "You need editor or higher permissions to check category usage."
+                    "detail": "You need editor or higher permissions to check category usage."
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
@@ -1153,7 +1136,9 @@ class IncomeCategoryViewSet(
         """
         Check income category usage with permission validation.
         """
-        category = self.get_object()
+        # First, retrieve the category without applying queryset filtering that hides it from non-members.
+        # This allows us to perform an explicit permission check.
+        category = get_object_or_404(IncomeCategory, pk=pk)
         workspace = category.version.workspace
         target_user = request.target_user
 
@@ -1169,10 +1154,12 @@ class IncomeCategoryViewSet(
             },
         )
 
-        # Validate workspace access
-        if not self._has_workspace_access(workspace, target_user):
+        # Check workspace membership directly
+        if not WorkspaceMembership.objects.filter(
+            workspace=workspace, user=target_user
+        ).exists():
             logger.warning(
-                "Workspace access denied for income category usage check",
+                "User not member of category workspace",
                 extra={
                     "request_user_id": request.user.id,
                     "target_user_id": target_user.id,
@@ -1183,12 +1170,16 @@ class IncomeCategoryViewSet(
                 },
             )
             return Response(
-                {"error": "You are not a member of this workspace."},
+                {"detail": "You are not a member of this workspace."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        # Now that membership is confirmed, proceed with object-level permissions and the rest of the logic.
+        self.check_object_permissions(request, category)
+
         # Check permissions
-        if not self._has_editor_permissions(workspace, target_user):
+        user_role = self._get_user_role(workspace, target_user)
+        if user_role not in ["editor", "admin", "owner"]:
             logger.warning(
                 "Insufficient permissions for income category usage check",
                 extra={
@@ -1202,7 +1193,7 @@ class IncomeCategoryViewSet(
             )
             return Response(
                 {
-                    "error": "You need editor or higher permissions to check category usage."
+                    "detail": "You need editor or higher permissions to check category usage."
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
@@ -1238,17 +1229,13 @@ class IncomeCategoryViewSet(
 
         return Response(response_data)
 
-    def _has_workspace_access(self, workspace, user):
-        """Check if user has access to workspace."""
-        memberships = getattr(self.request, "_cached_user_memberships", {})
-        return workspace.id in memberships
-
-    def _has_editor_permissions(self, workspace, user):
-        """Check if user has editor or higher permissions."""
+    def _get_user_role(self, workspace, user):
+        """
+        Get user role in workspace using cached data.
+        """
         memberships = getattr(self.request, "_cached_user_memberships", {})
         workspace_membership = memberships.get(workspace.id)
-        user_role = workspace_membership.get("role") if workspace_membership else None
-        return user_role in ["editor", "admin", "owner"]
+        return workspace_membership.get("role") if workspace_membership else None
 
 
 # -------------------------------------------------------------------
@@ -1310,7 +1297,7 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                     },
                 )
                 return Response(
-                    {"error": "Workspace not found"}, status=status.HTTP_404_NOT_FOUND
+                    {"detail": "Workspace not found"}, status=status.HTTP_404_NOT_FOUND
                 )
 
             # Get workspace instance
@@ -1345,7 +1332,7 @@ class CategorySyncViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                     },
                 )
                 return Response(
-                    {"error": 'Invalid category type. Must be "expense" or "income".'},
+                    {"detail": 'Invalid category type. Must be "expense" or "income".'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -1513,8 +1500,8 @@ class TransactionViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin):
                 "original_amount",
                 "original_currency",
                 "date",
-                "description",
-                "tags",
+                "note_manual",
+                "note_auto",
                 "workspace_id",
                 "expense_category_id",
                 "income_category_id",
@@ -1998,24 +1985,22 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
 
         # Validate workspace access
         if not self._has_workspace_access(workspace_pk, request):
-            return Response(
-                {"error": "You don't have access to this workspace."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            raise PermissionDenied("You don't have access to this workspace.")
 
-        try:
-            draft = self.handle_service_call(
-                self.draft_service.get_workspace_draft,
-                user=target_user,
-                workspace_id=workspace_pk,
-                draft_type=request.query_params.get("type"),
-            )
+        draft = self.handle_service_call(
+            self.draft_service.get_workspace_draft,
+            user=target_user,
+            workspace_id=workspace_pk,
+            draft_type=request.query_params.get("type"),
+        )
 
-            response_data = TransactionDraftSerializer(draft).data
-            return self._add_impersonation_context(Response(response_data), request)
+        if draft is None:
+            # Return empty structure instead of 404/500
+            return Response({"transactions_data": []}, status=status.HTTP_200_OK)
 
-        except TransactionDraft.DoesNotExist:
-            return Response({"transactions_data": []})
+        response_data = TransactionDraftSerializer(draft).data
+        return self._add_impersonation_context(Response(response_data), request)
+
 
     def _has_workspace_access(self, workspace_id, request):
         """Check if user has access to workspace."""
@@ -2059,7 +2044,12 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
 
         try:
             draft = self.get_object()
+        except NotFound:
+            return Response(
+                {"error": "Draft not found"}, status=status.HTTP_404_NOT_FOUND
+            )
 
+        try:
             # Delegate to service
             discarded = self.handle_service_call(
                 self.draft_service.discard_draft,
@@ -2071,12 +2061,15 @@ class TransactionDraftViewSet(BaseWorkspaceViewSet, ServiceExceptionHandlerMixin
             if discarded:
                 return Response(status=status.HTTP_204_NO_CONTENT)
             else:
+                # This branch means the service call didn't find the draft, but get_object() did.
+                # This scenario is unlikely with current logic, but kept for robustness.
                 return Response(
                     {"error": "Draft not found or already discarded"},
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-        except TransactionDraft.DoesNotExist:
-            return Response(
-                {"error": "Draft not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        except Exception as e:
+            # The ServiceExceptionHandlerMixin will already log this, so just re-raise as APIException
+            if isinstance(e, APIException):
+                raise
+            raise APIException(detail="An unexpected error occurred during draft discard.")

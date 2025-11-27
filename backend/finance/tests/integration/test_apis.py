@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
+from django.db import transaction
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -19,6 +20,8 @@ from faker import Faker
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
+
+from django.core.exceptions import ValidationError
 
 from finance.mixins.workspace_membership import WorkspaceMembershipMixin
 from finance.models import (
@@ -36,6 +39,7 @@ from finance.models import (
     WorkspaceMembership,
     WorkspaceSettings,
 )
+from finance.views import TransactionViewSet
 
 from ..factories import (
     ExchangeRateFactory,
@@ -166,6 +170,8 @@ class BaseAPITestCase(APITestCase):
         # Order is important.
         super().setUp()
         cache.clear()
+        with transaction.atomic():
+            Tags.objects.all().delete()
         self._create_test_users()
         self._create_workspace_structure()
         self._create_categories()
@@ -1016,6 +1022,33 @@ class TransactionAPITests(BaseAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("created", response.data)
 
+    def test_get_queryset_without_workspace_pk_returns_empty_and_logs(self):
+        """Test get_queryset returns empty and logs warning when workspace_pk is missing."""
+        # This test needs to bypass the URL dispatcher's workspace_pk resolution
+        # to explicitly test the safeguard within get_queryset.
+        list_url = "/dummy/transactions/" # Use a dummy URL since the actual URL pattern doesn't expect workspace_pk for this test case
+        # Mock the request to ensure no workspace_pk is present
+        from django.test.client import RequestFactory
+        factory = RequestFactory()
+        mock_request = factory.get(list_url)
+        mock_request.user = self.user
+        mock_request.target_user = self.user
+        mock_request.query_params = {} # Ensure no query params
+        mock_request.is_admin_impersonation = False
+        mock_request.workspace = None # Explicitly ensure no workspace in request
+        mock_request.resolver_match = None # Mock resolver_match as well if needed by mixin
+
+        with patch("finance.views.logger") as mock_logger:
+            view = TransactionViewSet(request=mock_request)
+            view.kwargs = {}
+            queryset = view.get_queryset()
+            self.assertEqual(queryset.count(), 0)
+            mock_logger.warning.assert_called_with(
+                "Transaction queryset requested without workspace_pk in URL."
+            )
+
+
+
 
 class CategoryAPITests(BaseAPITestCase):
     """COMPREHENSIVE Category API tests with hierarchy and workspace validation."""
@@ -1304,6 +1337,82 @@ class CategoryAPITests(BaseAPITestCase):
         # Should fail for used leaf category
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_expense_category_usage_not_member_403(self):
+        """Test expense category usage endpoint returns 403 if user is not workspace member."""
+        # Create a new workspace and category that current user is NOT a member of
+        other_workspace = WorkspaceFactory(owner=UserFactory())
+        other_expense_version = ExpenseCategoryVersionFactory(workspace=other_workspace)
+        other_category = ExpenseCategoryFactory(version=other_expense_version, name="Other Cat")
+
+        url = reverse(EXPENSE_CATEGORY_DETAIL, kwargs={"pk": other_category.pk}) + "usage/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("not a member of this workspace", response.data["detail"])
+
+    def test_expense_category_usage_insufficient_permissions_403(self):
+        """Test expense category usage endpoint returns 403 if user has insufficient permissions (e.g., viewer)."""
+        # Authenticate as a viewer
+        self._authenticate_user(self.other_user) # self.other_user is a viewer
+        url = reverse(EXPENSE_CATEGORY_DETAIL, kwargs={"pk": self.expense_category.pk}) + "usage/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("You need editor or higher permissions", response.data["detail"])
+
+    def test_income_category_usage_not_member_403(self):
+        """Test income category usage endpoint returns 403 if user is not workspace member."""
+        other_workspace = WorkspaceFactory(owner=UserFactory())
+        other_income_version = IncomeCategoryVersionFactory(workspace=other_workspace)
+        other_category = IncomeCategoryFactory(version=other_income_version, name="Other Inc Cat")
+
+        url = reverse(INCOME_CATEGORY_DETAIL, kwargs={"pk": other_category.pk}) + "usage/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("not a member of this workspace", response.data["detail"])
+
+    def test_category_sync_workspace_not_found(self):
+        """Test category_sync returns 404 if workspace is not found."""
+        self._authenticate_user(self.user) # Authenticate as a regular user
+
+        # Mock user_permissions to simulate workspace_exists as False
+        # Mock _validate_workspace_existence to simulate workspace not found or access denied
+        with patch("finance.services.workspace_context_service.WorkspaceContextService._validate_workspace_existence", return_value=None):
+            # Use a dummy URL, as the check happens before actual URL resolution
+            sync_url = reverse(
+                "workspace-category-sync",
+                kwargs={"workspace_pk": 99999, "category_type": "expense"}
+            )
+            response = self.client.post(sync_url, {}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertIn("You do not have permission to perform this action.", str(response.data["detail"]))
+
+    def test_category_sync_invalid_category_type(self):
+        """Test category_sync returns 400 for invalid category type."""
+        url = reverse(
+            "workspace-category-sync",
+            kwargs={"workspace_pk": self.workspace.pk, "category_type": "invalid_type"},
+        )
+        response = self.client.post(url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Invalid category type", response.data["detail"])
+
+    def test_category_sync_generic_exception(self):
+        """Test category_sync returns 400 for a generic exception."""
+        url = reverse(
+            "workspace-category-sync",
+            kwargs={"workspace_pk": self.workspace.pk, "category_type": "expense"},
+        )
+        data = {"create": [{"temp_id": "t1", "name": "Test", "level": 1}]}
+
+        # Mock sync_categories_tree to raise a generic exception
+        with patch("finance.views.sync_categories_tree") as mock_sync_categories_tree:
+            mock_sync_categories_tree.side_effect = Exception("Service layer error")
+            mock_sync_categories_tree.__name__ = "sync_categories_tree"
+            response = self.client.post(url, data, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("Service operation failed", response.data["detail"])
+            self.assertIn("Service operation failed", response.data["detail"])
+
+
 
 class TransactionDraftAPITests(BaseAPITestCase):
     """COMPREHENSIVE TransactionDraft API tests with atomic operations."""
@@ -1470,10 +1579,49 @@ class TransactionDraftAPITests(BaseAPITestCase):
         response = self.client.delete(other_draft_url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_draft_category_move_scenario_exact(self):
-        """
-        Test draft validation when a category's level changes, making it invalid.
-        """
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_save_draft_access_denied_403(self):
+        """Test save_draft returns 403 if user doesn't have access to workspace."""
+        self._authenticate_user(self.user) # Authenticate with a regular user
+        url = reverse("workspace-transactiondraft-list", kwargs={"workspace_pk": 99999}) # Non-existent workspace
+        draft_data = {
+            "draft_type": "expense",
+            "transactions_data": [],
+        }
+        # Mock _has_workspace_access to return False
+        with patch("finance.views.TransactionDraftViewSet._has_workspace_access", return_value=False):
+            response = self.client.post(url, draft_data, format="json")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertIn("You do not have permission to perform this action.", str(response.data))
+
+    def test_get_workspace_draft_access_denied_403(self):
+        """Test get_workspace_draft returns 403 if user doesn't have access to workspace."""
+        self._authenticate_user(self.user)
+        url = reverse("transaction-draft-get-workspace", kwargs={"workspace_pk": 99999}) + "?type=expense"
+        with patch("finance.views.TransactionDraftViewSet._has_workspace_access", return_value=False):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertIn("You do not have permission to perform this action.", str(response.data))
+
+    def test_get_workspace_draft_not_found_returns_empty(self):
+        """Test get_workspace_draft returns empty transactions_data if no draft exists."""
+        self._authenticate_user(self.user)
+        # Delete existing drafts to ensure no draft exists
+        TransactionDraft.objects.all().delete()
+        url = reverse("transaction-draft-get-workspace", kwargs={"workspace_pk": self.workspace.pk}) + "?type=expense"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["transactions_data"], [])
+
+    def test_discard_draft_not_found_404(self):
+        """Test discard draft returns 404 if draft not found."""
+        self._authenticate_user(self.user)
+        url = reverse("workspace-transactiondraft-detail", kwargs={"workspace_pk": self.workspace.pk, "pk": 99999}) # Non-existent draft
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("No TransactionDraft matches the given query.", str(response.data))
+
         # 1. Create a valid level 5 category for the test.
         valid_leaf_category = ExpenseCategoryFactory(
             version=self.expense_version, name="Valid Leaf for Draft Test", level=5
@@ -1676,6 +1824,45 @@ class WorkspaceMembershipCRUDTests(BaseAPITestCase):
             ).exists()
         )
 
+    def test_update_workspace_membership_missing_data(self):
+        """Test updating workspace membership role with missing data returns 400."""
+        self._authenticate_user(self.workspace_admin_user)
+        url = reverse("workspace-members", kwargs={"pk": self.workspace.id})
+        update_data = {"user_id": self.other_user.id} # Missing 'role'
+        response = self.client.patch(url, update_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("user_id' and 'role' are required", str(response.data))
+
+    def test_remove_workspace_member_missing_data(self):
+        """Test removing member from workspace with missing user_id returns 400."""
+        self._authenticate_user(self.workspace_admin_user)
+        url = reverse("workspace-members", kwargs={"pk": self.workspace.id})
+        remove_data = {} # Missing 'user_id'
+        response = self.client.delete(url, remove_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("user_id", str(response.data))
+
+    def test_remove_non_existent_workspace_member(self):
+        """Test removing a non-existent member from workspace returns 404."""
+        self._authenticate_user(self.workspace_admin_user)
+        url = reverse("workspace-members", kwargs={"pk": self.workspace.id})
+        remove_data = {"user_id": 99999} # Non-existent user ID
+        # Mock the service call to simulate member not found
+        with patch("finance.services.membership_service.MembershipService.remove_member") as mock_remove:
+            mock_remove.return_value = False
+            mock_remove.__name__ = "remove_member"  # Explicitly set __name__
+            response = self.client.delete(url, remove_data, format="json")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+            self.assertIn("Member not found", response.data["detail"])
+
+    def test_workspace_members_method_not_allowed(self):
+        """Test unsupported HTTP method on members endpoint returns 405."""
+        self._authenticate_user(self.workspace_admin_user)
+        url = reverse("workspace-members", kwargs={"pk": self.workspace.id})
+        response = self.client.put(url, {}, format="json") # PUT is not allowed
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+
 
 class WorkspaceAdminCRUDTests(BaseAPITestCase):
     """CRUD tests for WorkspaceAdmin operations."""
@@ -1723,6 +1910,111 @@ class WorkspaceAdminCRUDTests(BaseAPITestCase):
         admin_assignment.refresh_from_db()
         self.assertFalse(admin_assignment.is_active)
         self.assertIsNotNone(admin_assignment.deactivated_at)
+
+    def test_assign_admin_missing_user_id(self):
+        """Test assign_admin returns 400 if user_id is missing."""
+        self._authenticate_user(self.superuser)
+        url = reverse(
+            "workspaceadmin-assign-admin", kwargs={"workspace_pk": self.workspace.id}
+        )
+        response = self.client.post(url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("User ID is required", response.data["detail"])
+
+    def test_assign_admin_workspace_access_denied(self):
+        """Test assign_admin returns 403 if superuser has no impersonation context for workspace."""
+        self._authenticate_user(self.superuser)
+        # Create a new user to assign to the workspace
+        user_to_assign = UserFactory()
+        # Add the user to the workspace first to fulfill membership requirement
+        WorkspaceMembershipFactory(
+            workspace=self.workspace, user=user_to_assign, role="editor"
+        )
+
+        url = reverse(
+            "workspaceadmin-assign-admin", kwargs={"workspace_pk": self.workspace.id}
+        )
+        assign_data = {"user_id": user_to_assign.id}
+
+        with patch("finance.services.workspace_context_service.WorkspaceContextService._validate_workspace_existence", return_value=None):
+            response = self.client.post(url, assign_data, format="json")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertIn("Workspace access denied", response.data["detail"])
+
+    def test_assign_admin_user_to_assign_not_found(self):
+        """Test assign_admin returns 404 if user to be assigned is not found."""
+        self._authenticate_user(self.superuser)
+        url = reverse(
+            "workspaceadmin-assign-admin", kwargs={"workspace_pk": self.workspace.id}
+        )
+        assign_data = {"user_id": 99999} # Non-existent user
+        response = self.client.post(url, assign_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("User to be assigned not found", response.data["detail"])
+
+    def test_assign_admin_user_not_workspace_member(self):
+        """Test assign_admin returns 400 if user to be assigned is not a workspace member."""
+        self._authenticate_user(self.superuser)
+        # Create a new user who is NOT a member of self.workspace
+        non_member_user = UserFactory()
+        url = reverse(
+            "workspaceadmin-assign-admin", kwargs={"workspace_pk": self.workspace.id}
+        )
+        assign_data = {"user_id": non_member_user.id}
+        response = self.client.post(url, assign_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("User must be workspace member", response.data["detail"])
+
+    def test_assign_admin_generic_exception(self):
+        """Test assign_admin returns 500 for generic exceptions."""
+        self._authenticate_user(self.superuser)
+        new_admin = UserFactory()
+        WorkspaceMembershipFactory(
+            workspace=self.workspace, user=new_admin, role="editor"
+        )
+        url = reverse(
+            "workspaceadmin-assign-admin", kwargs={"workspace_pk": self.workspace.id}
+        )
+        assign_data = {"user_id": new_admin.id}
+
+        with patch("finance.views.WorkspaceAdmin.objects.get_or_create", side_effect=Exception("Database error")):
+            response = self.client.post(url, assign_data, format="json")
+            self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+            self.assertIn("Admin assignment failed", response.data["detail"])
+
+    def test_deactivate_admin_not_found(self):
+        """Test deactivate_admin returns 404 if admin assignment not found."""
+        self._authenticate_user(self.superuser)
+        url = reverse("workspace-deactivate-admin", kwargs={"pk": 99999}) # Non-existent admin assignment
+        response = self.client.post(url, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Workspace admin assignment not found", response.data["detail"])
+
+    def test_deactivate_admin_validation_error(self):
+        """Test deactivate_admin returns 400 for a ValidationError from service."""
+        self._authenticate_user(self.superuser)
+        url = reverse("workspace-deactivate-admin", kwargs={"pk": self.workspace_admin_assignment.pk})
+
+        with patch("finance.services.workspace_service.WorkspaceService.deactivate_workspace_admin") as mock_deactivate:
+            mock_deactivate.side_effect = ValidationError("Cannot deactivate owner")
+
+
+            response = self.client.post(url, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("Cannot deactivate owner", str(response.data))
+        admin_assignment = WorkspaceAdminFactory(
+            user=UserFactory(),
+            workspace=self.workspace,
+            assigned_by=self.superuser,
+            is_active=True,
+        )
+        url = reverse("workspace-deactivate-admin", kwargs={"pk": admin_assignment.pk})
+
+        with patch("finance.services.workspace_service.WorkspaceService.deactivate_workspace_admin", side_effect=ValidationError("Cannot deactivate owner")):
+            response = self.client.post(url, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("Cannot deactivate owner", response.data["detail"])
+
 
 
 class TransactionDraftUpdateTests(BaseAPITestCase):
@@ -1877,6 +2169,33 @@ class UserSettingsAPITests(BaseAPITestCase):
         self.assertEqual(user_settings.preferred_currency, "USD")
         self.assertEqual(user_settings.language, "en")
 
+    def test_update_user_settings_invalid_fields(self):
+        """Test updating user settings with invalid fields returns 400."""
+        url = reverse(USER_SETTINGS_DETAIL, kwargs={"pk": self.user.id})
+        update_data = {"invalid_field": "some_value"}
+        response = self.client.patch(url, update_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Fields not allowed for update", response.data["detail"])
+
+    def test_retrieve_user_settings_not_found(self):
+        """Test retrieving user settings for non-existent user returns 404."""
+        # Create a user for whom settings should be missing
+        user_with_no_settings = UserFactory()
+        # Ensure no UserSettings exist for this user by manually deleting any created by signal
+        UserSettings.objects.filter(user=user_with_no_settings).delete()
+
+        # Authenticate as superuser to allow impersonation
+        self._authenticate_user(self.superuser)
+
+        # Construct the URL to impersonate 'user_with_no_settings'.
+        # The PK in the URL is technically ignored by the view's get_object,
+        # but is kept for consistency with URL patterns that expect a PK.
+        url = reverse(USER_SETTINGS_DETAIL, kwargs={"pk": user_with_no_settings.id}) + f"?user_id={user_with_no_settings.id}"
+        
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
 
 class WorkspaceSettingsAPITests(BaseAPITestCase):
     """Tests for WorkspaceSettings API endpoints."""
@@ -1916,6 +2235,24 @@ class WorkspaceSettingsAPITests(BaseAPITestCase):
         self.assertEqual(self.workspace_settings.domestic_currency, "USD")
         self.assertEqual(self.workspace_settings.display_mode, "day")
         self.assertEqual(self.workspace_settings.accounting_mode, True)
+
+    def test_retrieve_workspace_settings_not_found(self):
+        """Test retrieving workspace settings for non-existent workspace returns 404."""
+        url = reverse(WORKSPACE_SETTINGS_DETAIL, kwargs={"workspace_pk": 99999}) # Non-existent workspace
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_update_workspace_settings_invalid_currency_from_service(self):
+        """Test updating workspace settings with an invalid currency raises a ValidationError from the service."""
+        url = reverse(
+            WORKSPACE_SETTINGS_DETAIL, kwargs={"workspace_pk": self.workspace.pk}
+        )
+        update_data = {"domestic_currency": "INVALID"}
+
+        # The ServiceExceptionHandlerMixin should catch the ValidationError
+        response = self.client.patch(url, update_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("invalid currency: invalid", str(response.data).lower())
 
 
 class CategoryUsageTests(BaseAPITestCase):

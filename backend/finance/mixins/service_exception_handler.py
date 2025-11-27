@@ -52,10 +52,10 @@ class ServiceExceptionHandlerMixin:
         """
         # Extract context for logging
         service_name = getattr(service_call, "__self__", self).__class__.__name__
-        method_name = service_call.__name__
+        method_name = getattr(service_call, '__name__', str(service_call))
         request = getattr(self, "request", None)
-        user_id = getattr(request, "user.id", None) if request else None
-        target_user_id = getattr(request, "target_user.id", None) if request else None
+        user_id = getattr(getattr(request, "user", None), "id", None) if request else None
+        target_user_id = getattr(getattr(request, "target_user", None), "id", None) if request else None
 
         logger.debug(
             "Service call execution initiated",

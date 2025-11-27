@@ -209,8 +209,8 @@ class TestDraftServiceGetWorkspaceDraft:
 
             mock_get.side_effect = TransactionDraft.DoesNotExist()
 
-            with pytest.raises(TransactionDraft.DoesNotExist):
-                service.get_workspace_draft(test_user, test_workspace.id, "expense")
+            draft = service.get_workspace_draft(test_user, test_workspace.id, "expense")
+            assert draft is None
 
     def test_get_workspace_draft_permission_denied(self, test_user, test_workspace):
         """Test získania draftu bez prístupu k workspace"""

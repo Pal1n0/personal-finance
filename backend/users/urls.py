@@ -16,9 +16,16 @@ from .views import (
     SocialCompleteProfileView,
 )
 
+app_name = 'users'  # <--- TOTO CHÝBA
+
 # URL patterns for user authentication and management
 urlpatterns = [
-    # Custom email confirmation endpoint with key parameter
+    # Custom email confirmation endpoint with key parameter to override allauth's default
+    re_path(
+        r"^auth/registration/account-confirm-email/$",
+        CustomConfirmEmailView.as_view(),
+        name="account_email_verification_sent",
+    ),
     re_path(
         r"^auth/registration/account-confirm-email/(?P<key>[-:\w]+)/$",
         CustomConfirmEmailView.as_view(),

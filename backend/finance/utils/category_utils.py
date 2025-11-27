@@ -250,6 +250,10 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
     Raises:
         ValidationError: If hierarchy validation fails
     """
+    # 1. BASIC INPUT VALIDATION
+    if not isinstance(categories_data, dict):
+        raise ValidationError("Categories data must be a dictionary")
+
     logger.debug(
         "Starting flexible category hierarchy validation",
         extra={
@@ -261,10 +265,6 @@ def validate_category_hierarchy(categories_data: dict, version, category_model) 
             "component": "validate_category_hierarchy",
         },
     )
-
-    # 1. BASIC INPUT VALIDATION
-    if not isinstance(categories_data, dict):
-        raise ValidationError("Categories data must be a dictionary")
 
     # Determine levels_count and minimum root level for this version
     levels_count = int(getattr(version, "levels_count", 5))

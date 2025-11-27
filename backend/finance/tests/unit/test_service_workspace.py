@@ -730,3 +730,4 @@ class TestWorkspaceServiceCanManage:
 
         with patch.object(self.service.membership_service, "get_user_workspace_role", return_value=user_role):
             assert self.service._can_manage_workspace(test_workspace, test_user) is can_manage
+            

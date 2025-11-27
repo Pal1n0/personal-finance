@@ -177,7 +177,7 @@ class DraftService:
                     "component": "DraftService",
                 },
             )
-            raise
+            return None
         except PermissionDenied:
             raise
         except Exception as e:
