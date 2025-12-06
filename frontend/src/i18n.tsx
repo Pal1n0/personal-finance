@@ -21,6 +21,10 @@ i18n
     // Kde má hľadať preklady (predvolené nastavenie Backend pluginu)
     backend: {
       loadPath: '/locales/{{lng}}/{{ns}}.json',
+    },
+    detection: {
+      order: ['localStorage', 'navigator'],
+      caches: ['localStorage'],
     }
   });
 

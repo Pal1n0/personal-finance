@@ -38,6 +38,11 @@ SECRET_KEY = config(
 )
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0"]
 
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
 # =============================================================================
 # CORS SETTINGS FOR DEVELOPMENT
 # =============================================================================
@@ -46,7 +51,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
-CORS_ALLOW_ALL_ORIGINS = True  # Only for development!
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = True
 
 # =============================================================================
 # EMAIL CONFIGURATION FOR DEVELOPMENT
@@ -109,7 +115,7 @@ LOGGING["handlers"]["development_file"] = {
     "level": "DEBUG",
     "class": "logging.handlers.RotatingFileHandler",
     "filename": BASE_DIR / "logs" / "django_dev.log",
-    "maxBytes": 1024 * 1024 * 10,  # 10MB
+    "maxBytes": 1024 * 1024 * 100,  # 10MB
     "backupCount": 5,
     "formatter": "structured",
     "encoding": "utf-8",
@@ -120,7 +126,7 @@ LOGGING["handlers"]["query_monitoring_file"] = {
     "level": "DEBUG",
     "class": "logging.handlers.RotatingFileHandler",
     "filename": BASE_DIR / "logs" / "query_monitoring.log",
-    "maxBytes": 1024 * 1024 * 5,  # 5MB
+    "maxBytes": 1024 * 1024 * 50,  # 5MB
     "backupCount": 3,
     "formatter": "structured",
     "encoding": "utf-8",
@@ -139,6 +145,12 @@ for logger_name in ["django", "users", "axes", "allauth", "finance"]:
         LOGGING["loggers"][logger_name]["handlers"] = ["console", "development_file"]
         LOGGING["loggers"][logger_name]["level"] = "DEBUG"
 
+LOGGING["loggers"]["django.utils.autoreload"] = {
+    "handlers": ["console"], # Autoreload do súboru nepotrebuješ
+    "level": "INFO",         # INFO umlčí tie hlášky "first seen..."
+    "propagate": False,
+}
+
 # Database query logging - adjust based on DB_QUERY_LOGGING_LEVEL
 LOGGING["loggers"]["django.db.backends"] = {
     "handlers": ["console"],
@@ -150,23 +162,23 @@ LOGGING["loggers"]["django.db.backends"] = {
 # MIDDLEWARE CONFIGURATION WITH QUERY MONITORING
 # =============================================================================
 
-# Insert query monitoring middleware after security middleware but before CommonMiddleware
+# Insert query monitoring middleware after authentication middleware to ensure request.user exists
 try:
-    # Find position after SecurityMiddleware
-    security_index = MIDDLEWARE.index("django.middleware.security.SecurityMiddleware")
+    # Find position after AuthenticationMiddleware
+    auth_index = MIDDLEWARE.index("django.contrib.auth.middleware.AuthenticationMiddleware")
 
     # Insert our query monitoring middleware
-    MIDDLEWARE.insert(security_index + 1, "core.middleware.QueryCountMiddleware")
+    MIDDLEWARE.insert(auth_index + 1, "core.middleware.QueryCountMiddleware")
 
     # Optional: Add debug middleware for detailed SQL output
     if QUERY_DEBUG_ENABLED:
-        MIDDLEWARE.insert(security_index + 2, "core.middleware.QueryDebugMiddleware")
+        MIDDLEWARE.insert(auth_index + 2, "core.middleware.QueryDebugMiddleware")
 
 except ValueError:
-    # Fallback: add to beginning if SecurityMiddleware not found
-    MIDDLEWARE.insert(0, "core.middleware.query_monitoring.QueryCountMiddleware")
+    # Fallback: add to the end if AuthenticationMiddleware not found
+    MIDDLEWARE.append("core.middleware.QueryCountMiddleware")
     if QUERY_DEBUG_ENABLED:
-        MIDDLEWARE.insert(1, "core.middleware.query_monitoring.QueryDebugMiddleware")
+        MIDDLEWARE.append("core.middleware.QueryDebugMiddleware")
 
 # =============================================================================
 # DEVELOPMENT TOOLBAR CONFIGURATION (OPTIONAL)

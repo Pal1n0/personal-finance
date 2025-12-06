@@ -58,10 +58,29 @@ class UserSettingsSerializer(serializers.ModelSerializer):
     - Read-only user field protection
     """
 
+    options = serializers.SerializerMethodField()
+
     class Meta:
         model = UserSettings
-        fields = ["id", "user", "language", "preferred_currency", "date_format"]
-        read_only_fields = ["id", "user"]
+        fields = [
+            "id",
+            "user",
+            "language",
+            "preferred_currency",
+            "date_format",
+            "options",
+        ]
+        read_only_fields = ["id", "user", "options"]
+
+    def get_options(self, obj):
+        """
+        Returns the available choices for the settings fields.
+        """
+        return {
+            "language": UserSettings.LANGUAGE_CHOICES,
+            "preferred_currency": UserSettings.CURRENCY_CHOICES,
+            "date_format": UserSettings.DATE_FORMAT_CHOICES,
+        }
 
     def validate_language(self, value):
         """Validate language code against configured settings."""
@@ -92,7 +111,133 @@ class UserSettingsSerializer(serializers.ModelSerializer):
         )
         return value
 
+# -------------------------------------------------------------------
+# WORKSPACE SETTINGS SERIALIZER
+# -------------------------------------------------------------------
 
+
+class WorkspaceSettingsSerializer(serializers.ModelSerializer):
+    """
+    Production-ready workspace settings serializer.
+
+    Features:
+    - Currency validation with supported codes
+    - Fiscal year start validation
+    - Read-only workspace field protection
+    """
+
+    options = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WorkspaceSettings
+        fields = [
+            "id",
+            "workspace",
+            "domestic_currency",
+            "fiscal_year_start",
+            "display_mode",
+            "accounting_mode",
+            "options",
+        ]
+        read_only_fields = ["id", "workspace", "options"]
+
+    def get_options(self, obj):
+        """
+        Returns the available choices for the settings fields.
+        """
+        return {
+            "domestic_currency": WorkspaceSettings.CURRENCY_CHOICES,
+            "fiscal_year_start": WorkspaceSettings.FISCAL_YEAR_START_CHOICES,
+            "display_mode": WorkspaceSettings.DISPLAY_MODE_CHOICES,
+        }
+
+    def validate_domestic_currency(self, value):
+        """Validate domestic currency against supported codes."""
+        valid_currencies = [code for code, name in settings.CURRENCY_CHOICES]
+
+        if value not in valid_currencies:
+            logger.warning(
+                "Invalid domestic currency",
+                extra={
+                    "provided_currency": value,
+                    "valid_currencies": valid_currencies,
+                    "action": "currency_validation_failed",
+                    "component": "WorkspaceSettingsSerializer",
+                    "severity": "medium",
+                },
+            )
+            raise serializers.ValidationError(
+                f"Invalid currency. Choose from: {', '.join(valid_currencies)}"
+            )
+
+        logger.debug(
+            "Currency validation successful",
+            extra={
+                "currency": value,
+                "action": "currency_validation_success",
+                "component": "WorkspaceSettingsSerializer",
+            },
+        )
+        return value
+
+    def validate_fiscal_year_start(self, value):
+        """Validate fiscal year start month."""
+        if not 1 <= value <= 12:
+            logger.warning(
+                "Invalid fiscal year start month",
+                extra={
+                    "provided_month": value,
+                    "valid_range": "1-12",
+                    "action": "fiscal_month_validation_failed",
+                    "component": "WorkspaceSettingsSerializer",
+                    "severity": "medium",
+                },
+            )
+            raise serializers.ValidationError(
+                "Fiscal year start must be between 1 and 12."
+            )
+
+        logger.debug(
+            "Fiscal month validation successful",
+            extra={
+                "month": value,
+                "action": "fiscal_month_validation_success",
+                "component": "WorkspaceSettingsSerializer",
+            },
+        )
+        return value
+
+
+class NestedWorkspaceSettingsSerializer(serializers.ModelSerializer):
+    """
+    A serializer for nested workspace settings that excludes the 'workspace' field
+    to prevent recursive serialization.
+    """
+    options = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WorkspaceSettings
+        fields = [
+            "id",
+            "domestic_currency",
+            "fiscal_year_start",
+            "display_mode",
+            "accounting_mode",
+            "options",
+        ]
+        read_only_fields = ["id", "options"]
+
+    def get_options(self, obj):
+        """
+        Returns the available choices for the settings fields.
+        """
+        return {
+            "domestic_currency": WorkspaceSettings.CURRENCY_CHOICES,
+            "fiscal_year_start": WorkspaceSettings.FISCAL_YEAR_START_CHOICES,
+            "display_mode": WorkspaceSettings.DISPLAY_MODE_CHOICES,
+        }
+    
+    
 # -------------------------------------------------------------------
 # WORKSPACE SERIALIZER
 # -------------------------------------------------------------------
@@ -114,9 +259,10 @@ class WorkspaceSerializer(
     owner_username = serializers.CharField(source="owner.username", read_only=True)
     owner_email = serializers.CharField(source="owner.email", read_only=True)
     user_role = serializers.SerializerMethodField()
-    member_count = serializers.SerializerMethodField()
+    member_count = serializers.IntegerField(source="members_count", read_only=True)
     is_owner = serializers.SerializerMethodField()
     user_permissions = serializers.SerializerMethodField()
+    settings = NestedWorkspaceSettingsSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = Workspace
@@ -133,6 +279,7 @@ class WorkspaceSerializer(
             "user_permissions",
             "created_at",
             "is_active",
+            "settings",
         ]
         read_only_fields = [
             "id",
@@ -170,21 +317,6 @@ class WorkspaceSerializer(
             )
             return role
         return None
-
-    def get_member_count(self, obj):
-        """Get member count using optimized property."""
-        count = obj.member_count
-
-        logger.debug(
-            "Member count retrieved",
-            extra={
-                "workspace_id": obj.id,
-                "member_count": count,
-                "action": "member_count_retrieved",
-                "component": "WorkspaceSerializer",
-            },
-        )
-        return count
 
     def get_is_owner(self, obj):
         """Check ownership using request context."""
@@ -517,90 +649,6 @@ class WorkspaceAdminSerializer(serializers.ModelSerializer):
 
 
 # -------------------------------------------------------------------
-# WORKSPACE SETTINGS SERIALIZER
-# -------------------------------------------------------------------
-
-
-class WorkspaceSettingsSerializer(serializers.ModelSerializer):
-    """
-    Production-ready workspace settings serializer.
-
-    Features:
-    - Currency validation with supported codes
-    - Fiscal year start validation
-    - Read-only workspace field protection
-    """
-
-    class Meta:
-        model = WorkspaceSettings
-        fields = [
-            "id",
-            "workspace",
-            "domestic_currency",
-            "fiscal_year_start",
-            "display_mode",
-            "accounting_mode",
-        ]
-        read_only_fields = ["id", "workspace"]
-
-    def validate_domestic_currency(self, value):
-        """Validate domestic currency against supported codes."""
-        valid_currencies = ["EUR", "USD", "GBP", "CHF", "PLN"]
-
-        if value not in valid_currencies:
-            logger.warning(
-                "Invalid domestic currency",
-                extra={
-                    "provided_currency": value,
-                    "valid_currencies": valid_currencies,
-                    "action": "currency_validation_failed",
-                    "component": "WorkspaceSettingsSerializer",
-                    "severity": "medium",
-                },
-            )
-            raise serializers.ValidationError(
-                f"Invalid currency. Choose from: {', '.join(valid_currencies)}"
-            )
-
-        logger.debug(
-            "Currency validation successful",
-            extra={
-                "currency": value,
-                "action": "currency_validation_success",
-                "component": "WorkspaceSettingsSerializer",
-            },
-        )
-        return value
-
-    def validate_fiscal_year_start(self, value):
-        """Validate fiscal year start month."""
-        if not 1 <= value <= 12:
-            logger.warning(
-                "Invalid fiscal year start month",
-                extra={
-                    "provided_month": value,
-                    "valid_range": "1-12",
-                    "action": "fiscal_month_validation_failed",
-                    "component": "WorkspaceSettingsSerializer",
-                    "severity": "medium",
-                },
-            )
-            raise serializers.ValidationError(
-                "Fiscal year start must be between 1 and 12."
-            )
-
-        logger.debug(
-            "Fiscal month validation successful",
-            extra={
-                "month": value,
-                "action": "fiscal_month_validation_success",
-                "component": "WorkspaceSettingsSerializer",
-            },
-        )
-        return value
-
-
-# -------------------------------------------------------------------
 # TRANSACTION SERIALIZER
 # -------------------------------------------------------------------
 
@@ -773,7 +821,7 @@ class TransactionSerializer(
 
     def validate_original_currency(self, value):
         """Validate transaction currency code."""
-        valid_currencies = ["EUR", "USD", "GBP", "CHF", "PLN", "CZK"]
+        valid_currencies = [code for code, name in settings.CURRENCY_CHOICES]
 
         if value not in valid_currencies:
             logger.warning(
@@ -1216,7 +1264,7 @@ class ExchangeRateSerializer(serializers.ModelSerializer):
 
     def validate_currency(self, value):
         """Validate currency code."""
-        valid_currencies = ["EUR", "USD", "GBP", "CHF", "PLN", "CZK"]
+        valid_currencies = [code for code, name in settings.CURRENCY_CHOICES]
 
         if value not in valid_currencies:
             logger.warning(

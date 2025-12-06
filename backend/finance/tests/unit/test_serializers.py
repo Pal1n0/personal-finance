@@ -282,6 +282,31 @@ class TestWorkspaceSerializer(TestCase):
         self.assertEqual(created_workspace, mock_workspace)
         self.assertEqual(created_workspace.name, "New Workspace")
 
+    def test_nested_settings_serialization_avoids_recursion(self):
+        """
+        Test that the nested 'settings' in WorkspaceSerializer does not include
+        the 'workspace' field, preventing recursive serialization.
+        """
+        # The WorkspaceSettings object is created automatically by a signal.
+        # We can retrieve it and check its serialization.
+        self.workspace.refresh_from_db()
+        self.assertIsNotNone(self.workspace.settings)
+
+        # Update the settings to have a predictable value
+        settings = self.workspace.settings
+        settings.domestic_currency = "USD"
+        settings.save()
+
+        # Re-fetch the workspace to ensure the settings are loaded
+        self.workspace.refresh_from_db()
+
+        serializer = WorkspaceSerializer(instance=self.workspace)
+        settings_data = serializer.data.get("settings")
+
+        self.assertIsNotNone(settings_data)
+        self.assertNotIn("workspace", settings_data)
+        self.assertEqual(settings_data["domestic_currency"], "USD")
+
 
 class TestWorkspaceMembershipSerializer(TestCase):
     """

@@ -362,9 +362,9 @@ class WorkspaceViewSet(
         """THIN permissions - iba access control"""
         if self.action in ["list", "create"]:
             return [IsAuthenticated()]
-        elif self.action in ["update", "partial_update", "activate"]:
+        elif self.action in ["update", "partial_update"]:
             return [IsAuthenticated(), IsWorkspaceEditor()]
-        elif self.action in ["destroy", "hard_delete"]:
+        elif self.action in ["destroy", "hard_delete", "activate"]:
             return [IsAuthenticated(), IsWorkspaceOwner()]
         elif self.action == "change_owner":
             return [IsAuthenticated(), IsWorkspaceOwner()]
@@ -400,7 +400,11 @@ class WorkspaceViewSet(
             )
 
         # Apply optimizations - single database query
-        workspaces = workspaces.select_related("owner").prefetch_related("members")
+        workspaces = (
+            workspaces.select_related("owner", "settings")
+            .prefetch_related("members")
+            .annotate(members_count=models.Count("members"))
+        )
 
         return workspaces
 

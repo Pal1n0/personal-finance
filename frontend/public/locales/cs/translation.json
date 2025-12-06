@@ -1,0 +1,146 @@
+{
+  "login": {
+    "title": "Přihlášení",
+    "form_placeholder": "Přihlašovací formulář bude zde.",
+    "welcome": "Vítejte zpět",
+    "continue": "Přihlaste se a pokračujte do FinanceApp",
+    "email": "Email",
+    "password": "Heslo",
+    "signing_in": "Přihlašuji...",
+    "sign_in": "Přihlásit se",
+    "invalid_credentials": "Nesprávné přihlašovací údaje. Zkuste to znovu.",
+    "invalid_email": "Neplatná emailová adresa",
+    "password_required": "Heslo je povinné"
+  },
+  "language": {
+    "en": "Anglicky",
+    "sk": "Slovensky",
+    "cs": "Česky"
+  },
+  "dashboard": {
+    "title": "Nástěnka",
+    "content": "Obsah nástěnky se zobrazí zde. Grafy a statistiky se zobrazí zde."
+  },
+  "nav": {
+    "dashboard": "Nástěnka",
+    "transactions": "Transakce",
+    "settings": "Nastavení",
+    "logout": "Odhlásit se",
+    "expenses": "Výdaje",
+    "incomes": "Příjmy",
+    "categories": "Kategorie",
+    "expenseCategories": "Výdajové kategorie",
+    "incomeCategories": "Příjmové kategorie",
+    "userSettings": "Můj profil",
+    "workspaceSettings": "Pracovní prostor",
+    "tagManagement": "Správa značek"
+  },
+  "settings": {
+    "title": "Uživatelská nastavení",
+    "description": "Spravujte svůj účet a preference.",
+    "loading": "Načítání nastavení...",
+    "error": "Nepodařilo se načíst nastavení.",
+    "language": {
+      "label": "Jazyk",
+      "placeholder": "Vyberte jazyk"
+    },
+    "currency": {
+      "label": "Preferovaná měna",
+      "placeholder": "Vyberte měnu"
+    },
+    "dateFormat": {
+      "label": "Formát data",
+      "placeholder": "Vyberte formát data"
+    },
+    "saveButton": "Uložit změny",
+    "saving": "Ukládání..."
+  },
+  "app": {
+    "title": "Finance"
+  },
+  "placeholder": {
+    "under_construction": "Tato stránka je ve výstavbě.",
+    "page_not_found": "Stránka nenalezena"
+  },
+  "workspaces": {
+    "title": "Pracovní prostory",
+    "manage": "Spravovat pracovní prostory",
+    "create": {
+      "button": "Vytvořit pracovní prostor",
+      "new": "+ Nový pracovní prostor",
+      "nameRequired": "Název pracovního prostoru je povinný.",
+      "nameMinLength": "Název pracovního prostoru musí mít alespoň 2 znaky.",
+      "success": "Pracovní prostor {{name}} byl úspěšně vytvořen!",
+      "error": "Nepodařilo se vytvořit pracovní prostor.",
+      "title": "Vytvořit nový pracovní prostor",
+      "description": "Zadejte podrobnosti pro váš nový finanční pracovní prostor.",
+      "form": {
+        "name": "Název",
+        "description": "Popis",
+        "cancel": "Zrušit",
+        "creating": "Vytvářím...",
+        "create": "Vytvořit"
+      }
+    },
+    "view": "Zobrazit",
+    "select": "Vybrat pracovní prostor",
+    "loading": "Načítám pracovní prostory...",
+    "detail": {
+        "title": "Podrobnosti o pracovním prostoru",
+        "createdAt": "Vytvořeno:",
+        "notAvailable": "N/A",
+        "settingsTitle": "Nastavení pracovního prostoru",
+        "settingsDescription": "Spravujte finanční nastavení pro tento pracovní prostor.",
+        "domesticCurrency": "Domácí měna",
+        "selectCurrency": "Vyberte měnu",
+        "fiscalYearStartMonth": "Počáteční měsíc fiskálního roku",
+        "selectMonth": "Vyberte měsíc",
+        "displayMode": "Režim zobrazení",
+        "selectDisplayMode": "Vyberte režim zobrazení",
+        "accountingMode": "Účetní režim",
+        "save": "Uložit změny",
+        "saving": "Ukládám...",
+        "updateSuccess": "Nastavení pracovního prostoru byla úspěšně aktualizována!",
+        "updateFailed": "Nepodařilo se aktualizovat nastavení pracovního prostoru.",
+        "loadError": "Chyba při načítání podrobností o pracovním prostoru.",
+        "name": "Název pracovního prostoru",
+        "description": "Popis pracovního prostoru",
+        "editPermissions": "Podrobnosti o pracovním prostoru mohou upravovat pouze vlastníci a správci.",
+        "membersTitle": "Členové",
+        "membersDescription": "Celkový počet členů: {{count}}",
+        "yourRole": "Tvoje role"
+      }
+  },
+  "currencies": {
+    "USD": "Americký dolar",
+    "EUR": "Euro",
+    "GBP": "Britská libra",
+    "CZK": "Česká koruna",
+    "HUF": "Maďarský forint",
+    "CHF": "Švýcarský frank",
+    "PLN": "Polský zlotý"
+  },
+  "months": {
+    "1": "Leden",
+    "2": "Únor",
+    "3": "Březen",
+    "4": "Duben",
+    "5": "Květen",
+    "6": "Červen",
+    "7": "Červenec",
+    "8": "Srpen",
+    "9": "Září",
+    "10": "Říjen",
+    "11": "Listopad",
+    "12": "Prosinec"
+  },
+  "displayModes": {
+    "month": "Pouze měsíc",
+    "day": "Plné datum"
+  },
+  "roles": {
+    "owner": "Vlastník",
+    "admin": "Administrátor",
+    "viewer": "Prohlížející"
+  }
+}

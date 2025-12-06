@@ -32,14 +32,7 @@ class UserSettings(models.Model):
     """
 
     # Define choices for currency and date format for consistency
-    CURRENCY_CHOICES = [
-        ("EUR", "Euro"),
-        ("USD", "US Dollar"),
-        ("GBP", "British Pound"),
-        ("CHF", "Swiss Franc"),
-        ("PLN", "Polish Zloty"),
-        ("CZK", "Czech Koruna"),
-    ]
+    CURRENCY_CHOICES = settings.CURRENCY_CHOICES
     DATE_FORMAT_CHOICES = [
         ("DD.MM.YYYY", "DD.MM.YYYY"),
         ("MM/DD/YYYY", "MM/DD/YYYY"),
@@ -625,13 +618,7 @@ class WorkspaceSettings(models.Model):
     fiscal year configuration, and display options.
     """
 
-    CURRENCY_CHOICES = [
-        ("EUR", "Euro"),
-        ("USD", "US Dollar"),
-        ("GBP", "British Pound"),
-        ("CHF", "Swiss Franc"),
-        ("PLN", "Polish Zloty"),
-    ]
+    CURRENCY_CHOICES = settings.CURRENCY_CHOICES
 
     FISCAL_YEAR_START_CHOICES = [
         (1, "January"),

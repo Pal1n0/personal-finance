@@ -84,15 +84,15 @@ ACCOUNT_USER_MODEL_USERNAME_FIELD = "username"
 ACCOUNT_USER_MODEL_EMAIL_FIELD = "email"
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 ACCOUNT_UNIQUE_EMAIL = True
-ACCOUNT_EMAIL_REQUIRED = True
-ACCOUNT_USERNAME_REQUIRED = True
+# ACCOUNT_EMAIL_REQUIRED = True
+# ACCOUNT_USERNAME_REQUIRED = True
 ACCOUNT_LOGIN_METHODS = ["username", "email"]
 ACCOUNT_PRESERVE_USERNAME_CASING = False
 ACCOUNT_CONFIRM_EMAIL_ON_GET = True
 LOGIN_URL = "account_login"
 LOGOUT_URL = "account_logout"
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
-ACCOUNT_AUTHENTICATION_METHOD = "username_email"
+# ACCOUNT_AUTHENTICATION_METHOD = "username_email"
 ACCOUNT_EMAIL_SUBJECT_PREFIX = "[Personal Finance] "
 ACCOUNT_EMAIL_CONFIRMATION_DONE_URL = "/email-verified/"
 ACCOUNT_EMAIL_CONFIRMATION_HMAC = True
@@ -171,8 +171,17 @@ AUTH_PASSWORD_VALIDATORS = [
 LANGUAGE_CODE = "en"  # Default language
 LANGUAGES = [
     ("en", "English"),
-    ("cz", "Czech"),
+    ("cs", "Czech"),
     ("sk", "Slovak"),
+]
+CURRENCY_CHOICES = [
+    ("EUR", "Euro"),
+    ("USD", "US Dollar"),
+    ("GBP", "British Pound"),
+    ("CHF", "Swiss Franc"),
+    ("PLN", "Polish Zloty"),
+    ("CZK", "Czech Koruna"),
+    ("HUF", "Hungarian Forint"),
 ]
 TIME_ZONE = "UTC"
 USE_I18N = True
@@ -195,7 +204,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Axes security configuration (login attempt limiting)
 AXES_FAILURE_LIMIT = 5
 AXES_COOLOFF_TIME = timedelta(minutes=15)
-AXES_ONLY_USER_FAILURES = True
+#   AXES_ONLY_USER_FAILURES = True
 AXES_HTTP_RESPONSE_CODE = 403
 AXES_ALLOWED_CORS_ORIGINS = "*"
 AXES_USERNAME_CALLABLE = "users.utils.get_axes_username"

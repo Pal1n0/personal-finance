@@ -22,6 +22,7 @@ from django.urls import include, path
 from django.views import View
 
 from users.urls import InactiveAccountView
+from finance.urls import workspace_urlpatterns
 
 
 class DummySuccessView(View):
@@ -43,8 +44,12 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     # User management API endpoints
     path("api/users/", include("users.urls")),
-    # Core finance modlu API endpoints
+    # Core finance modlu API endpoints (legacy v1 prefix)
     path("api/v1/finance/", include("finance.urls")),
+    # Workspace API endpoints (for direct access via /api/workspaces/)
+    path("api/workspaces/", include(workspace_urlpatterns)),
+    # DJ-REST-AUTH API endpoints
+    path("api/auth/", include("dj_rest_auth.urls")),
     # Email verification success endpoint
     path("email-verified/", DummySuccessView.as_view(), name="email-verified-success"),
     # Allauth views for account management

@@ -17,6 +17,9 @@ from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.validators import UniqueValidator
 
+# Import the UserSettings model
+from finance.models import UserSettings
+
 # Get structured logger for this module
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -560,3 +563,27 @@ class SocialCompleteProfileSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"non_field_errors": "Profile completion failed. Please try again."}
             )
+
+class UserSettingsSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the UserSettings model.
+    """
+    class Meta:
+        model = UserSettings
+        fields = ['language', 'preferred_currency', 'date_format']
+        read_only_fields = ['preferred_currency'] # Preferred currency might be set by workspace, or default
+
+    def create(self, validated_data):
+        user = self.context['request'].user
+        user_settings, created = UserSettings.objects.get_or_create(user=user, defaults=validated_data)
+        if not created:
+            for attr, value in validated_data.items():
+                setattr(user_settings, attr, value)
+            user_settings.save()
+        return user_settings
+
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance

@@ -594,6 +594,126 @@ class WorkspaceAPITests(BaseAPITestCase):
         self.workspace.refresh_from_db()
         self.assertTrue(self.workspace.is_active)
 
+    def test_create_workspace(self):
+        """Test creating a new workspace as an authenticated user."""
+        initial_workspace_count = Workspace.objects.count()
+        data = {
+            "name": "New Test Workspace",
+            "description": "A workspace created via API test.",
+        }
+        response = self.client.post(self.list_url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(Workspace.objects.count(), initial_workspace_count + 1)
+        self.assertEqual(response.data["name"], "New Test Workspace")
+        self.assertEqual(response.data["description"], "A workspace created via API test.")
+        new_workspace = Workspace.objects.get(pk=response.data["id"])
+        self.assertEqual(new_workspace.owner, self.user)
+        self.assertTrue(WorkspaceMembership.objects.filter(workspace=new_workspace, user=self.user, role="owner").exists())
+
+
+    def test_retrieve_workspace_settings(self):
+        """Test retrieving workspace settings by owner and other members."""
+        settings_url = reverse(
+            "workspace-settings-detail", kwargs={"workspace_pk": self.workspace.pk}
+        )
+
+        # Test as owner - should succeed
+        self._authenticate_user(self.user)
+        response = self.client.get(settings_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["domestic_currency"], self.workspace_settings.domestic_currency)
+        self.assertEqual(response.data["fiscal_year_start"], self.workspace_settings.fiscal_year_start)
+        self.assertEqual(response.data["display_mode"], self.workspace_settings.display_mode)
+        self.assertEqual(response.data["accounting_mode"], self.workspace_settings.accounting_mode)
+
+        # Test as workspace admin - should succeed
+        self._authenticate_user(self.workspace_admin_user)
+        response = self.client.get(settings_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Test as viewer - should succeed (viewing settings is allowed)
+        self._authenticate_user(self.other_user)
+        response = self.client.get(settings_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Test by non-member - should fail (no access to workspace at all)
+        non_member_user = UserFactory()
+        self._authenticate_user(non_member_user)
+        response = self.client.get(settings_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_update_workspace_settings_by_owner(self):
+        """Test workspace owner can update settings."""
+        settings_url = reverse(
+            "workspace-settings-detail", kwargs={"workspace_pk": self.workspace.pk}
+        )
+        self._authenticate_user(self.user) # Authenticate as owner
+
+        updated_data = {
+            "domestic_currency": "USD",
+            "fiscal_year_start": 7, # July
+            "display_mode": "day",
+            "accounting_mode": True,
+        }
+        response = self.client.patch(settings_url, updated_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.workspace_settings.refresh_from_db()
+        self.assertEqual(self.workspace_settings.domestic_currency, "USD")
+        self.assertEqual(self.workspace_settings.fiscal_year_start, 7)
+        self.assertEqual(self.workspace_settings.display_mode, "day")
+        self.assertTrue(self.workspace_settings.accounting_mode)
+
+    def test_update_workspace_settings_by_admin(self):
+        """Test workspace admin can update settings."""
+        settings_url = reverse(
+            "workspace-settings-detail", kwargs={"workspace_pk": self.workspace.pk}
+        )
+        self._authenticate_user(self.workspace_admin_user) # Authenticate as admin
+
+        # Ensure the admin has permission to manage settings
+        self.workspace_admin_assignment.can_manage_settings = True
+        self.workspace_admin_assignment.save()
+
+        updated_data = {
+            "domestic_currency": "PLN",
+            "fiscal_year_start": 3, # March
+            "display_mode": "month",
+            "accounting_mode": False,
+        }
+        response = self.client.patch(settings_url, updated_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.workspace_settings.refresh_from_db()
+        self.assertEqual(self.workspace_settings.domestic_currency, "PLN")
+        self.assertEqual(self.workspace_settings.fiscal_year_start, 3)
+        self.assertEqual(self.workspace_settings.display_mode, "month")
+        self.assertFalse(self.workspace_settings.accounting_mode)
+
+    def test_update_workspace_settings_permission_denied(self):
+        """Test users without appropriate permissions cannot update settings."""
+        settings_url = reverse(
+            "workspace-settings-detail", kwargs={"workspace_pk": self.workspace.pk}
+        )
+
+        # Test as viewer - should fail
+        self._authenticate_user(self.other_user) # self.other_user is a viewer
+        updated_data = {"domestic_currency": "GBP"}
+        response = self.client.patch(settings_url, updated_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Test as non-member - should fail
+        non_member_user = UserFactory()
+        self._authenticate_user(non_member_user)
+        response = self.client.patch(settings_url, updated_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Test as admin without `can_manage_settings` permission
+        self._authenticate_user(self.workspace_admin_user)
+        self.workspace_admin_assignment.can_manage_settings = False # Remove permission
+        response = self.client.patch(settings_url, updated_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
 
 class TagsAPITests(BaseAPITestCase):
     """
@@ -2148,7 +2268,7 @@ class UserSettingsAPITests(BaseAPITestCase):
 
     def test_retrieve_user_settings(self):
         """Test retrieving user settings."""
-        url = reverse(USER_SETTINGS_DETAIL, kwargs={"pk": self.user.id})
+        url = reverse(USER_SETTINGS_DETAIL)
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2158,7 +2278,7 @@ class UserSettingsAPITests(BaseAPITestCase):
 
     def test_update_user_settings(self):
         """Test updating user settings."""
-        url = reverse(USER_SETTINGS_DETAIL, kwargs={"pk": self.user.id})
+        url = reverse(USER_SETTINGS_DETAIL)
         update_data = {"preferred_currency": "USD", "date_format": "MM/DD/YYYY"}
 
         response = self.client.patch(url, update_data, format="json")
@@ -2171,7 +2291,7 @@ class UserSettingsAPITests(BaseAPITestCase):
 
     def test_update_user_settings_invalid_fields(self):
         """Test updating user settings with invalid fields returns 400."""
-        url = reverse(USER_SETTINGS_DETAIL, kwargs={"pk": self.user.id})
+        url = reverse(USER_SETTINGS_DETAIL)
         update_data = {"invalid_field": "some_value"}
         response = self.client.patch(url, update_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -2188,9 +2308,8 @@ class UserSettingsAPITests(BaseAPITestCase):
         self._authenticate_user(self.superuser)
 
         # Construct the URL to impersonate 'user_with_no_settings'.
-        # The PK in the URL is technically ignored by the view's get_object,
-        # but is kept for consistency with URL patterns that expect a PK.
-        url = reverse(USER_SETTINGS_DETAIL, kwargs={"pk": user_with_no_settings.id}) + f"?user_id={user_with_no_settings.id}"
+        # The 'user_id' param now correctly targets the user for the get_object lookup.
+        url = reverse(USER_SETTINGS_DETAIL) + f"?user_id={user_with_no_settings.id}"
         
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -2253,6 +2372,107 @@ class WorkspaceSettingsAPITests(BaseAPITestCase):
         response = self.client.patch(url, update_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("invalid currency: invalid", str(response.data).lower())
+
+
+class UserSettingsAPITests(BaseAPITestCase):
+    """COMPREHENSIVE UserSettings API tests."""
+
+    def setUp(self):
+        super().setUp()
+        self.user_settings = UserSettings.objects.get(user=self.user)
+        self.detail_url = reverse("user-settings-detail")
+
+    def test_retrieve_user_settings_with_options(self):
+        """Test that GET request for user settings includes dynamic choices."""
+        response = self.client.get(self.detail_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify the main settings fields are present
+        self.assertEqual(response.data["language"], self.user_settings.language)
+        self.assertEqual(
+            response.data["preferred_currency"], self.user_settings.preferred_currency
+        )
+        self.assertEqual(response.data["date_format"], self.user_settings.date_format)
+
+        # Verify the 'options' field is present and contains the choices
+        self.assertIn("options", response.data)
+        options = response.data["options"]
+
+        # Verify language choices
+        self.assertIn("language", options)
+        self.assertEqual(options["language"], UserSettings.LANGUAGE_CHOICES)
+
+        # Verify currency choices
+        self.assertIn("preferred_currency", options)
+        self.assertEqual(options["preferred_currency"], UserSettings.CURRENCY_CHOICES)
+
+        # Verify date format choices
+        self.assertIn("date_format", options)
+        self.assertEqual(options["date_format"], UserSettings.DATE_FORMAT_CHOICES)
+
+    def test_update_user_settings(self):
+        """Test updating user settings."""
+        data = {
+            "language": "sk",
+            "preferred_currency": "CZK",
+            "date_format": "YYYY-MM-DD",
+        }
+        response = self.client.patch(self.detail_url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user_settings.refresh_from_db()
+        self.assertEqual(self.user_settings.language, "sk")
+        self.assertEqual(self.user_settings.preferred_currency, "CZK")
+        self.assertEqual(self.user_settings.date_format, "YYYY-MM-DD")
+
+    def test_update_user_settings_invalid_choices(self):
+        """Test updating user settings with invalid choices fails."""
+        data = {"language": "xx"}  # Invalid language
+        response = self.client.patch(self.detail_url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        data = {"preferred_currency": "XYZ"}  # Invalid currency
+        response = self.client.patch(self.detail_url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        data = {"date_format": "invalid-format"}  # Invalid date format
+        response = self.client.patch(self.detail_url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cannot_update_other_user_settings(self):
+        """
+        Test that a user can only update their own settings via the singleton URL.
+        The endpoint should ignore any attempt to specify another user and always
+        apply changes to the authenticated user.
+        """
+        other_user_settings = UserSettings.objects.get(user=self.other_user)
+        original_other_language = other_user_settings.language
+
+        # Find a new, valid language to change to that is different from the current one
+        current_language = self.user_settings.language
+        new_language = next(
+            (lang[0] for lang in UserSettings.LANGUAGE_CHOICES if lang[0] != current_language),
+            None
+        )
+        
+        # If there's no other language to switch to, we can't perform this test.
+        if not new_language:
+            self.skipTest("Not enough languages configured to test language change.")
+
+        # The authenticated user (self.user) patches the singleton URL
+        data = {"language": new_language} 
+        response = self.client.patch(self.detail_url, data, format="json")
+        
+        # The operation should succeed for the authenticated user
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+        # Verify that the authenticated user's settings were changed
+        self.user_settings.refresh_from_db()
+        self.assertEqual(self.user_settings.language, new_language)
+
+        # CRITICAL: Verify that the other user's settings were NOT changed
+        other_user_settings.refresh_from_db()
+        self.assertEqual(other_user_settings.language, original_other_language)
 
 
 class CategoryUsageTests(BaseAPITestCase):
@@ -2798,10 +3018,10 @@ class IntegrationTests(BaseAPITestCase):
         self.assertGreaterEqual(len(transactions), 1)
 
         # 5. User updates their settings
-        settings_url = reverse(USER_SETTINGS_DETAIL, kwargs={"pk": self.user.id})
+        settings_url = reverse(USER_SETTINGS_DETAIL)
         settings_data = {"preferred_currency": "USD"}
         user_settings = UserSettings.objects.get(user=self.user)
-        settings_url = reverse(USER_SETTINGS_DETAIL, kwargs={"pk": user_settings.pk})
+        settings_url = reverse(USER_SETTINGS_DETAIL)
         settings_data = {"language": "en"}
         response = self.client.patch(settings_url, settings_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
